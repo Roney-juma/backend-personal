@@ -6,8 +6,6 @@ require("dotenv").config();
 
 
 const s3 = new AWS.S3();
-
-// Set up multer and multer-s3
 const Upload = multer({
   storage: multer.memoryStorage(),
   limits: {

@@ -30,7 +30,22 @@ const login = async (req, res) => {
 
 const getAllGarages = async (req, res) => {
   try {
-    const garages = await garageService.getAllGarages();
+    const { page = 1, limit = 10, city, estate, state } = req.query;
+    const filter = {};
+
+    if (city) {
+      filter.city = city;
+    }
+
+    if (estate) {
+      filter.estate = estate;
+    }
+
+    if (state) {
+      filter.state = state;
+    }
+
+    const garages = await garageService.getAllGarages(filter, page, limit);
     res.status(200).json(garages);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -69,7 +84,7 @@ const deleteGarage = async (req, res) => {
 
 const getAssessedClaims = async (req, res) => {
   try {
-    const claims = await garageService.getAssessedClaims();
+    const claims = await garageService.getAssessedClaims(req.params.garageId);
     res.status(200).json(claims);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -77,19 +92,23 @@ const getAssessedClaims = async (req, res) => {
 };
 
 const placeBid = async (req, res) => {
-  const { garageId, amount } = req.body;
+  const { garageId, description, timeline, parts } = req.body;
+
   try {
-    const claim = await garageService.placeBid(req.params.id, garageId, amount);
-    res.status(201).json(claim);
+
+    const bid = await garageService.placeBid(req.params.id, garageId, description, timeline, parts);
+
+    res.status(201).json(bid);
   } catch (error) {
     console.error('Error placing bid:', error.message);
     res.status(500).json({ message: error.message });
   }
 };
 
+
 const completeRepair = async (req, res) => {
   try {
-    const claim = await garageService.completeRepair(req.params.id);
+    const claim = await garageService.callForReAssessment(req.params.id);
     res.status(200).json(claim);
   } catch (error) {
     console.error('Error completing repair:', error.message);
@@ -108,13 +127,32 @@ const getGarageBids = async (req, res) => {
 };
 const resetPassword = async (req, res) => {
   try {
-      const { email, newPassword } = req.body;
-      const response = await garageService.resetPassword(email, newPassword);
-      res.status(200).json(response);
+    const { email, newPassword } = req.body;
+    const response = await garageService.resetPassword(email, newPassword);
+    res.status(200).json(response);
   } catch (err) {
-      res.status(400).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 };
+// Garage stats
+const getGarageStats = async (req, res) => {
+  try {
+    const stats = await garageService.getGarageStats();
+    res.status(200).json(stats);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+// Top Garages 
+const getTopGarages = async (req, res) => {
+  try {
+    const topGarages = await garageService.getTopGarages();
+    res.status(200).json(topGarages);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+  };
+
 
 module.exports = {
   createGarage,
@@ -127,5 +165,7 @@ module.exports = {
   placeBid,
   completeRepair,
   getGarageBids,
-  resetPassword
+  resetPassword,
+  getGarageStats,
+  getTopGarages
 };

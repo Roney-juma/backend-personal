@@ -3,6 +3,7 @@ const ratingService = require('../service/rating.service');
 const submitRating = async (req, res) => {
   const { entityId, entityType } = req.params; 
   const { userId, rating, feedback } = req.body;
+  console.log(entityId, entityType, userId, rating, feedback)
 
   try {
     const updatedEntity = await ratingService.addRatingAndFeedback(entityId, entityType, userId, rating, feedback);

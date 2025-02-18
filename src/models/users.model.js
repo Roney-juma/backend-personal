@@ -33,8 +33,6 @@ const usersSchema = new mongoose.Schema({
         default: true },
     lastLogin: { 
         type: Date },
-    permissions: { 
-        type: Schema.Types.Mixed },
     profilePictureUrl: { 
         type: String },
     createdAt: { 

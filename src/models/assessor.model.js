@@ -14,6 +14,15 @@ const assessorSchema = new Schema({
     phone: { type: String, required: true },
     email: { type: String, required: true }
   },
+  location: {
+    name: String,
+    estate: String,
+    city: String,
+    state: String,
+    zip: String,
+    longitude: Number,
+    latitude: Number
+  },
   licenseNumber: { type: String },
   accountType: {
     type: String,

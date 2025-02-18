@@ -1,15 +1,7 @@
-// const customerController = require("../controllers/customerController")
-// const express = require("express")
 
-// const router = express.Router()
-
-// router.get("/", customerController.welcome)
-// router.post("/register", customerController.createCustomer)
-
-
-// module.exports = router
 const express = require("express");
 const customerController = require("../controllers/customerController")
+const verifyToken = require("../middlewheres/verifyToken");
 const router = express.Router();
 
 
@@ -17,7 +9,10 @@ const router = express.Router();
 router.post("/register", customerController.createCustomer)
 router.post("/login", customerController.login)
 router.post('/reset-password', customerController.resetPassword);
+router.get('/stats', customerController.getCustomerStats)
 router.get("/", customerController.getAllCustomers)
+router.get('/get-garages/:claimId', customerController.getGarage)
+router.put('/updateCustomer/:customerId', customerController.updateCustomer)
 router.get('/myClaims/:customerId', customerController.getCustomerClaims)
 
 module.exports = router;

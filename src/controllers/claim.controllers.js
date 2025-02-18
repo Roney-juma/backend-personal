@@ -1,5 +1,46 @@
 const claimService = require('../service/claim.service');
 
+const generateClaimLinkController = async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    const claimLink = await claimService.generateClaimLink(email);
+    res.status(200).json({ message: 'Claim link generated successfully', claimLink });
+
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Server error' });
+  }
+};
+
+
+const fileClaim = async (req, res) => {
+  const { token } = req.params;
+  const { incidentDetails, vehiclesInvolved, drivers, passengers, damage, description, damagedParts, injuries, witnesses, policeReport, supportingDocuments, additionalInfo } = req.body;
+
+  try {
+    const claimDetails = {
+      incidentDetails,
+      vehiclesInvolved,
+      drivers,
+      passengers,
+      damage,
+      description,
+      damagedParts,
+      injuries,
+      witnesses,
+      policeReport,
+      supportingDocuments,
+      additionalInfo
+    };
+    const newClaim = await claimService.fileClaimService(token, claimDetails);
+
+    res.status(201).json({ message: 'Claim filed successfully', claim: newClaim });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
+
 // Create a new claim
 const createClaim = async (req, res) => {
   try {
@@ -73,7 +114,7 @@ const getClaimById = async (req, res) => {
 // Award a claim to an assessor
 const awardClaim = async (req, res) => {
   try {
-    const claim = await claimService.awardClaim(req.params.id, req.params.bidId);
+    const claim = await claimService.awardClaim(req.params.id, req.body.bidId);
     res.status(200).json(claim);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -83,7 +124,7 @@ const awardClaim = async (req, res) => {
 // Award a bid to a garage
 const awardBidToGarage = async (req, res) => {
   try {
-    const claim = await claimService.awardBidToGarage(req.params.id, req.params.bidId);
+    const claim = await claimService.awardBidToGarage(req.params.id, req.body.bidId);
     res.status(200).json(claim);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -180,8 +221,30 @@ const updateClaimById = async (req, res) => {
     res.status(400).json({ message: error.message });
   }
 };
+// Count claims by status
+const countClaimsByStatus = async (req, res) => {
+  try {
+    const count = await claimService.countClaimsByStatus();
+    res.status(200).json(count);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+}
+
+const getClaimsTotalCost = async (req, res) => {
+  try {
+    const totalCost = await claimService.getPaymentTotals();
+    res.status(200).json(totalCost);
+  }
+  catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+}
+
 
 module.exports = {
+  generateClaimLinkController,
+  fileClaim,
   createClaim,
   getClaims,
   getClaimsByCustomer,
@@ -199,5 +262,8 @@ module.exports = {
   getAssessedClaimsByGarage,
   getSupplierBidsForClaim,
   acceptSupplierBid,
-  updateClaimById
+  updateClaimById,
+  countClaimsByStatus,
+  getClaimsTotalCost
+  
 };

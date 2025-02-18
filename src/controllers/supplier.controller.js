@@ -14,17 +14,18 @@ const createSupplier = async (req, res) => {
                 'Welcome To Ave Insurance',
                 `Dear ${supplier.name},
 
-You have successfully been registered to Ave Insurance as a Supplier.
+                You have successfully been registered to Ave Insurance as a Supplier.
 
-Your login credentials are as follows:
-Username: ${supplier.email}
-Password: ${req.body.password}
+                Your login credentials are as follows:
+                Username: ${supplier.email}
+                Password: ${req.body.password}
 
-Please keep this information secure.
+                Please keep this information secure.
 
-Best Regards,
-Admin Team`
+                Best Regards,
+                Admin Team`
             );
+        
         }
 
         res.status(201).json(supplier);

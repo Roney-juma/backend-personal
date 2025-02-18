@@ -17,13 +17,12 @@ app.use(cors({ origin: "*" }));
 app.use("/", router);
  
 app.get("/v1", (req, res) => {
-  res.send("Land We Love");
+  res.send("Acha niseme initoke: Africa the Land We Love.");
 });
 
 // Create an HTTP server with the Express app
 const server = http.createServer(app);
 
-// Initialize Socket.IO with the HTTP server
 const io = socketIo(server, {
   cors: {
     origin: "*", // Allow all origins

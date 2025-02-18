@@ -9,6 +9,8 @@ const assessors = require("./assesor")
 const garages = require("./garage.route")
 const suppliers = require("./supplier.route")
 const rating = require("./rating.route")
+const audit = require("./audit.route")
+
 
 const router = express.Router()
 
@@ -22,6 +24,7 @@ router.use("/assessors", assessors)
 router.use("/garages", garages)
 router.use("/suppliers", suppliers)
 router.use("/rating", rating)
+router.use("/audit", audit)
 
 
 module.exports  = router
