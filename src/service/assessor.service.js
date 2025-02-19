@@ -36,7 +36,7 @@ const getAssessorById = async (id) => {
 };
 
 const updateAssessor = async (id, assessorData, userId) => {
-  console.log("Ids",id, assessorData, userId )
+  
   const assessor = await Assessor.findById(id);
   if (!assessor) throw new ApiError(404, 'Assessor not found');
 
@@ -172,8 +172,8 @@ const placeBid = async (claimId, assessorId, amount, description, timeline, user
 
   const audit = new logAudit({
     action: "CREATE",
-    collectionName: "Bid",
-    documentId: newBid._id,
+    collectionName: "Claim Bids",
+    documentId: claimId,
     changes: {  new:  newBid },
     userId: userId
     });
@@ -308,6 +308,17 @@ const rejectRepair = async (claimId, rejectionReason, userId) => {
   if (claim.status !== 'Re-Assessment') throw new Error('Claim must be under Re-Assessment to mark it as Rejected');
 
   claim.status = 'Repair';
+  const garage = await Garage.findById(claim.awardedGarage.garageId);
+  await emailService.sendEmailNotification(
+    garage.email,
+    'Repair Rejected ',
+    `Dear ${garage.name},
+    Your repair for claim with ID: ${claim.vehiclesInvolved[0].licensePlate} has been rejected due to ${rejectionReason}. Please contact the Assessor to discuss further.
+    Thank you for your cooperation.
+    Best Regards,
+    Admin Team`
+    );
+
   claim.rejectionReason = rejectionReason;
   await claim.save();
 

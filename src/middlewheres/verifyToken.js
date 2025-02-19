@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { TokenIssuer, TokenSecret } = require('../constants/encryption.constants');
 const { updateSearchIndex } = require('../models/assessor.model');
-
+const logger = require('./logger')
 const folderPath = path.resolve(`${process.cwd()}/keys`);
 const publicKey = fs.readFileSync(`${folderPath}/public.pem`, 'utf8');
 
@@ -36,7 +36,7 @@ const verifyToken = (roles = []) => (req, res, next) => {
           if (roles.length && !roles.includes(req.user.role_ID)) {
               return res.status(403).json({ message: 'Forbidden: Restricted Access' });
           }
-
+console.log("Success")
           next();
       });
   } catch (err) {

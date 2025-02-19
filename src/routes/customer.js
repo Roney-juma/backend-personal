@@ -9,10 +9,10 @@ const router = express.Router();
 router.post("/register", customerController.createCustomer)
 router.post("/login", customerController.login)
 router.post('/reset-password', customerController.resetPassword);
-router.get('/stats', customerController.getCustomerStats)
-router.get("/", customerController.getAllCustomers)
-router.get('/get-garages/:claimId', customerController.getGarage)
-router.put('/updateCustomer/:customerId', customerController.updateCustomer)
-router.get('/myClaims/:customerId', customerController.getCustomerClaims)
+router.get('/stats',verifyToken(), customerController.getCustomerStats)
+router.get("/",verifyToken(), customerController.getAllCustomers)
+router.get('/get-garages/:claimId',verifyToken(), customerController.getGarage)
+router.put('/updateCustomer/:customerId',verifyToken(), customerController.updateCustomer)
+router.get('/myClaims/:customerId',verifyToken(), customerController.getCustomerClaims)
 
 module.exports = router;

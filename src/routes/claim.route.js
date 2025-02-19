@@ -4,6 +4,7 @@ const verifyToken = require("../middlewheres/verifyToken");
 
 const router = express.Router();
 
+router.use(verifyToken())
 
 router.post('/create', claimController.createClaim)
 router.get('/', claimController.getClaims)
