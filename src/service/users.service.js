@@ -53,7 +53,10 @@ Admin Team`
 };
 
 const getAllUsers = async () => {
-    return await User.find();
+    const users = await User.find()
+    .populate('role', 'name')
+    .exec();
+    return users;
 };
 
 const getUserById = async (userId) => {
