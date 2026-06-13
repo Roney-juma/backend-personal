@@ -15,10 +15,26 @@ const insuranceCompanySchema = new mongoose.Schema(
       postalCode: { type: String },
     },
     contactPerson: {
-      name: { type: String },
-      email: { type: String },
-      phone: { type: String },
-      position: { type: String },
+      username: { 
+              type: String, 
+              required: true, 
+              unique: true 
+          },
+          fullName: { 
+              type: String,
+              required: true 
+          },
+          email: { 
+              type: String, 
+              required: true, 
+              unique: true 
+          },
+          role: { 
+              type: mongoose.Schema.Types.ObjectId, 
+              ref: 'Role'
+          },
+          active: { type: Boolean, default: true },
+          lastLogin: { type: Date },
     },
     logo: { type: String },
     website: { type: String },
