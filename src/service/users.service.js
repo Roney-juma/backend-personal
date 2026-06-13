@@ -34,6 +34,7 @@ Welcome to Ave Insurance! Your account has been successfully created.
 Here are your account details:
 - Username: ${savedUser.username}
 - Email: ${savedUser.email}
+- Password: password (the one you set during registration)
 Please use your registered email and password to log in.
 If you have any questions, feel free to contact us.
 Best Regards,

@@ -30,12 +30,6 @@ const createCompany = async (data) => {
   contactPerson.password = password;
   contactPerson.role = "69df478ce9a1908dd19a7a2a";
   const insuranceUser= await userService.createUser(contactPerson);
-  
-  await emailService.sendEmailNotification(
-    contactPerson.email,
-    'Welcome — Your Company Account Has Been Created',
-    `Dear ${contactPerson.fullName},\n\nYour account has been created on our platform.\nEmail: ${email}\nPassword: ${contactPerson.password}\n Login URL: https://frontend-ave-alpha.vercel.app/login\nPlease await activation from our team.\n\nRegards,\nPlatform Team`
-  );
 
 
 
