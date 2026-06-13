@@ -55,6 +55,24 @@ const getUserById = async (userId) => {
     return User.findById(userId).populate('role').populate('company').exec();
 };
 
+// Get users by company ID with pagination
+const getUsersByCompanyId = async (companyId, { page = 1, limit = 10, search = '' } = {}) => {
+    const query = { company: companyId };
+    if (search) {
+        query.$or = [
+            { fullName: { $regex: search, $options: 'i' } },
+            { email: { $regex: search, $options: 'i' } },
+            { username: { $regex: search, $options: 'i' } },
+        ];
+    }
+    const skip = (Number(page) - 1) * Number(limit);
+    const [users, total] = await Promise.all([
+        User.find(query).select('-password').skip(skip).limit(Number(limit)).exec(),
+        User.countDocuments(query),
+    ]);
+    return { users, total, page: Number(page), limit: Number(limit), pages: Math.ceil(total / Number(limit)) };
+};
+
 const updateUser = async (userId, updateData) => {
     return User.findByIdAndUpdate(userId, updateData, { new: true });
 };
@@ -92,4 +110,5 @@ module.exports = {
     deleteUser,
     resetPassword,
     loginUserWithEmailAndPassword,
+    getUsersByCompanyId
 };

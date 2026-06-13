@@ -61,6 +61,11 @@ const getAllCompanies = async ({ status, search, page = 1, limit = 20 } = {}) =>
   return { companies, total, page: Number(page), limit: Number(limit), pages: Math.ceil(total / limit) };
 };
 
+// Get company Users
+const getCompanyUsers = async (companyId, options = {}) => {
+  return userService.getUsersByCompanyId(companyId, options);
+};
+
 const getCompanyById = async (id) => {
   return InsuranceCompany.findById(id).select('-password');
 };
@@ -150,4 +155,5 @@ module.exports = {
   loginCompany,
   resetCompanyPassword,
   getCompanyStats,
+  getCompanyUsers 
 };

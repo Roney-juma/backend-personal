@@ -10,6 +10,7 @@ router.post('/reset-password', controller.resetCompanyPassword);
 // Protected (platform staff only)
 router.post('/', verifyProviderToken(), controller.createCompany);
 router.get('/', verifyProviderToken(), controller.getAllCompanies);
+router.get('/company-users/:id', verifyProviderToken(), controller.getCompanyUsers);
 router.get('/:id', verifyProviderToken(), controller.getCompanyById);
 router.patch('/:id', verifyProviderToken(), controller.updateCompany);
 router.patch('/:id/status', verifyProviderToken(), controller.updateCompanyStatus);

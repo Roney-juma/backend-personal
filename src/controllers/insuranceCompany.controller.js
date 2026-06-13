@@ -18,6 +18,15 @@ const getAllCompanies = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+const getCompanyUsers = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, search = '' } = req.query;
+    const result = await insuranceCompanyService.getCompanyUsers(req.params.id, { page, limit, search });
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
 
 const getCompanyById = async (req, res) => {
   try {
@@ -103,4 +112,5 @@ module.exports = {
   loginCompany,
   resetCompanyPassword,
   getCompanyStats,
+  getCompanyUsers
 };

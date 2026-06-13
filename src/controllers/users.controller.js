@@ -42,6 +42,16 @@ const getAdminUser = async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 };
+// Get comany Users
+const getCompanyUsers = async (req, res) => {
+    try {
+        const users = await userService.getUsersByCompanyId(req.params.id);
+        res.status(200).json(users);
+    }
+    catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
 
 const updateAdminUser = async (req, res) => {
     try {
@@ -81,4 +91,5 @@ module.exports = {
     updateAdminUser,
     deleteAdminUser,
     resetPassword,
+    getCompanyUsers
 };
