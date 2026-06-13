@@ -13,6 +13,7 @@ const createUser = async (userData) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const newUser = new User({
+        company,
         username,
         password: hashedPassword,
         fullName,
