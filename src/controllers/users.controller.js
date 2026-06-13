@@ -9,8 +9,8 @@ const login = async (req, res) => {
         if (!user) {
             return res.status(401).json({ message: "Invalid email or password" });
         }
-        const tokens = tokenService.GenerateToken(user);
-        res.status(200).json({ user, tokens });
+        const token = tokenService.generateProviderUserToken(user);
+        res.status(200).json({ user, token });
     } catch (error) {
         res.status(500).json({ message: 'Login failed', error: error.message });
     }

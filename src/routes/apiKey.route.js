@@ -1,13 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/apiKey.controller');
-const verifyToken = require('../middlewheres/verifyToken');
+const verifyProviderToken = require('../middlewheres/verifyProviderToken');
 
-router.post('/', verifyToken(), controller.generateApiKey);
-router.get('/', verifyToken(), controller.getAllApiKeys);
-router.get('/company/:companyId', verifyToken(), controller.getApiKeysByCompany);
-router.get('/:id', verifyToken(), controller.getApiKeyById);
-router.patch('/:id/revoke', verifyToken(), controller.revokeApiKey);
-router.delete('/:id', verifyToken(), controller.deleteApiKey);
+router.post('/', verifyProviderToken(), controller.generateApiKey);
+router.get('/', verifyProviderToken(), controller.getAllApiKeys);
+router.get('/company/:companyId', verifyProviderToken(), controller.getApiKeysByCompany);
+router.get('/:id', verifyProviderToken(), controller.getApiKeyById);
+router.patch('/:id/revoke', verifyProviderToken(), controller.revokeApiKey);
+router.delete('/:id', verifyProviderToken(), controller.deleteApiKey);
 
 module.exports = router;
