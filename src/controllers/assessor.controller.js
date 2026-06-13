@@ -16,8 +16,7 @@ const login = async (req, res) => {
 const createAssessor = async (req, res) => {
   try {
     const assessorData = req.body;
-    const userId = req.user._id || req.user.id;
-    const newAssessor = await assessorService.createAssessor(assessorData, userId);
+    const newAssessor = await assessorService.createAssessor(assessorData, req);
 
     // Send email notification
     await emailService.sendEmailNotification(
@@ -53,8 +52,7 @@ const getAssessorById = async (req, res) => {
 const updateAssessor = async (req, res) => {
   try {
     console.log("here we go 2")
-    const userId = req.user._id || req.user.id; 
-    const updatedAssessor = await assessorService.updateAssessor(req.params.id, req.body, userId);
+    const updatedAssessor = await assessorService.updateAssessor(req.params.id, req.body, req);
     res.status(200).json(updatedAssessor);
   } catch (error) {
     res.status(error.statusCode || 500).json({ message: error.message });
@@ -63,8 +61,7 @@ const updateAssessor = async (req, res) => {
 
 const deleteAssessor = async (req, res) => {
   try {
-    const userId = req.user._id || req.user.id
-    await assessorService.deleteAssessor(req.params.id, userId);
+    await assessorService.deleteAssessor(req.params.id, req);
     res.status(200).json({ message: 'Assessor deleted successfully' });
   } catch (error) {
     res.status(error.statusCode || 500).json({ message: error.message });
@@ -85,8 +82,7 @@ const placeBid = async (req, res) => {
   const { assessorId, amount, description, timeline } = req.body;
 
   try {
-    const userId = req.user._id || req.user.id; // Extract userId from authenticated user
-    const bid = await assessorService.placeBid(claimId, assessorId, amount, description, timeline, userId);
+    const bid = await assessorService.placeBid(claimId, assessorId, amount, description, timeline, req);
     res.status(201).json({
       message: 'Bid placed successfully',
       bid,
@@ -108,8 +104,7 @@ const getAssessorBids = async (req, res) => {
 
 const submitAssessmentReport = async (req, res) => {
   try {
-    const userId = req.user._id || req.user.id
-    const claim = await assessorService.submitAssessmentReport(req.params.claimId, req.body.assessmentReport, userId);
+    const claim = await assessorService.submitAssessmentReport(req.params.claimId, req.body.assessmentReport, req);
     res.status(200).json({ message: 'Assessment report submitted successfully', claim });
   } catch (error) {
     res.status(error.statusCode || 500).json({ message: error.message });
@@ -119,8 +114,7 @@ const submitAssessmentReport = async (req, res) => {
 const resetPassword = async (req, res) => {
   try {
     const { email, newPassword } = req.body;
-    const userId = req.user._id || req.user.id
-    const response = await assessorService.resetPassword(email, newPassword, userId);
+    const response = await assessorService.resetPassword(email, newPassword, req);
     res.status(200).json(response);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -129,8 +123,7 @@ const resetPassword = async (req, res) => {
 
 const completeReAssessment = async (req, res) => {
   try {
-    const userId = req.user._id || req.user.id; // Extract userId from authenticated user
-    const claim = await assessorService.completeRepair(req.params.id, userId);
+    const claim = await assessorService.completeRepair(req.params.id, req);
     res.status(200).json(claim);
   } catch (error) {
     console.error('Error completing repair:', error.message);
@@ -141,8 +134,7 @@ const completeReAssessment = async (req, res) => {
 const rejectReAssessment = async (req, res) => {
   try {
     const rejectionReason = req.body.rejectionReason;
-    const userId = req.user._id || req.user.id; // Extract userId from authenticated user
-    const claim = await assessorService.rejectRepair(req.params.id, rejectionReason, userId);
+    const claim = await assessorService.rejectRepair(req.params.id, rejectionReason, req);
     res.status(200).json(claim);
   } catch (error) {
     console.error('Error completing repair:', error.message);

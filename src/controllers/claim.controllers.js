@@ -32,7 +32,7 @@ const fileClaim = async (req, res) => {
       supportingDocuments,
       additionalInfo
     };
-    const newClaim = await claimService.fileClaimService(token, claimDetails);
+    const newClaim = await claimService.fileClaimService(token, claimDetails, req);
 
     res.status(201).json({ message: 'Claim filed successfully', claim: newClaim });
   } catch (err) {
@@ -44,7 +44,7 @@ const fileClaim = async (req, res) => {
 // Create a new claim
 const createClaim = async (req, res) => {
   try {
-    const claim = await claimService.createClaim(req.body);
+    const claim = await claimService.createClaim(req.body, req);
     res.status(201).json(claim);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -74,8 +74,7 @@ const getClaimsByCustomer = async (req, res) => {
 // Approve a claim
 const approveClaim = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const claim = await claimService.approveClaim(req.params.id, userId);
+    const claim = await claimService.approveClaim(req.params.id, req);
     res.status(200).json(claim);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -85,8 +84,7 @@ const approveClaim = async (req, res) => {
 // Delete a claim
 const deleteClaim = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const claim = await claimService.deleteClaim(req.params.id, userId);
+    const claim = await claimService.deleteClaim(req.params.id, req);
     res.status(200).json({ message: 'Claim deleted successfully' });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -116,8 +114,7 @@ const getClaimById = async (req, res) => {
 // Award a claim to an assessor
 const awardClaim = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const claim = await claimService.awardClaim(req.params.id, req.body.bidId, userId);
+    const claim = await claimService.awardClaim(req.params.id, req.body.bidId, req);
     res.status(200).json(claim);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -127,8 +124,7 @@ const awardClaim = async (req, res) => {
 // Award a bid to a garage
 const awardBidToGarage = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const claim = await claimService.awardBidToGarage(req.params.id, req.body.bidId, userId);
+    const claim = await claimService.awardBidToGarage(req.params.id, req.body.bidId, req);
     res.status(200).json(claim);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -208,8 +204,7 @@ const getSupplierBidsForClaim = async (req, res) => {
 // Accept a supplier bid
 const acceptSupplierBid = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const bid = await claimService.acceptSupplierBid(req.params.claimId, req.params.bidId, userId);
+    const bid = await claimService.acceptSupplierBid(req.params.claimId, req.params.bidId, req);
     res.status(200).json(bid);
   } catch (error) {
     res.status(500).json({ message: error.message });

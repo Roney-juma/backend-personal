@@ -4,9 +4,12 @@ module.exports.getAuditLogs = async (filters = {}, options = {}) => {
   try {
     const {
       action,
-      collectionName,
-      documentId,
-      userId,
+      module,
+      resourceId,
+      performedBy,
+      severity,
+      category,
+      success,
       startDate,
       endDate,
       search,
@@ -15,50 +18,50 @@ module.exports.getAuditLogs = async (filters = {}, options = {}) => {
     const {
       page = 1,
       limit = 10,
-      sortBy = 'timestamp',
+      sortBy = 'createdAt',
       sortOrder = 'desc',
+      populateUser = false,
     } = options;
 
-    // Build the query
     const query = {};
 
-    if (action) query.action = action;
-    if (collectionName) query.collectionName = collectionName;
-    if (documentId) query.documentId = documentId;
-    if (userId) query.userId = userId;
+    if (action)      query.action      = action;
+    if (module)      query.module      = module;
+    if (resourceId)  query.resourceId  = resourceId;
+    if (performedBy) query.performedBy = performedBy;
+    if (severity)    query.severity    = severity;
+    if (category)    query.category    = category;
+    if (success !== undefined) query.success = success === 'true' || success === true;
 
-    // Date range filtering
     if (startDate || endDate) {
-      query.timestamp = {};
-      if (startDate) query.timestamp.$gte = new Date(startDate);
-      if (endDate) query.timestamp.$lte = new Date(endDate);
+      query.createdAt = {};
+      if (startDate) query.createdAt.$gte = new Date(startDate);
+      if (endDate)   query.createdAt.$lte = new Date(endDate);
     }
 
-    // Search filtering
     if (search) {
       query.$or = [
-        { documentId: { $regex: search, $options: 'i' } },
-        { 'changes.newData': { $regex: search, $options: 'i' } },
-        { 'changes.oldData': { $regex: search, $options: 'i' } },
+        { actionDescription: { $regex: search, $options: 'i' } },
+        { performedByName:   { $regex: search, $options: 'i' } },
+        { performedByEmail:  { $regex: search, $options: 'i' } },
+        { endpoint:          { $regex: search, $options: 'i' } },
+        { module:            { $regex: search, $options: 'i' } },
       ];
     }
 
-    // Sort options
-    const sortOptions = {};
-    sortOptions[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
-    // Pagination
+    const sortOptions = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
     const skip = (page - 1) * limit;
 
-    // Fetch audit logs
-    let auditLogsQuery = AuditLog.find(query)
-      .sort(sortOptions)
-      .skip(skip)
-      .limit(limit);
-    auditLogsQuery = auditLogsQuery.populate('userId', 'fullName email');
+    let auditLogsQuery = AuditLog.find(query).sort(sortOptions).skip(skip).limit(limit);
 
-    const auditLogs = await auditLogsQuery.exec();
-    const totalLogs = await AuditLog.countDocuments(query);
+    if (populateUser) {
+      auditLogsQuery = auditLogsQuery.populate('performedBy', 'fullName email');
+    }
+
+    const [auditLogs, totalLogs] = await Promise.all([
+      auditLogsQuery.exec(),
+      AuditLog.countDocuments(query),
+    ]);
 
     return {
       auditLogs,

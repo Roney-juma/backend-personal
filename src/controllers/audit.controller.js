@@ -6,7 +6,7 @@ const logAudit = async (req, res) => {
     const options = {
       page: Math.max(1, parseInt(page, 10) || 1),
       limit: Math.max(1, parseInt(limit, 10) || 10),
-      sortBy: sortBy || 'timestamp',
+      sortBy: sortBy || 'createdAt',
       sortOrder: sortOrder === 'asc' ? 'asc' : 'desc',
       populateUser: populateUser === 'true',
     };
