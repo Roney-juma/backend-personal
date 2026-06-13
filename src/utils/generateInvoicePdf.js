@@ -155,16 +155,9 @@ function generateInvoicePdf(invoice) {
     }
 
     // ── Footer ────────────────────────────────────────
-    const FOOTER_H = 55;
+    const FOOTER_H = 50;
     const footerY = PAGE_H - FOOTER_H;
     doc.rect(0, footerY, PAGE_W, FOOTER_H).fill(GRAY_BG);
-    doc.font('Helvetica').fontSize(9).fillColor(MUTED)
-       .text(
-         'Please ensure payment is made by the due date. Thank you for your business.',
-         LEFT, footerY + 13, { width: USABLE, align: 'center', lineBreak: false }
-       );
-    doc.font('Helvetica').fontSize(8).fillColor(MUTED)
-       .text('AVE Provider Platform', LEFT, footerY + 30, { width: USABLE, align: 'center', lineBreak: false });
 
     doc.end();
   });
