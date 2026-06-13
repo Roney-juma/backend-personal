@@ -94,4 +94,28 @@ const generatePocToken = (user) => {
     );
     return token;
 };
-module.exports = { GenerateToken, generate ,generatePocToken};
+const generateCompanyToken = (company) => {
+    const data = {
+        id: company._id,
+        companyName: company.companyName,
+        email: company.email,
+        status: company.status,
+        registrationNumber: company.registrationNumber,
+        accountType: 'InsuranceCompany',
+    };
+    const token = jwt.sign(
+        { payload: data },
+        {
+            key: privateKey.replace(/\\n/gm, '\n'),
+            passphrase: TokenSecret,
+        },
+        {
+            issuer: TokenIssuer,
+            algorithm: 'RS512',
+            expiresIn: '1d',
+        }
+    );
+    return token;
+};
+
+module.exports = { GenerateToken, generate, generatePocToken, generateCompanyToken };
