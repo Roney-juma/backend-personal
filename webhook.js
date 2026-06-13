@@ -1,34 +1,59 @@
-const express = require('express');
-const crypto = require('crypto');
-const { exec } = require('child_process');
+const express = require("express");
+const crypto = require("crypto");
+const { exec } = require("child_process");
 
 const app = express();
-const PORT = 4000; // Use any available port
-const SECRET = 'mysecrettoken'; // Replace with a secure secret key
+const PORT = 4000;
 
-// Middleware to parse JSON
-app.use(express.json());
+const SECRET = "avebackendservicesecret";
 
-app.post('/deploy', (req, res) => {
-    const signature = req.headers['x-hub-signature-256'];
-    const hmac = crypto.createHmac('sha256', SECRET);
-    const digest = 'sha256=' + hmac.update(JSON.stringify(req.body)).digest('hex');
+// Raw body parser for GitHub signature verification
+app.use(
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 
-    // Execute deployment script
-    exec('./deploy.sh', (error, stdout, stderr) => {
-        if (error) {
-            console.error(`Error: ${error.message}`);
-            return res.status(500).send('Deployment failed');
-        }
-        if (stderr) {
-            console.error(`Stderr: ${stderr}`);
-            return res.status(500).send('Deployment error');
-        }
-        console.log(`Stdout: ${stdout}`);
-        res.status(200).send('Deployed successfully');
-    });
+app.post("/deploy", (req, res) => {
+  const signature = req.headers["x-hub-signature-256"];
+
+  if (!signature) {
+    return res.status(401).send("No signature");
+  }
+
+  const hmac = crypto.createHmac("sha256", SECRET);
+  const digest =
+    "sha256=" + hmac.update(req.rawBody).digest("hex");
+
+  if (
+    !crypto.timingSafeEqual(
+      Buffer.from(signature),
+      Buffer.from(digest)
+    )
+  ) {
+    return res.status(401).send("Invalid signature");
+  }
+
+  console.log("Webhook verified");
+
+  exec("bash /home/ubuntu/deploy.sh", (error, stdout, stderr) => {
+    if (error) {
+      console.error(error);
+      return res.status(500).send("Deployment failed");
+    }
+
+    console.log(stdout);
+
+    if (stderr) {
+      console.error(stderr);
+    }
+
+    res.status(200).send("Deployment successful");
+  });
 });
 
 app.listen(PORT, () => {
-    console.log(`Webhook listener running on port ${PORT}`);
+  console.log(`Webhook running on port ${PORT}`);
 });

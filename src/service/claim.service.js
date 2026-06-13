@@ -9,6 +9,38 @@ const emailService = require('./email.service');
 const ClaimToken = require('../models/claimToken.model');
 const crypto = require('crypto');
 
+const getGarageBidRankingData = (bid) => {
+  const rating = bid?.garageDetails?.ratings?.averageRating ?? bid?.ratings ?? 0;
+  const pendingWork = bid?.garageDetails?.pendingWork ?? Number.MAX_SAFE_INTEGER;
+  const totalCost = bid?.totalCost ?? Number.MAX_SAFE_INTEGER;
+
+  return {
+    rating: Number.isFinite(rating) ? rating : 0,
+    pendingWork: Number.isFinite(pendingWork) ? pendingWork : Number.MAX_SAFE_INTEGER,
+    totalCost: Number.isFinite(totalCost) ? totalCost : Number.MAX_SAFE_INTEGER,
+  };
+};
+
+const selectBestGarageBid = (garageBids = []) => {
+  if (!garageBids.length) return null;
+
+  return garageBids.reduce((bestBid, currentBid) => {
+    if (!bestBid) return currentBid;
+
+    const current = getGarageBidRankingData(currentBid);
+    const best = getGarageBidRankingData(bestBid);
+
+    if (current.rating > best.rating) return currentBid;
+    if (current.rating < best.rating) return bestBid;
+
+    if (current.pendingWork < best.pendingWork) return currentBid;
+    if (current.pendingWork > best.pendingWork) return bestBid;
+
+    if (current.totalCost < best.totalCost) return currentBid;
+    return bestBid;
+  }, null);
+};
+
 const generateClaimLink = async (email) => {
   try {
     const customer = await Customer.findOne({ email });
@@ -168,31 +200,16 @@ const getClaims = async () => {
       }
     }
 
-    // Check if the claim status is 'Garage' and has at least 3 garage bids
-    if (claim.status === 'Garage' && claim.bids.length >= 3) {
-      const garageBids = claim.bids.filter(bid => bid.bidderType === 'garage');
-      if (garageBids.length === 0) continue;
+    // Auto-award garage bid once more than one garage has placed a bid
+    if (claim.status === 'Garage') {
+      const garageBids = claim.bids.filter(
+        (bid) => bid.bidderType === 'garage' && bid.status === 'pending'
+      );
+      if (garageBids.length <= 1) continue;
 
-      // Check if all garage bids are pending and none have been awarded
-      const hasAwardedGarageBid = garageBids.some(bid => bid.status === 'awarded');
-      const allGaragePending = garageBids.every(bid => bid.status === 'pending');
+      const topRatedGarageBid = selectBestGarageBid(garageBids);
 
-      if (hasAwardedGarageBid || !allGaragePending) {
-        continue; // Skip this claim if any garage bid is already awarded or not all are pending
-      }
-
-      let topRatedGarageBid = null;
-      let highestGarageRating = -1;
-
-      // Find the top-rated garage bid
-      for (let bid of garageBids) {
-        if (bid.garageDetails && bid.garageDetails.ratings.averageRating > highestGarageRating) {
-          highestGarageRating = bid.garageDetails.ratings.averageRating;
-          topRatedGarageBid = bid;
-        }
-      }
-
-      // Award the top-rated garage bid if found
+      // Award the best garage bid (rating first, then lower pending work) if found
       if (topRatedGarageBid) {
         await awardBidToGarage(claim._id, topRatedGarageBid._id);
       }
@@ -367,7 +384,16 @@ const awardBidToGarage = async (id, bidId,userId) => {
   const claim = await Claim.findById(id)
   if (!claim) throw new Error('Claim not found');
 
-  const bid = claim.bids.id(bidId);
+  let selectedBidId = bidId;
+  if (!selectedBidId) {
+    const pendingGarageBids = claim.bids.filter(
+      (garageBid) => garageBid.bidderType === 'garage' && garageBid.status === 'pending'
+    );
+    if (!pendingGarageBids.length) throw new Error('No pending garage bids');
+    selectedBidId = selectBestGarageBid(pendingGarageBids)?._id;
+  }
+
+  const bid = claim.bids.id(selectedBidId);
   if (!bid || bid.status !== 'pending') throw new Error('Invalid bid');
   bid.status = 'awarded';
 
@@ -379,7 +405,7 @@ const awardBidToGarage = async (id, bidId,userId) => {
   claim.status = 'Repair';
 
   claim.bids.forEach((otherBid) => {
-    if (otherBid._id.toString() !== bidId && otherBid.bidderType === 'garage') {
+    if (otherBid._id.toString() !== selectedBidId.toString() && otherBid.bidderType === 'garage') {
       otherBid.status = 'rejected';
     }
   });

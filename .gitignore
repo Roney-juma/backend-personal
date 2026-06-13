@@ -32,6 +32,12 @@ next-env.d.ts
 .env**
 !.env.example
 
+# Postman collections (may contain sensitive URLs/tokens)
+*.postman_collection.json
+
+# Local docs
+SYSTEM_DOCUMENTATION.md
+
 
 # These are some examples of commonly ignored file patterns.
 # You should customize this list as applicable to your project.

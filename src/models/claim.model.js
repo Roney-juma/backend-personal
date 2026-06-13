@@ -119,7 +119,7 @@ const claimSchema = new Schema({
     },
   }],
   damage: {
-    yourVehicle: { type: String, required: true },
+    yourVehicle: { type: String },
     otherVehicles: { type: String },
     property: { type: String },
   },
