@@ -29,6 +29,7 @@ const createCompany = async (data) => {
   const saved = await company.save();
   contactPerson.password = password;
   contactPerson.role = "69df478ce9a1908dd19a7a2a";
+  contactPerson.company = saved._id;
   const insuranceUser= await userService.createUser(contactPerson);
 
 

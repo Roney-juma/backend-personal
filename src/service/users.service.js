@@ -3,7 +3,7 @@ const User = require('../models/users.model');
 const emailService = require('./email.service');
 
 const createUser = async (userData) => {
-    const { username, password, fullName, email, role, phone, department, position } = userData;
+    const { company,username, password, fullName, email, role, phone, department, position } = userData;
 
     const existingUser = await User.findOne({ $or: [{ username }, { email }] });
     if (existingUser) {
@@ -46,11 +46,12 @@ Admin Team`
 };
 
 const getAllUsers = async () => {
-    return User.find().populate('role').exec();
+    // Populate the role field to get role details along with company information
+    return User.find().populate('role').populate('company').exec();
 };
 
 const getUserById = async (userId) => {
-    return User.findById(userId).populate('role').exec();
+    return User.findById(userId).populate('role').populate('company').exec();
 };
 
 const updateUser = async (userId, updateData) => {
