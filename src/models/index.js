@@ -14,3 +14,4 @@ module.exports.Invoice = require('./invoice.model');
 module.exports.ApiKey = require('./apiKey.model');
 module.exports.SupportTicket = require('./supportTicket.model');
 module.exports.CompanyActivity = require('./companyActivity.model');
+module.exports.ProviderAuditLog = require('./providerAuditLog.model');
