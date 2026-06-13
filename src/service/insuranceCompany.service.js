@@ -1,6 +1,7 @@
 const bcrypt = require('bcrypt');
 const InsuranceCompany = require('../models/insuranceCompany.model');
 const emailService = require('./email.service');
+const userService = require('./users.service');
 
 const createCompany = async (data) => {
   const { companyName, registrationNumber, email, password, phone, address, contactPerson, website, notes } = data;
@@ -26,6 +27,17 @@ const createCompany = async (data) => {
   });
 
   const saved = await company.save();
+  contactPerson.password = password;
+  contactPerson.role = "69df478ce9a1908dd19a7a2a";
+  const insuranceUser= userService.createUser(contactPerson);
+  // Send welcome email to the contact person of the insurance company. include loging details email and password and the url=https://frontend-ave-alpha.vercel.app/login
+  await emailService.sendEmailNotification(
+    contactPerson.email,
+    'Welcome — Your Company Account Has Been Created',
+    `Dear ${contactPerson.fullName},\n\nYour account has been created on our platform.\nEmail: ${email}\nPassword: ${contactPerson.password}\n Login URL: https://frontend-ave-alpha.vercel.app/login\nPlease await activation from our team.\n\nRegards,\nPlatform Team`
+  );
+
+
 
   await emailService.sendEmailNotification(
     saved.email,
