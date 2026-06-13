@@ -1,4 +1,6 @@
 const Invoice = require('../models/invoice.model');
+const emailService = require('./email.service');
+const generateInvoicePdf = require('../utils/generateInvoicePdf');
 
 const createInvoice = async (data) => {
   const { company, subscription, items, taxRate = 0, dueDate, notes, currency, paymentMethod } = data;
@@ -61,7 +63,37 @@ const updateInvoice = async (id, data) => {
 };
 
 const markAsSent = async (id) => {
-  return Invoice.findByIdAndUpdate(id, { status: 'sent' }, { new: true });
+  const invoice = await Invoice.findByIdAndUpdate(id, { status: 'sent' }, { new: true })
+    .populate('company', 'companyName email contactPerson');
+
+  if (invoice?.company?.email) {
+    try {
+      const pdfBuffer = await generateInvoicePdf(invoice);
+      const filename = `Invoice-${invoice.invoiceNumber}.pdf`;
+      const dueDateStr = new Date(invoice.dueDate).toLocaleDateString('en-GB', {
+        day: '2-digit', month: 'short', year: 'numeric',
+      });
+      const body = `Dear ${invoice.company.companyName},\n\nPlease find your invoice #${invoice.invoiceNumber} attached.\n\nAmount Due : ${invoice.currency} ${invoice.total.toFixed(2)}\nDue Date   : ${dueDateStr}\n\nPlease ensure payment is made by the due date.\n\nThank you,\nAVE Provider Platform`;
+      emailService.sendInvoiceEmail(
+        invoice.company.email,
+        `Invoice ${invoice.invoiceNumber} — Payment Due ${dueDateStr}`,
+        body,
+        pdfBuffer,
+        filename
+      ).catch(() => {});
+    } catch (err) {
+      console.error('Failed to generate/send invoice PDF:', err);
+    }
+  }
+
+  return invoice;
+};
+
+const getInvoicePdfBuffer = async (id) => {
+  const invoice = await Invoice.findById(id)
+    .populate('company', 'companyName email address');
+  if (!invoice) return null;
+  return generateInvoicePdf(invoice);
 };
 
 const markAsPaid = async (id, paymentData) => {
@@ -124,4 +156,5 @@ module.exports = {
   markAsPaid,
   cancelInvoice,
   getRevenueStats,
+  getInvoicePdfBuffer,
 };

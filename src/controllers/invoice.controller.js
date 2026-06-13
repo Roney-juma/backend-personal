@@ -86,6 +86,18 @@ const getRevenueStats = async (req, res) => {
   }
 };
 
+const previewPdf = async (req, res) => {
+  try {
+    const buffer = await invoiceService.getInvoicePdfBuffer(req.params.id);
+    if (!buffer) return res.status(404).json({ message: 'Invoice not found' });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="invoice.pdf"`);
+    res.send(buffer);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   createInvoice,
   getAllInvoices,
@@ -96,4 +108,5 @@ module.exports = {
   markAsPaid,
   cancelInvoice,
   getRevenueStats,
+  previewPdf,
 };

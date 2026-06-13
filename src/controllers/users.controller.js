@@ -1,16 +1,15 @@
-const authService = require("../service/auth.service");
-const tokenService = require("../service/token.service");
-const userService = require("../service/users.service");
+const tokenService = require('../service/token.service');
+const userService = require('../service/users.service');
 
 const login = async (req, res) => {
     try {
         const { email, password } = req.body;
         const user = await userService.loginUserWithEmailAndPassword(email, password);
         if (!user) {
-            return res.status(401).json({ message: "Invalid email or password" });
+            return res.status(401).json({ message: 'Invalid email or password' });
         }
-        const token = tokenService.generateProviderUserToken(user);
-        res.status(200).json({ user, token });
+        const tokens = tokenService.generateProviderUserToken(user);
+        res.status(200).json({ user, tokens });
     } catch (error) {
         res.status(500).json({ message: 'Login failed', error: error.message });
     }
@@ -37,9 +36,7 @@ const getAllUsers = async (req, res) => {
 const getAdminUser = async (req, res) => {
     try {
         const user = await userService.getUserById(req.params.id);
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
+        if (!user) return res.status(404).json({ message: 'User not found' });
         res.status(200).json(user);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -49,9 +46,7 @@ const getAdminUser = async (req, res) => {
 const updateAdminUser = async (req, res) => {
     try {
         const updatedUser = await userService.updateUser(req.params.id, req.body);
-        if (!updatedUser) {
-            return res.status(404).json({ message: 'User not found' });
-        }
+        if (!updatedUser) return res.status(404).json({ message: 'User not found' });
         res.status(200).json(updatedUser);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -61,9 +56,7 @@ const updateAdminUser = async (req, res) => {
 const deleteAdminUser = async (req, res) => {
     try {
         const deletedUser = await userService.deleteUser(req.params.id);
-        if (!deletedUser) {
-            return res.status(404).json({ message: 'User not found' });
-        }
+        if (!deletedUser) return res.status(404).json({ message: 'User not found' });
         res.status(200).json({ message: 'User deleted' });
     } catch (error) {
         res.status(500).json({ message: error.message });

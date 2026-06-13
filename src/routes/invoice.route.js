@@ -7,6 +7,7 @@ router.post('/', verifyProviderToken(), controller.createInvoice);
 router.get('/', verifyProviderToken(), controller.getAllInvoices);
 router.get('/stats/revenue', verifyProviderToken(), controller.getRevenueStats);
 router.get('/company/:companyId', verifyProviderToken(), controller.getInvoicesByCompany);
+router.get('/:id/preview', verifyProviderToken(), controller.previewPdf);
 router.get('/:id', verifyProviderToken(), controller.getInvoiceById);
 router.patch('/:id', verifyProviderToken(), controller.updateInvoice);
 router.patch('/:id/send', verifyProviderToken(), controller.markAsSent);

@@ -10,25 +10,28 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// Function to send email notification
 const sendEmailNotification = (to, subject, text) => {
+  const mailOptions = { from: process.env.EMAIL_HOST_USER, to, subject, text };
+  return transporter.sendMail(mailOptions).then((info) => {
+    console.log('Email sent:', info.response);
+  }).catch((error) => {
+    console.error('Error sending email:', error);
+  });
+};
+
+const sendInvoiceEmail = (to, subject, text, pdfBuffer, filename) => {
   const mailOptions = {
     from: process.env.EMAIL_HOST_USER,
     to,
     subject,
     text,
+    attachments: [{ filename, content: pdfBuffer, contentType: 'application/pdf' }],
   };
-
-  transporter.sendMail(mailOptions, (error, info) => {
-    if (error) {
-      console.error('Error sending email:', error);
-    } else {
-      console.log('Email sent:', info.response);
-    }
+  return transporter.sendMail(mailOptions).then((info) => {
+    console.log('Invoice email sent:', info.response);
+  }).catch((error) => {
+    console.error('Error sending invoice email:', error);
   });
 };
 
-
-  module.exports = {
-    sendEmailNotification
-  }
+module.exports = { sendEmailNotification, sendInvoiceEmail };
