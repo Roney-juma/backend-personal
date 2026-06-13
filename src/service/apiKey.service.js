@@ -64,11 +64,18 @@ const deleteApiKey = async (id) => {
 
 const verifyApiKey = async (rawKey) => {
   const prefix = rawKey.substring(0, 8);
-  const keys = await ApiKey.find({ keyPrefix: prefix, status: 'active' });
+  const now = new Date();
+  const keys = await ApiKey.find({
+    keyPrefix: prefix,
+    status: 'active',
+    $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }],
+  }).populate('company', 'companyName email status');
+
   for (const key of keys) {
-    const match = await bcrypt.compare(rawKey.replace('.', '').substring(0, 64), key.keyHash);
+    const normalised = rawKey.replace('.', '').substring(0, 64);
+    const match = await bcrypt.compare(normalised, key.keyHash);
     if (match) {
-      key.lastUsedAt = new Date();
+      key.lastUsedAt = now;
       key.usageCount += 1;
       await key.save();
       return key;
