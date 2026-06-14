@@ -218,7 +218,7 @@ const getClaims = async () => {
       const garageBids = claim.bids.filter(
         (bid) => bid.bidderType === 'garage' && bid.status === 'pending'
       );
-      if (garageBids.length <= 1) continue;
+      if (garageBids.length <= 3) continue;
 
       const topRatedGarageBid = selectBestGarageBid(garageBids);
 
