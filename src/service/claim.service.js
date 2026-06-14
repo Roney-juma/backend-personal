@@ -519,6 +519,94 @@ const awardClaimToGarage = async (claimId, garageId) => {
 
 
 
+// Reject a specific assessor bid
+const rejectAssessorBid = async (id, bidId, req) => {
+  const claim = await Claim.findById(id);
+  if (!claim) throw new Error('Claim not found');
+
+  const bid = claim.bids.id(bidId);
+  if (!bid || bid.bidderType !== 'assessor') throw new Error('Assessor bid not found');
+  if (bid.status !== 'pending') throw new Error('Only pending bids can be rejected');
+
+  bid.status = 'rejected';
+
+  await Notification.create({
+    recipientId: bid.assessorId,
+    recipientType: 'assessor',
+    content: `Your bid for claim ID: ${claim._id} has been rejected.`,
+  });
+
+  const start = Date.now();
+  await claim.save();
+
+  await writeAuditLog(req, {
+    action: 'UPDATE',
+    module: 'Claim',
+    actionDescription: `Rejected assessor bid ${bidId} on claim ${id}`,
+    resourceType: 'Claim',
+    resourceId: claim._id,
+    statusCode: 200,
+    success: true,
+    responseTimeMs: Date.now() - start,
+    changes: { bidId, old: { status: 'pending' }, new: { status: 'rejected' } },
+  });
+
+  const assessor = await Assessor.findById(bid.assessorId);
+  if (assessor && assessor.email) {
+    await emailService.sendEmailNotification(
+      assessor.email,
+      'Bid Rejection Notification',
+      `Dear ${assessor.name},\n\nWe regret to inform you that your bid for claim ID: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has not been successful.\n\nThank you for your participation.\n\nBest Regards,\nAdmin Team`
+    );
+  }
+
+  return claim;
+};
+
+// Reject a specific garage bid
+const rejectGarageBid = async (id, bidId, req) => {
+  const claim = await Claim.findById(id);
+  if (!claim) throw new Error('Claim not found');
+
+  const bid = claim.bids.id(bidId);
+  if (!bid || bid.bidderType !== 'garage') throw new Error('Garage bid not found');
+  if (bid.status !== 'pending') throw new Error('Only pending bids can be rejected');
+
+  bid.status = 'rejected';
+
+  await Notification.create({
+    recipientId: bid.garageId,
+    recipientType: 'garage',
+    content: `Your bid for claim ID: ${claim._id} has been rejected.`,
+  });
+
+  const start = Date.now();
+  await claim.save();
+
+  await writeAuditLog(req, {
+    action: 'UPDATE',
+    module: 'Claim',
+    actionDescription: `Rejected garage bid ${bidId} on claim ${id}`,
+    resourceType: 'Claim',
+    resourceId: claim._id,
+    statusCode: 200,
+    success: true,
+    responseTimeMs: Date.now() - start,
+    changes: { bidId, old: { status: 'pending' }, new: { status: 'rejected' } },
+  });
+
+  const garage = await Garage.findById(bid.garageId);
+  if (garage && garage.email) {
+    await emailService.sendEmailNotification(
+      garage.email,
+      'Bid Rejection Notification',
+      `Dear ${garage.name},\n\nWe regret to inform you that your bid for claim ID: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has not been successful.\n\nThank you for your participation.\n\nBest Regards,\nAdmin Team`
+    );
+  }
+
+  return claim;
+};
+
 // Get awarded claims
 const getAwardedClaims = async () => {
   return await Claim.find({ awardedAssessor: { $exists: true } });
@@ -733,6 +821,8 @@ module.exports = {
   updateClaim,
   countClaimsByStatus,
   getPaymentTotals,
-  awardClaimToGarage
+  awardClaimToGarage,
+  rejectAssessorBid,
+  rejectGarageBid
 
 };

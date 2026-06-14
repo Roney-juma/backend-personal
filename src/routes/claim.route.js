@@ -28,6 +28,8 @@ router.get('/assessed/:id', claimController.getAssessedClaimById);
 router.get('/supplier-bids/:claimId', claimController.getSupplierBidsForClaim)
 router.post('/acceptSupplier/:claimId/:bidId', claimController.acceptSupplierBid)
 router.post('/awardClaimToGarage/:claimId/:garageId', claimController.awardClaimToGarage);
+router.post('/rejectAssessorBid/:id', claimController.rejectAssessorBid);
+router.post('/rejectGarageBid/:id', claimController.rejectGarageBid);
 
 
 
