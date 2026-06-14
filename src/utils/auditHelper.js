@@ -67,10 +67,21 @@ async function writeAuditLog(req, opts) {
 
     const user = req?.user ?? null;
 
+    const performedByName =
+      user?.name ??
+      user?.fullName ??
+      (user?.firstName || user?.lastName
+        ? `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
+        : null) ??
+      (user?.first_name || user?.last_name
+        ? `${user?.first_name ?? ''} ${user?.last_name ?? ''}`.trim()
+        : null) ??
+      'System';
+
     await AuditLog.create({
       // Actor
       performedBy:      user?._id ?? user?.id ?? null,
-      performedByName:  user?.name ?? user?.fullName ?? 'System',
+      performedByName,
       performedByEmail: user?.email ?? null,
       performedByRole:  user?.role_ID ?? null,
 
