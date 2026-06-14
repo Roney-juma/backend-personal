@@ -34,8 +34,10 @@ const assessorSchema = new Schema({
     averageRating: { type: Number, default: 0 },
     totalRatings: { type: Number, default: 0 },
     reviews: [{
-      customerId: { type: ObjectId, ref: 'Customer' },
-      rating: { type: Number },
+      reviewerId: { type: ObjectId, required: true },
+      reviewerType: { type: String, enum: ['Customer'], required: true },
+      claimId: { type: ObjectId, ref: 'Claim' },
+      rating: { type: Number, min: 1, max: 5, required: true },
       feedback: { type: String },
       createdAt: { type: Date, default: Date.now }
     }]

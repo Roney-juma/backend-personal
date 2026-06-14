@@ -59,7 +59,7 @@ const addRatingAndFeedback = async (entityId, entityType, reviewerId, reviewerTy
   await authorizeRating(entityType, entityId, reviewerId, reviewerType, claimId);
 
   const alreadyRated = entity.ratings.reviews.some(
-    r => r.reviewerId.toString() === reviewerId.toString() && r.claimId?.toString() === claimId.toString()
+    r => r.reviewerId?.toString() === reviewerId.toString() && r.claimId?.toString() === claimId.toString()
   );
   if (alreadyRated) {
     throw new Error('You have already rated this entity for this claim');
