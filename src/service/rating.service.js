@@ -1,63 +1,88 @@
 const Assessor = require('../models/assessor.model');
 const Garage = require('../models/garage.model');
 const Supplier = require('../models/supplier.model');
+const Claim = require('../models/claim.model');
+const SupplyBid = require('../models/supplyBids.model');
 
-const addRatingAndFeedback = async (entityId, entityType, customerId, rating, feedback) => {
-  let entity;
+const ENTITY_MAP = {
+  garage: Garage,
+  supplier: Supplier,
+  assessor: Assessor,
+};
 
-  switch(entityType) {
-    case 'assessor':
-      entity = await Assessor.findById(entityId);
-      break;
-    case 'garage':
-      entity = await Garage.findById(entityId);
-      break;
-    case 'supplier':
-      entity = await Supplier.findById(entityId);
-      break;
-    default:
-      throw new Error('Invalid entity type');
+async function authorizeRating(entityType, entityId, reviewerId, reviewerType, claimId) {
+  const claim = await Claim.findById(claimId);
+  if (!claim) throw new Error('Claim not found');
+
+  if (entityType === 'garage') {
+    if (reviewerType === 'Customer') {
+      // Customer rates garage only after car has been collected (status Completed)
+      const isOwner = claim.customerId.toString() === reviewerId.toString();
+      const isAwardedGarage = claim.awardedGarage?.garageId?.toString() === entityId.toString();
+      const isCompleted = claim.status === 'Completed';
+      if (!isOwner || !isAwardedGarage || !isCompleted) {
+        throw new Error('Not authorized: claim must be Completed and linked to this garage and customer');
+      }
+    } else if (reviewerType === 'Assessor') {
+      // Assessor rates garage only after reassessment
+      const isAwardedAssessor = claim.awardedAssessor?.assessorId?.toString() === reviewerId.toString();
+      const isAwardedGarage = claim.awardedGarage?.garageId?.toString() === entityId.toString();
+      const isReassessment = claim.status === 'Re-Assessment';
+      if (!isAwardedAssessor || !isAwardedGarage || !isReassessment) {
+        throw new Error('Not authorized: claim must be in Re-Assessment and linked to this assessor and garage');
+      }
+    }
+  } else if (entityType === 'supplier') {
+    // Garage rates supplier only after parts have been delivered
+    const isAwardedGarage = claim.awardedGarage?.garageId?.toString() === reviewerId.toString();
+    if (!isAwardedGarage) {
+      throw new Error('Not authorized: you are not the awarded garage for this claim');
+    }
+    const supplyBid = await SupplyBid.findOne({
+      claimId,
+      supplierId: entityId,
+      status: 'Delivered',
+    });
+    if (!supplyBid) {
+      throw new Error('Not authorized: no delivered supply bid found for this supplier and claim');
+    }
   }
+}
 
+const addRatingAndFeedback = async (entityId, entityType, reviewerId, reviewerType, claimId, rating, feedback) => {
+  const Model = ENTITY_MAP[entityType];
+  if (!Model) throw new Error('Invalid entity type');
+
+  const entity = await Model.findById(entityId);
   if (!entity) throw new Error(`${entityType} not found`);
 
-  // Add the new rating
-  entity.ratings.reviews.push({ customerId, rating, feedback });
-  entity.ratings.totalRatings += 1;
+  await authorizeRating(entityType, entityId, reviewerId, reviewerType, claimId);
 
-  // Recalculate the average rating
-  const totalSum = entity.ratings.reviews.reduce((acc, review) => acc + review.rating, 0);
-  entity.ratings.averageRating = totalSum / entity.ratings.totalRatings;
+  const alreadyRated = entity.ratings.reviews.some(
+    r => r.reviewerId.toString() === reviewerId.toString() && r.claimId?.toString() === claimId.toString()
+  );
+  if (alreadyRated) {
+    throw new Error('You have already rated this entity for this claim');
+  }
+
+  entity.ratings.reviews.push({ reviewerId, reviewerType, claimId, rating, feedback });
+  entity.ratings.totalRatings = entity.ratings.reviews.length;
+
+  const totalSum = entity.ratings.reviews.reduce((acc, r) => acc + r.rating, 0);
+  entity.ratings.averageRating = parseFloat((totalSum / entity.ratings.totalRatings).toFixed(2));
 
   await entity.save();
-  return entity;
+  return entity.ratings;
 };
+
 const getRatings = async (entityId, entityType) => {
-    let entity;
-  
-    switch (entityType) {
-      case 'assessor':
-        entity = await Assessor.findById(entityId);
-        break;
-      case 'garage':
-        entity = await Garage.findById(entityId);
-        break;
-      case 'supplier':
-        entity = await Supplier.findById(entityId);
-        break;
-      default:
-        throw new Error('Invalid entity type');
-    }
-  
-    if (!entity) {
-      throw new Error(`${entityType} not found`);
-    }
-  
-    return entity.ratings;
-  };
+  const Model = ENTITY_MAP[entityType];
+  if (!Model) throw new Error('Invalid entity type');
 
-module.exports = {
-  addRatingAndFeedback,
-  getRatings
+  const entity = await Model.findById(entityId);
+  if (!entity) throw new Error(`${entityType} not found`);
 
+  return entity.ratings;
 };
+
+module.exports = { addRatingAndFeedback, getRatings };

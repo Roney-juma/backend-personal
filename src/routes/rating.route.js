@@ -3,10 +3,7 @@ const ratingController = require('../controllers/rating.controller');
 const verifyToken = require('../middlewheres/verifyToken');
 const router = express.Router();
 
-// Route for submitting ratings
-router.post('/:entityType/:entityId', ratingController.submitRating);
-// Route for retrieving ratings
-router.get('/:entityType/:entityId', ratingController.getRatings);
-
+router.post('/:entityType/:entityId', verifyToken(), ratingController.submitRating);
+router.get('/:entityType/:entityId', verifyToken(), ratingController.getRatings);
 
 module.exports = router;
