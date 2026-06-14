@@ -27,7 +27,7 @@ async function authorizeRating(entityType, entityId, reviewerId, reviewerType, c
       // Assessor rates garage only after reassessment
       const isAwardedAssessor = claim.awardedAssessor?.assessorId?.toString() === reviewerId.toString();
       const isAwardedGarage = claim.awardedGarage?.garageId?.toString() === entityId.toString();
-      const isReassessment = claim.status === 'Re-Assessment';
+      const isReassessment = claim.status === 'Completed';
       if (!isAwardedAssessor || !isAwardedGarage || !isReassessment) {
         throw new Error('Not authorized: claim must be in Re-Assessment and linked to this assessor and garage');
       }
