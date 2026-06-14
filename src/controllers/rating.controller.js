@@ -8,7 +8,7 @@ const ALLOWED_REVIEWER_TYPES = {
 const submitRating = async (req, res) => {
   const { entityId, entityType } = req.params;
   const { rating, feedback, claimId, reviewerType } = req.body;
-  const reviewerId = req.user._id;
+  const reviewerId = req.user._id ?? req.user.id;
 
   const allowed = ALLOWED_REVIEWER_TYPES[entityType];
   if (!allowed) {
