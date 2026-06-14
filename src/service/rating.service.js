@@ -17,7 +17,7 @@ async function authorizeRating(entityType, entityId, reviewerId, reviewerType, c
   if (entityType === 'garage') {
     if (reviewerType === 'Customer') {
       // Customer rates garage only after car has been collected (status Completed)
-      const isOwner = claim.customerId.toString() === reviewerId.toString();
+      const isOwner = claim.customerId?.toString() === reviewerId.toString();
       const isAwardedGarage = claim.awardedGarage?.garageId?.toString() === entityId.toString();
       const isCompleted = claim.status === 'Completed';
       if (!isOwner || !isAwardedGarage || !isCompleted) {

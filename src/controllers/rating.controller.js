@@ -33,7 +33,7 @@ const submitRating = async (req, res) => {
     if (error.message.includes('not found')) {
       return res.status(404).json({ message: error.message });
     }
-    if (error.message.includes('not authorized') || error.message.includes('already rated')) {
+    if (error.message.toLowerCase().includes('not authorized') || error.message.includes('already rated')) {
       return res.status(403).json({ message: error.message });
     }
     res.status(500).json({ message: error.message });
