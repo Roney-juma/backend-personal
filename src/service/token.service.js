@@ -49,7 +49,8 @@ const generate = (user) => {
         image_url: user?.image_url,
         erp_token: user?.erp_token,
         designation: user?.designation,
-        role_ID: user?.role_ID
+        role_ID: user?.role_ID,
+        accountType: 'ProviderUser',
     };
     const token = jwt.sign(
         { payload: data },
@@ -94,4 +95,55 @@ const generatePocToken = (user) => {
     );
     return token;
 };
-module.exports = { GenerateToken, generate ,generatePocToken};
+const generateProviderUserToken = (user) => {
+    const data = {
+        id: user._id,
+        email: user.email,
+        fullName: user.fullName,
+        username: user.username,
+        role: user.role,
+        phone: user.phone,
+        department: user.department,
+        position: user.position,
+        accountType: 'ProviderUser',
+    };
+    const token = jwt.sign(
+        { payload: data },
+        {
+            key: privateKey.replace(/\\n/gm, '\n'),
+            passphrase: TokenSecret,
+        },
+        {
+            issuer: TokenIssuer,
+            algorithm: 'RS512',
+            expiresIn: '1d',
+        }
+    );
+    return token;
+};
+
+const generateCompanyToken = (company) => {
+    const data = {
+        id: company._id,
+        companyName: company.companyName,
+        email: company.email,
+        status: company.status,
+        registrationNumber: company.registrationNumber,
+        accountType: 'InsuranceCompany',
+    };
+    const token = jwt.sign(
+        { payload: data },
+        {
+            key: privateKey.replace(/\\n/gm, '\n'),
+            passphrase: TokenSecret,
+        },
+        {
+            issuer: TokenIssuer,
+            algorithm: 'RS512',
+            expiresIn: '1d',
+        }
+    );
+    return token;
+};
+
+module.exports = { GenerateToken, generate, generatePocToken, generateCompanyToken, generateProviderUserToken };
