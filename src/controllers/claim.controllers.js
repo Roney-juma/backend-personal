@@ -240,6 +240,14 @@ const getClaimsTotalCost = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 }
+const awardClaimToGarage = async (req, res) => {
+  try {
+    const claim = await claimService.awardClaimToGarage(req.params.claimId, req.params.garageId);
+    res.status(200).json(claim);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
 
 
 module.exports = {
@@ -264,6 +272,7 @@ module.exports = {
   acceptSupplierBid,
   updateClaimById,
   countClaimsByStatus,
-  getClaimsTotalCost
+  getClaimsTotalCost,
+  awardClaimToGarage
   
 };

@@ -488,6 +488,33 @@ const awardBidToGarage = async (id, bidId, req) => {
 
   return claim;
 };
+// Award claim to a garage directly (without a specific bid)
+const awardClaimToGarage = async (claimId, garageId) => {
+  const claim = await Claim.findById(claimId);
+  if (!claim) throw new Error('Claim not found');
+  const garage = await Garage.findById(garageId);
+  if (!garage) throw new Error('Garage not found');
+  // Just create a new bid for the garage and award it
+  const newBid = {
+    bidderType: 'garage',
+    garageId: garage._id,
+    totalCost: 0, // Assuming no cost is provided
+    status: 'awarded',
+  };
+  claim.bids.push(newBid);
+  claim.awardedGarage = {
+    garageId: garage._id,
+    awardedAmount: 0,
+    awardedDate: Date.now(),
+  };
+  claim.status = 'Repair';
+  // Increment pending work for the garage
+  garage.pendingWork = (garage.pendingWork || 0) + 1;
+  await garage.save();
+  await claim.save();
+  return claim;
+};
+
 
 
 
@@ -706,5 +733,6 @@ module.exports = {
   updateClaim,
   countClaimsByStatus,
   getPaymentTotals,
+  awardClaimToGarage
 
 };
