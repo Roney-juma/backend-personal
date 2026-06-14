@@ -269,6 +269,26 @@ const rejectGarageBid = async (req, res) => {
   }
 };
 
+// Award a supplier bid
+const awardSupplierBid = async (req, res) => {
+  try {
+    const bid = await claimService.awardSupplierBid(req.params.claimId, req.params.bidId, req);
+    res.status(200).json(bid);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Reject a specific supplier bid
+const rejectSupplierBid = async (req, res) => {
+  try {
+    const bid = await claimService.rejectSupplierBid(req.params.claimId, req.params.bidId, req);
+    res.status(200).json(bid);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   generateClaimLinkController,
   fileClaim,
@@ -294,5 +314,7 @@ module.exports = {
   getClaimsTotalCost,
   awardClaimToGarage,
   rejectAssessorBid,
-  rejectGarageBid
+  rejectGarageBid,
+  awardSupplierBid,
+  rejectSupplierBid
 };

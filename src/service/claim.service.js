@@ -4,6 +4,7 @@ const Assessor = require('../models/assessor.model');
 const Garage = require('../models/garage.model');
 const { writeAuditLog } = require('../utils/auditHelper');
 const SupplyBid = require('../models/supplyBids.model');
+const Supplier = require('../models/supplier.model');
 const Notification = require('../models/notification.model');
 const emailService = require('./email.service');
 const ClaimToken = require('../models/claimToken.model');
@@ -696,6 +697,96 @@ const acceptSupplierBid = async (claimId, bidId, req) => {
   return supplyBid;
 };
 
+// Award a supplier bid (accept it and reject all others for the claim)
+const awardSupplierBid = async (claimId, bidId, req) => {
+  const supplyBid = await SupplyBid.findById(bidId);
+  if (!supplyBid) throw new Error('Supply bid not found');
+  if (supplyBid.status !== 'Pending') throw new Error('Only pending bids can be awarded');
+
+  const start = Date.now();
+  supplyBid.status = 'Accepted';
+  await supplyBid.save();
+
+  await SupplyBid.updateMany(
+    { _id: { $ne: bidId }, claimId },
+    { $set: { status: 'Rejected' } }
+  );
+
+  const claim = await Claim.findById(claimId);
+  if (!claim) throw new Error('Claim not found');
+  claim.status = 'Garage';
+  await claim.save();
+
+  await Notification.create({
+    recipientId: supplyBid.supplierId,
+    recipientType: 'supplier',
+    content: `Your bid for claim ID: ${claimId} has been awarded.`,
+  });
+
+  await writeAuditLog(req, {
+    action: 'UPDATE',
+    module: 'SupplyBid',
+    actionDescription: `Awarded supplier bid ${bidId} for claim ${claimId}`,
+    resourceType: 'SupplyBid',
+    resourceId: supplyBid._id,
+    statusCode: 200,
+    success: true,
+    responseTimeMs: Date.now() - start,
+    changes: { old: { status: 'Pending' }, new: { status: 'Accepted' } },
+  });
+
+  const supplier = await Supplier.findById(supplyBid.supplierId);
+  if (supplier && supplier.email) {
+    await emailService.sendEmailNotification(
+      supplier.email,
+      'Bid Award Notification',
+      `Dear ${supplier.name},\n\nCongratulations! Your parts bid for claim ID: ${claimId} has been awarded. Please proceed with delivering the parts as soon as possible.\n\nBest Regards,\nAdmin Team`
+    );
+  }
+
+  return supplyBid;
+};
+
+// Reject a specific supplier bid
+const rejectSupplierBid = async (claimId, bidId, req) => {
+  const supplyBid = await SupplyBid.findById(bidId);
+  if (!supplyBid) throw new Error('Supply bid not found');
+  if (supplyBid.status !== 'Pending') throw new Error('Only pending bids can be rejected');
+
+  const start = Date.now();
+  supplyBid.status = 'Rejected';
+  await supplyBid.save();
+
+  await Notification.create({
+    recipientId: supplyBid.supplierId,
+    recipientType: 'supplier',
+    content: `Your bid for claim ID: ${claimId} has been rejected.`,
+  });
+
+  await writeAuditLog(req, {
+    action: 'UPDATE',
+    module: 'SupplyBid',
+    actionDescription: `Rejected supplier bid ${bidId} for claim ${claimId}`,
+    resourceType: 'SupplyBid',
+    resourceId: supplyBid._id,
+    statusCode: 200,
+    success: true,
+    responseTimeMs: Date.now() - start,
+    changes: { old: { status: 'Pending' }, new: { status: 'Rejected' } },
+  });
+
+  const supplier = await Supplier.findById(supplyBid.supplierId);
+  if (supplier && supplier.email) {
+    await emailService.sendEmailNotification(
+      supplier.email,
+      'Bid Rejection Notification',
+      `Dear ${supplier.name},\n\nWe regret to inform you that your parts bid for claim ID: ${claimId} has not been successful.\n\nThank you for your participation.\n\nBest Regards,\nAdmin Team`
+    );
+  }
+
+  return supplyBid;
+};
+
 const countClaimsByStatus = async () => {
   const allStatuses = ['Pending', 'Approved', 'Rejected', 'Assessment', 'Assessed', 'Repair', 'Garage', 'Re-Assessment', 'Completed'];
 
@@ -823,6 +914,8 @@ module.exports = {
   getPaymentTotals,
   awardClaimToGarage,
   rejectAssessorBid,
-  rejectGarageBid
+  rejectGarageBid,
+  awardSupplierBid,
+  rejectSupplierBid
 
 };
