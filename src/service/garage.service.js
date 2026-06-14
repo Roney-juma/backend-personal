@@ -248,6 +248,10 @@ Admin Team`
 };
 
 const getGarageBids = async (garageId) => {
+  if (!garageId) throw new Error('garageId is required');
+
+  const garageIdStr = garageId.toString();
+
   const claims = await Claim.find({
     $or: [
       { 'bids.bidderType': 'garage', 'bids.garageId': garageId },
@@ -258,10 +262,8 @@ const getGarageBids = async (garageId) => {
   const garageBids = [];
 
   claims.forEach((claim) => {
-    // Filter bids where the garageId matches
     const filteredBids = claim.bids.filter(
-      (bid) =>
-        bid.bidderType === 'garage' && bid.garageId.toString() === garageId
+      (bid) => bid.bidderType === 'garage' && bid.garageId?.toString() === garageIdStr
     );
 
     filteredBids.forEach((bid) => {
@@ -276,14 +278,10 @@ const getGarageBids = async (garageId) => {
       });
     });
 
-    // Add claims where the garageId matches awardedGarage
-    if (
-      claim.awardedGarage &&
-      claim.awardedGarage.garageId.toString() === garageId
-    ) {
+    if (claim.awardedGarage?.garageId?.toString() === garageIdStr) {
       garageBids.push({
         claimId: claim._id,
-        bidId: null, // No specific bid for awardedGarage
+        bidId: null,
         amount: claim.awardedGarage.awardedAmount,
         status: 'awarded',
         bidDate: claim.awardedGarage.awardedDate,
@@ -292,8 +290,6 @@ const getGarageBids = async (garageId) => {
       });
     }
   });
-
-  if (garageBids.length === 0) throw new Error('No bids found for this Garage');
 
   return garageBids;
 };
