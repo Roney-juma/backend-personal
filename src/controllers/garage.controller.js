@@ -1,9 +1,18 @@
 const garageService = require('../service/garage.service');
 const tokenService = require('../service/token.service');
+const emailService = require('../service/email.service');
 
 const createGarage = async (req, res) => {
   try {
+    const rawPassword = req.body.password;
     const newGarage = await garageService.createGarage(req.body);
+
+    await emailService.sendEmailNotification(
+      newGarage.email,
+      'Welcome To AVE Insurance',
+      `Dear ${newGarage.name},\n\nYour account has been created on the AVE Insurance platform.\n\nLogin Details:\n  Email:    ${newGarage.email}\n  Password: ${rawPassword}\n  Role:     ${newGarage.accountType}\n\nPlease log in and change your password at your earliest convenience.\n\nRegards,\nThe AVE Insurance Team`
+    );
+
     res.status(201).json(newGarage);
   } catch (error) {
     console.error('Error creating garage:', error.message);

@@ -15,14 +15,13 @@ const login = async (req, res) => {
 
 const createAssessor = async (req, res) => {
   try {
-    const assessorData = req.body;
-    const newAssessor = await assessorService.createAssessor(assessorData, req);
+    const rawPassword = req.body.password;
+    const newAssessor = await assessorService.createAssessor(req.body, req);
 
-    // Send email notification
     await emailService.sendEmailNotification(
       newAssessor.email,
-      'Welcome To Ave Insurance',
-      `Dear ${newAssessor.name},\n\nYour account has been created.\nUsername: ${newAssessor.email}`
+      'Welcome To AVE Insurance',
+      `Dear ${newAssessor.name},\n\nYour account has been created on the AVE Insurance platform.\n\nLogin Details:\n  Email:    ${newAssessor.email}\n  Password: ${rawPassword}\n  Role:     ${newAssessor.accountType}\n\nPlease log in and change your password at your earliest convenience.\n\nRegards,\nThe AVE Insurance Team`
     );
 
     res.status(201).json(newAssessor);
