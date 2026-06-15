@@ -25,5 +25,6 @@ router.use('/api-keys',      require('./apiKey.route'));
 router.use('/support',       require('./supportTicket.route'));
 router.use('/dashboard',     require('./providerDashboard.route'));
 router.use('/audit-logs',    require('./providerAuditLog.route'));
+router.use('/demo-requests', require('./demoRequest.route'));
 
 module.exports = router;
