@@ -29,7 +29,7 @@ async function authorizeRating(entityType, entityId, reviewerId, reviewerType, c
       const isAwardedGarage = claim.awardedGarage?.garageId?.toString() === entityId.toString();
       const isReassessment = claim.status === 'Completed';
       if (!isAwardedAssessor || !isAwardedGarage || !isReassessment) {
-        throw new Error('Not authorized: claim must be in Re-Assessment and linked to this assessor and garage');
+        throw new Error('Not authorized: claim must be in Completed and linked to this assessor and garage');
       }
     }
   } else if (entityType === 'supplier') {
