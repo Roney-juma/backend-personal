@@ -105,7 +105,7 @@ const getApprovedClaims = async (assessorId) => {
 
   const asseslatitude = assessor.location.latitude
   const asseslongitude = assessor.location.longitude;
-  if (!asseslatitude || !asseslatitude || !asseslongitude) {
+  if (!asseslatitude || !asseslongitude) {
     throw new Error('Assessor location coordinates are missing');
   }
 
@@ -127,7 +127,7 @@ const getApprovedClaims = async (assessorId) => {
     );
     console.log("distance", distance)
 
-    return distance <= 20;
+    return distance <= 50;
   });
 
   return nearbyClaims;
