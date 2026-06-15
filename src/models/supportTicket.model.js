@@ -25,7 +25,7 @@ const supportTicketSchema = new mongoose.Schema(
     },
     category: {
       type: String,
-      enum: ['technical', 'account', 'general','bug', 'feature_request','perfomance','data issue', 'other'],
+      enum: ['billing', 'technical', 'account', 'general', 'bug', 'feature_request', 'performance', 'data_issue', 'other'],
       default: 'general',
     },
     assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'providerUser' },

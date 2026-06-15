@@ -2,8 +2,9 @@ const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/supportTicket.controller');
 const verifyProviderToken = require('../middlewheres/verifyProviderToken');
+const verifyToken = require('../middlewheres/verifyToken');
 
-router.post('/', controller.createTicket);
+router.post('/', verifyToken(), controller.createTicket);
 router.get('/', verifyProviderToken(), controller.getAllTickets);
 router.get('/stats', verifyProviderToken(), controller.getTicketStats);
 router.get('/company/:companyId', verifyProviderToken(), controller.getTicketsByCompany);
