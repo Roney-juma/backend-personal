@@ -3,7 +3,7 @@ const router = express.Router();
 const controller = require('../controllers/supportTicket.controller');
 const verifyProviderToken = require('../middlewheres/verifyProviderToken');
 
-router.post('/', verifyProviderToken(), controller.createTicket);
+router.post('/', controller.createTicket);
 router.get('/', verifyProviderToken(), controller.getAllTickets);
 router.get('/stats', verifyProviderToken(), controller.getTicketStats);
 router.get('/company/:companyId', verifyProviderToken(), controller.getTicketsByCompany);
