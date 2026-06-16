@@ -94,7 +94,11 @@ const deleteClaim = async (req, res) => {
 // Reject a claim
 const rejectClaim = async (req, res) => {
   try {
-    const claim = await claimService.rejectClaim(req.params.id);
+    const { rejectionReason } = req.body;
+    if (!rejectionReason) {
+      return res.status(400).json({ message: 'Rejection reason is required' });
+    }
+    const claim = await claimService.rejectClaim(req.params.id, rejectionReason, req);
     res.status(200).json(claim);
   } catch (error) {
     res.status(500).json({ message: error.message });

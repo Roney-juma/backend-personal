@@ -302,10 +302,40 @@ const deleteClaim = async (id, req) => {
 };
 
 // Reject a claim
-const rejectClaim = async (id) => {
-  const claim = await Claim.findByIdAndUpdate(id, { status: 'rejected' }, { new: true });
+const rejectClaim = async (id, rejectionReason, req) => {
+  if (!rejectionReason || !rejectionReason.trim()) {
+    throw new Error('Rejection reason is required');
+  }
+
+  const start = Date.now();
+  const claim = await Claim.findByIdAndUpdate(
+    id,
+    { status: 'Rejected', rejectionReason: rejectionReason.trim() },
+    { new: true }
+  );
   if (!claim) {
     throw new Error('Claim not found');
+  }
+
+  await writeAuditLog(req, {
+    action: 'UPDATE',
+    module: 'Claim',
+    actionDescription: `Rejected claim ${id}`,
+    resourceType: 'Claim',
+    resourceId: claim._id,
+    statusCode: 200,
+    success: true,
+    responseTimeMs: Date.now() - start,
+    changes: { old: { status: claim.status }, new: { status: 'Rejected', rejectionReason } },
+  });
+
+  const claimant = claim.claimant;
+  if (claimant && claimant.email) {
+    await emailService.sendEmailNotification(
+      claimant.email,
+      'Claim Rejection Notification',
+      `Dear ${claimant.name},\n\nWe regret to inform you that your claim (Reference: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id}) has been rejected.\n\nReason for rejection: ${rejectionReason.trim()}\n\nIf you believe this decision is incorrect or would like to discuss further, please contact our support team.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+    );
   }
 
   return claim;
