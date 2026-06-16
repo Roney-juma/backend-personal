@@ -279,6 +279,7 @@ const getGarageBids = async (garageId) => {
         bidDate: bid.bidDate,
         claimStatus: claim.status,
         vehicleType: claim.vehiclesInvolved?.[0] || 'Unknown',
+        supplierId: bid.awardedSupplierId || null,
       });
     });
 
