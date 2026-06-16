@@ -1,9 +1,9 @@
+require("dotenv").config();
 const express = require("express");
 const http = require("http");
 const router = require("./routes/index");
 const logger = require('./middlewheres/logger');
 const mongoose = require("mongoose");
-require("dotenv").config();
 const cors = require("cors");
 const socketModule = require('./socket');
 
