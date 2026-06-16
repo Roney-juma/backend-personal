@@ -43,7 +43,7 @@ async function authorizeRating(entityType, entityId, reviewerId, reviewerType, c
       supplierId: entityId,
       status: 'Delivered',
     });
-    if (!supplyBid) {
+    if (!supplier) {
       throw new Error('Not authorized: no delivered supply bid found for this supplier and claim');
     }
   }
