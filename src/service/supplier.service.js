@@ -77,9 +77,8 @@ const submitBidForSupply = async (claimId, supplierId, parts) => {
   console.log('Parts received for bid submission:', parts);
 
   const normalizedParts = parts.map(p => ({
-    partName: p.partName || p.name || p.description || '',
-    quantity: p.quantity || 1,
-    cost: p.cost || p.price || p.amount || 0,
+    partName: p.partName || p.name || '',
+    cost: p.cost || 0,
   }));
 
   const totalCost = normalizedParts.reduce((acc, part) => acc + part.cost, 0);

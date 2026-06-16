@@ -5,7 +5,6 @@ const supplyBidSchema = new mongoose.Schema({
     supplierId: { type: mongoose.Schema.Types.ObjectId, ref: 'Supplier', required: true },
     parts: [{
       partName: String,
-      quantity: { type: Number, default: 1 },
       cost: Number
     }],
     totalCost: { type: Number, required: true },
