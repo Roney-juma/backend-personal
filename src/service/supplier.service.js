@@ -78,6 +78,7 @@ const submitBidForSupply = async (claimId, supplierId, parts) => {
 
   const normalizedParts = parts.map(p => ({
     partName: p.partName || p.name || p.description || '',
+    quantity: p.quantity || 1,
     cost: p.cost || p.price || p.amount || 0,
   }));
 
