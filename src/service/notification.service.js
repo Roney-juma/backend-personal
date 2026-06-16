@@ -1,5 +1,6 @@
 const Notification = require('../models/notification.model');
 const { getIO } = require('../socket');
+const firebaseService = require('./firebase.service');
 
 const createAndEmit = async ({ recipientId, recipientType, type, title, content, claimId }) => {
   const notification = await Notification.create({
@@ -11,11 +12,21 @@ const createAndEmit = async ({ recipientId, recipientType, type, title, content,
     ...(claimId && { claimId }),
   });
 
+  // Socket.IO — real-time if user is connected to the portal
   try {
     getIO().to(`notification:${recipientId}`).emit('notification', notification);
   } catch {
-    // Socket not yet initialized or recipient not connected — DB record is sufficient
+    // Socket not yet initialized or recipient not connected
   }
+
+  // Firebase Cloud Messaging — push to mobile/web app
+  await firebaseService.sendPushNotification({
+    recipientId,
+    recipientType,
+    title,
+    body: content,
+    data: { notificationId: String(notification._id), ...(claimId && { claimId: String(claimId) }) },
+  });
 
   return notification;
 };

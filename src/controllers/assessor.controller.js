@@ -159,6 +159,18 @@ const getTopAssessors = async (req, res) => {
   }
 };
 
+const updateFcmToken = async (req, res) => {
+  try {
+    const { fcmToken } = req.body;
+    if (!fcmToken) return res.status(400).json({ message: 'fcmToken is required' });
+    const { updateFcmToken: update } = require('../service/firebase.service');
+    await update(req.params.id, 'assessor', fcmToken);
+    res.status(200).json({ message: 'FCM token updated' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   login,
   createAssessor,
@@ -174,5 +186,6 @@ module.exports = {
   completeReAssessment,
   rejectReAssessment,
   getAssessorStatistics,
-  getTopAssessors
+  getTopAssessors,
+  updateFcmToken,
 };

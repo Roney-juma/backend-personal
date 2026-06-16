@@ -14,5 +14,6 @@ router.get("/",verifyToken(), customerController.getAllCustomers)
 router.get('/get-garages/:claimId',verifyToken(), customerController.getGarage)
 router.put('/updateCustomer/:customerId',verifyToken(), customerController.updateCustomer)
 router.get('/myClaims/:customerId',verifyToken(), customerController.getCustomerClaims)
+router.patch('/:id/fcm-token', verifyToken(), customerController.updateFcmToken)
 
 module.exports = router;

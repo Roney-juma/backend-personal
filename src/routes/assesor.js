@@ -20,6 +20,6 @@ router.get('/:id',verifyToken(), assesorController.getAssessorById)
 router.post('/bid/:claimId',verifyToken(), assesorController.placeBid)
 router.put('/:id',verifyToken(), assesorController.updateAssessor)
 router.get('/myBids/:assessorId',verifyToken(), assesorController.getAssessorBids)
-
+router.patch('/:id/fcm-token', verifyToken(), assesorController.updateFcmToken)
 
 module.exports = router;

@@ -163,6 +163,18 @@ const getTopGarages = async (req, res) => {
   };
 
 
+const updateFcmToken = async (req, res) => {
+  try {
+    const { fcmToken } = req.body;
+    if (!fcmToken) return res.status(400).json({ message: 'fcmToken is required' });
+    const { updateFcmToken: update } = require('../service/firebase.service');
+    await update(req.params.id, 'garage', fcmToken);
+    res.status(200).json({ message: 'FCM token updated' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   createGarage,
   login,
@@ -176,5 +188,6 @@ module.exports = {
   getGarageBids,
   resetPassword,
   getGarageStats,
-  getTopGarages
+  getTopGarages,
+  updateFcmToken,
 };

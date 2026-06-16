@@ -17,6 +17,6 @@ router.get('/:id',verifyToken(), supplierController.getSupplierById)
 router.post('/supplyBid/:claimId',verifyToken(), supplierController.submitBidForSupply)
 router.put('/:id',verifyToken(), supplierController.updateSupplier)
 router.get('/myBids/:supplierId',verifyToken(), supplierController.getMyBidHistory)
-
+router.patch('/:id/fcm-token', verifyToken(), supplierController.updateFcmToken)
 
 module.exports = router;

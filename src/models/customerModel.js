@@ -45,7 +45,8 @@ const customerSchema = new mongoose.Schema(
     isDeleted: {
       type: Boolean,
       default: false,
-  },
+    },
+    fcmToken: { type: String },
   },
   {
     timestamps: true,

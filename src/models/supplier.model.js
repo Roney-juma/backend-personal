@@ -32,7 +32,8 @@ const supplierSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
-  partsAvailable: [{ type: String }]
+  partsAvailable: [{ type: String }],
+  fcmToken: { type: String },
 }, { timestamps: true });
 
 supplierSchema.methods.isPasswordMatch = async function (password) {

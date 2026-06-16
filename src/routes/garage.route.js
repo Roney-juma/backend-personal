@@ -17,5 +17,6 @@ router.put('/:garageId',verifyToken(), garageController.updateGarage)
 router.post('/bidClaim/:id',verifyToken(), garageController.placeBid)
 router.post('/completeJob/:id',verifyToken(), garageController.completeRepair)
 router.get('/myBids/:garageId',verifyToken(), garageController.getGarageBids)
+router.patch('/:id/fcm-token', verifyToken(), garageController.updateFcmToken)
 
 module.exports = router;

@@ -41,7 +41,8 @@ const assessorSchema = new Schema({
       feedback: { type: String },
       createdAt: { type: Date, default: Date.now }
     }]
-  }
+  },
+  fcmToken: { type: String },
 }, { timestamps: true });
 
 assessorSchema.pre('save', async function (next) {
