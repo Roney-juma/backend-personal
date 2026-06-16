@@ -4,26 +4,42 @@ const { Schema } = mongoose;
 const notificationSchema = new Schema({
   recipientId: {
     type: Schema.Types.ObjectId,
+    required: true,
   },
   recipientType: {
     type: String,
-    enum: ['assessor', 'garage', 'supplier'], // Specify the type of recipient
-    required: true
+    enum: ['assessor', 'garage', 'supplier', 'customer', 'admin'],
+    required: true,
+  },
+  type: {
+    type: String,
+    enum: [
+      'claim_submitted', 'claim_approved', 'claim_rejected',
+      'bid_awarded', 'bid_rejected', 'repair_started', 'claim_completed',
+    ],
+    required: true,
+  },
+  title: {
+    type: String,
+    required: true,
   },
   content: {
     type: String,
-    required: true
+    required: true,
+  },
+  claimId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Claim',
   },
   isRead: {
     type: Boolean,
-    default: false
+    default: false,
   },
   createdAt: {
     type: Date,
-    default: Date.now
-  }
+    default: Date.now,
+  },
 });
 
-// Export the Notification model
 const Notification = mongoose.model('Notification', notificationSchema);
 module.exports = Notification;

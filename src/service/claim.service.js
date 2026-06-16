@@ -5,7 +5,7 @@ const Garage = require('../models/garage.model');
 const { writeAuditLog } = require('../utils/auditHelper');
 const SupplyBid = require('../models/supplyBids.model');
 const Supplier = require('../models/supplier.model');
-const Notification = require('../models/notification.model');
+const notificationService = require('./notification.service');
 const emailService = require('./email.service');
 const ClaimToken = require('../models/claimToken.model');
 const crypto = require('crypto');
@@ -267,6 +267,16 @@ const approveClaim = async (id, req) => {
       `Dear ${claimant.name},\n\nWe are pleased to inform you that your claim with ID: ${claim.vehiclesInvolved[0].licensePlate} has been approved. The compensation will be processed shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
+  if (claim.customerId) {
+    await notificationService.createAndEmit({
+      recipientId: claim.customerId,
+      recipientType: 'customer',
+      type: 'claim_approved',
+      title: 'Claim Approved',
+      content: `Your claim (${claim.vehiclesInvolved[0]?.licensePlate || claim._id}) has been approved.`,
+      claimId: claim._id,
+    });
+  }
   return claim;
 };
 
@@ -337,6 +347,16 @@ const rejectClaim = async (id, rejectionReason, req) => {
       `Dear ${claimant.name},\n\nWe regret to inform you that your claim (Reference: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id}) has been rejected.\n\nReason for rejection: ${rejectionReason.trim()}\n\nIf you believe this decision is incorrect or would like to discuss further, please contact our support team.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
+  if (claim.customerId) {
+    await notificationService.createAndEmit({
+      recipientId: claim.customerId,
+      recipientType: 'customer',
+      type: 'claim_rejected',
+      title: 'Claim Rejected',
+      content: `Your claim (${claim.vehiclesInvolved[0]?.licensePlate || claim._id}) has been rejected. Reason: ${rejectionReason.trim()}`,
+      claimId: claim._id,
+    });
+  }
 
   return claim;
 };
@@ -389,11 +409,13 @@ const awardClaim = async (id, bidId, req) => {
   });
 
 
-  // Send notification to the awarded assessor
-  await Notification.create({
+  await notificationService.createAndEmit({
     recipientId: bid.assessorId,
     recipientType: 'assessor',
-    content: `Your bid for claim ID: ${claim._id} has been awarded.`,
+    type: 'bid_awarded',
+    title: 'Bid Awarded',
+    content: `Your bid for claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been awarded.`,
+    claimId: claim._id,
   });
   const start = Date.now();
   await claim.save();
@@ -470,10 +492,13 @@ const awardBidToGarage = async (id, bidId, req) => {
   garage.pendingWork = (garage.pendingWork || 0) + 1;
   await garage.save();
 
-  await Notification.create({
+  await notificationService.createAndEmit({
     recipientId: bid.garageId,
     recipientType: 'garage',
-    content: `Your bid for claim ID: ${claim.vehiclesInvolved[0].licensePlate} has been awarded.`,
+    type: 'bid_awarded',
+    title: 'Bid Awarded',
+    content: `Your bid for claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been awarded.`,
+    claimId: claim._id,
   });
   const start = Date.now();
   await claim.save();
@@ -561,10 +586,13 @@ const rejectAssessorBid = async (id, bidId, req) => {
 
   bid.status = 'rejected';
 
-  await Notification.create({
+  await notificationService.createAndEmit({
     recipientId: bid.assessorId,
     recipientType: 'assessor',
-    content: `Your bid for claim ID: ${claim._id} has been rejected.`,
+    type: 'bid_rejected',
+    title: 'Bid Rejected',
+    content: `Your bid for claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been rejected.`,
+    claimId: claim._id,
   });
 
   const start = Date.now();
@@ -605,10 +633,13 @@ const rejectGarageBid = async (id, bidId, req) => {
 
   bid.status = 'rejected';
 
-  await Notification.create({
+  await notificationService.createAndEmit({
     recipientId: bid.garageId,
     recipientType: 'garage',
-    content: `Your bid for claim ID: ${claim._id} has been rejected.`,
+    type: 'bid_rejected',
+    title: 'Bid Rejected',
+    content: `Your bid for claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been rejected.`,
+    claimId: claim._id,
   });
 
   const start = Date.now();
@@ -747,10 +778,13 @@ const awardSupplierBid = async (claimId, bidId, req) => {
   claim.status = 'Garage';
   await claim.save();
 
-  await Notification.create({
+  await notificationService.createAndEmit({
     recipientId: supplyBid.supplierId,
     recipientType: 'supplier',
-    content: `Your bid for claim ID: ${claimId} has been awarded.`,
+    type: 'bid_awarded',
+    title: 'Bid Awarded',
+    content: `Your parts bid for claim ${claimId} has been awarded.`,
+    claimId,
   });
 
   await writeAuditLog(req, {
@@ -787,10 +821,13 @@ const rejectSupplierBid = async (claimId, bidId, req) => {
   supplyBid.status = 'Rejected';
   await supplyBid.save();
 
-  await Notification.create({
+  await notificationService.createAndEmit({
     recipientId: supplyBid.supplierId,
     recipientType: 'supplier',
-    content: `Your bid for claim ID: ${claimId} has been rejected.`,
+    type: 'bid_rejected',
+    title: 'Bid Rejected',
+    content: `Your parts bid for claim ${claimId} has been rejected.`,
+    claimId,
   });
 
   await writeAuditLog(req, {
