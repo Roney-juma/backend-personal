@@ -15,6 +15,7 @@ const provider = require("./provider.route")
 const companyApi = require("./companyApi.route")
 const demoRequest = require("./demoRequest.route")
 const companySupport = require("./companySupport.route")
+const notifications = require("./notification.route")
 
 
 const router = express.Router()
@@ -35,6 +36,7 @@ router.use("/provider", provider)
 router.use("/api/v1", companyApi)
 router.use("/demo-requests", demoRequest)
 router.use("/support", companySupport)
+router.use("/notifications", notifications)
 
 
 module.exports  = router
