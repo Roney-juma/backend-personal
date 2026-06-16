@@ -111,6 +111,7 @@ const submitBidForSupply = async (req, res) => {
   try {
       const { claimId } = req.params;
       const { supplierId, parts } = req.body;
+      console.log('Submitting supply parts:', { parts });
 
       // Call the service to submit the bid
       const result = await supplierService.submitBidForSupply(claimId, supplierId, parts);

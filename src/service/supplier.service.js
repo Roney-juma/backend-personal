@@ -74,6 +74,7 @@ const submitBidForSupply = async (claimId, supplierId, parts) => {
   if (existingBid) {
       return { error: 'You have already submitted a bid for this claim' };
   }
+  console.log('Parts received for bid submission:', parts);
 
   const normalizedParts = parts.map(p => ({
     partName: p.partName || p.name || p.description || '',
