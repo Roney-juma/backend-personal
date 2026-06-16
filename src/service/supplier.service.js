@@ -75,12 +75,17 @@ const submitBidForSupply = async (claimId, supplierId, parts) => {
       return { error: 'You have already submitted a bid for this claim' };
   }
 
-  const totalCost = parts.reduce((acc, part) => acc + part.cost, 0);
+  const normalizedParts = parts.map(p => ({
+    partName: p.partName || p.name || p.description || '',
+    cost: p.cost || p.price || p.amount || 0,
+  }));
+
+  const totalCost = normalizedParts.reduce((acc, part) => acc + part.cost, 0);
 
   const supplyBid = new SupplyBid({
       claimId,
       supplierId,
-      parts,
+      parts: normalizedParts,
       totalCost,
       status: 'Pending',
   });
