@@ -1,4 +1,4 @@
-const admin = require('../config/firebase');
+const { getMessaging } = require('firebase-admin/messaging');
 const Customer = require('../models/customerModel');
 const Assessor = require('../models/assessor.model');
 const Garage = require('../models/garage.model');
@@ -19,7 +19,7 @@ const sendPushNotification = async ({ recipientId, recipientType, title, body, d
     const user = await Model.findById(recipientId).select('fcmToken').lean();
     if (!user?.fcmToken) return;
 
-    await admin.messaging().send({
+    await getMessaging().send({
       token: user.fcmToken,
       notification: { title, body },
       data: Object.fromEntries(
