@@ -1,3 +1,4 @@
+require('../config/firebase');
 const { getMessaging } = require('firebase-admin/messaging');
 const Customer = require('../models/customerModel');
 const Assessor = require('../models/assessor.model');
