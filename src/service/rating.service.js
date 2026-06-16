@@ -38,7 +38,7 @@ async function authorizeRating(entityType, entityId, reviewerId, reviewerType, c
     if (!isAwardedGarage) {
       throw new Error('Not authorized: you are not the awarded garage for this claim');
     }
-    const supplyBid = await SupplyBid.findOne({
+    const supplier = await Supplier.findOne({
       claimId,
       supplierId: entityId,
       status: 'Delivered',
