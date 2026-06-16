@@ -74,7 +74,12 @@ const submitBidForSupply = async (claimId, supplierId, parts) => {
   if (existingBid) {
       return { error: 'You have already submitted a bid for this claim' };
   }
-  console.log('Parts received for bid submission:', parts);
+//   console.log('Parts received for bid submission:', parts);// [
+// 0|app    |   { name: 'bumper', quantity: 1, cost: 1000 },
+// 0|app    |   { name: 'Bonet, areoai and Pain', quantity: 1, cost: 1000 },
+// 0|app    |   { name: 'Left Head lights', quantity: 1, cost: 1000 },
+// 0|app    |   { name: 'Wind Ahiled', quantity: 1, cost: 1000 }
+// 0|app    | ]
 
   const normalizedParts = parts.map(p => ({
     partName: p.partName || p.name || '',

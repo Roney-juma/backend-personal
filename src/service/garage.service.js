@@ -5,6 +5,7 @@ const customerModel = require("../models/customerModel");
 const bcrypt = require('bcrypt');
 const emailService = require("./email.service");
 const tokenService = require("./token.service");
+const SupplyBid = require('../models/supplyBids.model');
 
 const createGarage = async (garage) => {
   const plainPassword = garage.password;
@@ -177,6 +178,8 @@ const placeBid = async (claimId, garageId, description, timeline, parts) => {
   const totalCost = parts.reduce((total, part) => total + part.cost, 0);
   const garage = await Garage.findById(garageId);
 
+  const acceptedSupplyBid = await SupplyBid.findOne({ claimId, status: 'Accepted' });
+
   const newBid = {
     bidderType: 'garage',
     ratings: garage.ratings.averageRating,
@@ -186,6 +189,7 @@ const placeBid = async (claimId, garageId, description, timeline, parts) => {
       location: garage.location,
     },
     garageId,
+    awardedSupplierId: acceptedSupplyBid?.supplierId || null,
     parts,
     timeline,
     description,

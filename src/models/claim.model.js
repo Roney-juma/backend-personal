@@ -26,6 +26,11 @@ const bidSchema = new Schema({
     ref: 'Garage',
     required: function () { return this.bidderType === 'garage'; }
   },
+  awardedSupplierId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Supplier',
+    required: false
+  },
   parts: {
     type: [partSchema],
     required: false
