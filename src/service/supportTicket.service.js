@@ -14,8 +14,9 @@ const getAllTickets = async ({ status, priority, category, company, assignedTo, 
   if (company) filter.company = company;
   if (assignedTo) filter.assignedTo = assignedTo;
   const skip = (page - 1) * limit;
-  const [tickets, total] = await Promise.all([
+  const [tickets, total, unreadCounts] = await Promise.all([
     SupportTicket.find(filter)
+      .lean()
       .populate('company', 'companyName email')
       .populate('assignedTo', 'fullName email')
       .select('-messages')
@@ -23,8 +24,31 @@ const getAllTickets = async ({ status, priority, category, company, assignedTo, 
       .skip(skip)
       .limit(Number(limit)),
     SupportTicket.countDocuments(filter),
+    SupportTicket.aggregate([
+      { $match: filter },
+      {
+        $project: {
+          unreadCount: {
+            $size: {
+              $filter: {
+                input: '$messages',
+                as: 'msg',
+                cond: {
+                  $and: [
+                    { $eq: ['$$msg.sender', 'company'] },
+                    { $ne: ['$$msg.isRead', true] },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    ]),
   ]);
-  return { tickets, total, page: Number(page), limit: Number(limit), pages: Math.ceil(total / limit) };
+  const unreadMap = new Map(unreadCounts.map(({ _id, unreadCount }) => [_id.toString(), unreadCount]));
+  const ticketsWithUnread = tickets.map((t) => ({ ...t, unreadCount: unreadMap.get(t._id.toString()) ?? 0 }));
+  return { tickets: ticketsWithUnread, total, page: Number(page), limit: Number(limit), pages: Math.ceil(total / limit) };
 };
 
 const getTicketById = async (id) => {
@@ -53,6 +77,14 @@ const addMessage = async (id, message) => {
     ticket.status = 'in_progress';
   }
   return ticket.save();
+};
+
+const markMessagesAsRead = async (id) => {
+  return SupportTicket.updateOne(
+    { _id: id },
+    { $set: { 'messages.$[elem].isRead': true } },
+    { arrayFilters: [{ 'elem.sender': 'company' }] }
+  );
 };
 
 const assignTicket = async (id, userId) => {
@@ -102,6 +134,7 @@ module.exports = {
   getTicketsByCompany,
   updateTicket,
   addMessage,
+  markMessagesAsRead,
   assignTicket,
   resolveTicket,
   closeTicket,

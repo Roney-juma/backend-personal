@@ -7,6 +7,7 @@ const ticketMessageSchema = new mongoose.Schema(
     message: { type: String, required: true },
     attachments: [{ type: String }],
     sentAt: { type: Date, default: Date.now },
+    isRead: { type: Boolean, default: false },
   },
   { _id: false }
 );

@@ -9,6 +9,7 @@ router.get('/company/:companyId', verifyProviderToken(), controller.getTicketsBy
 router.get('/:id', verifyProviderToken(), controller.getTicketById);
 router.patch('/:id', verifyProviderToken(), controller.updateTicket);
 router.post('/:id/message', verifyProviderToken(), controller.addMessage);
+router.patch('/:id/read', verifyProviderToken(), controller.markAsRead);
 router.patch('/:id/assign', verifyProviderToken(), controller.assignTicket);
 router.patch('/:id/resolve', verifyProviderToken(), controller.resolveTicket);
 router.patch('/:id/close', verifyProviderToken(), controller.closeTicket);

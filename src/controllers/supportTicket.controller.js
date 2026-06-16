@@ -56,6 +56,15 @@ const addMessage = async (req, res) => {
   }
 };
 
+const markAsRead = async (req, res) => {
+  try {
+    await supportTicketService.markMessagesAsRead(req.params.id);
+    res.status(200).json({ message: 'Messages marked as read' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 const assignTicket = async (req, res) => {
   try {
     const { userId } = req.body;
@@ -104,6 +113,7 @@ module.exports = {
   getTicketsByCompany,
   updateTicket,
   addMessage,
+  markAsRead,
   assignTicket,
   resolveTicket,
   closeTicket,
