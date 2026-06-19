@@ -165,8 +165,30 @@ const claimSchema = new Schema({
   },
   status: {
     type: String,
-    enum: ['Pending', 'Approved', 'Rejected', 'Assessment', 'Assessed', 'Awarded', 'Repair', 'Garage','Re-Assessment', 'Completed'],
+    enum: ['Pending', 'Approved', 'Rejected', 'Assessment', 'Assessed', 'Awarded', 'Repair', 'Garage', 'Re-Assessment', 'SelfRepair', 'Completed'],
     default: 'Pending'
+  },
+  selfRepair: {
+    opted: { type: Boolean, default: false },
+    status: {
+      type: String,
+      enum: ['Pending', 'Submitted', 'Approved', 'Rejected', 'Paid'],
+      default: 'Pending'
+    },
+    amountRequested: { type: Number },
+    amountApproved: { type: Number },
+    receipts: [String],
+    description: { type: String },
+    bankingDetails: {
+      accountHolder: { type: String },
+      bankName: { type: String },
+      accountNumber: { type: String },
+      branchCode: { type: String },
+    },
+    submittedAt: { type: Date },
+    approvedAt: { type: Date },
+    rejectionReason: { type: String },
+    paidAt: { type: Date },
   },
   repairs: [{
     type: mongoose.Schema.Types.ObjectId,

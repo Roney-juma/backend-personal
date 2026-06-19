@@ -956,6 +956,248 @@ const getPaymentTotals = async () => {
 
 
 
+// Customer opts in to self-repair — only allowed when claim is Assessed
+const optInSelfRepair = async (claimId, req) => {
+  const claim = await Claim.findById(claimId);
+  if (!claim) throw new Error('Claim not found');
+  if (claim.status !== 'Assessed') throw new Error('Self-repair is only available for assessed claims');
+  if (claim.selfRepair && claim.selfRepair.opted) throw new Error('Self-repair already opted in for this claim');
+
+  const start = Date.now();
+  claim.status = 'SelfRepair';
+  claim.selfRepair = { opted: true, status: 'Pending' };
+  await claim.save();
+
+  await writeAuditLog(req, {
+    action: 'UPDATE',
+    module: 'Claim',
+    actionDescription: `Customer opted in to self-repair for claim ${claimId}`,
+    resourceType: 'Claim',
+    resourceId: claim._id,
+    statusCode: 200,
+    success: true,
+    responseTimeMs: Date.now() - start,
+    changes: { old: { status: 'Assessed' }, new: { status: 'SelfRepair' } },
+  });
+
+  if (claim.claimant && claim.claimant.email) {
+    await emailService.sendEmailNotification(
+      claim.claimant.email,
+      'Self-Repair Opt-In Confirmation',
+      `Dear ${claim.claimant.name},\n\nYou have opted to repair your vehicle yourself for claim reference: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id}.\n\nPlease submit your repair receipts and the total amount spent so we can process your reimbursement.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+    );
+  }
+
+  if (claim.customerId) {
+    await notificationService.createAndEmit({
+      recipientId: claim.customerId,
+      recipientType: 'customer',
+      type: 'self_repair_opted',
+      title: 'Self-Repair Opt-In Confirmed',
+      content: `You have opted in for self-repair on claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id}. Please submit your receipts.`,
+      claimId: claim._id,
+    });
+  }
+
+  return claim;
+};
+
+// Customer submits repair receipts and claimed amount
+const submitSelfRepair = async (claimId, { amountRequested, receipts, description, bankingDetails }, req) => {
+  const claim = await Claim.findById(claimId);
+  if (!claim) throw new Error('Claim not found');
+  if (claim.status !== 'SelfRepair') throw new Error('Claim is not in self-repair status');
+  if (!claim.selfRepair || !claim.selfRepair.opted) throw new Error('Self-repair was not opted in for this claim');
+  if (!amountRequested || amountRequested <= 0) throw new Error('A valid amount requested is required');
+  if (!receipts || receipts.length === 0) throw new Error('At least one receipt is required');
+
+  const start = Date.now();
+  claim.selfRepair.amountRequested = amountRequested;
+  claim.selfRepair.receipts = receipts;
+  claim.selfRepair.description = description || '';
+  claim.selfRepair.bankingDetails = bankingDetails || {};
+  claim.selfRepair.status = 'Submitted';
+  claim.selfRepair.submittedAt = new Date();
+  await claim.save();
+
+  await writeAuditLog(req, {
+    action: 'UPDATE',
+    module: 'Claim',
+    actionDescription: `Self-repair submission received for claim ${claimId}`,
+    resourceType: 'Claim',
+    resourceId: claim._id,
+    statusCode: 200,
+    success: true,
+    responseTimeMs: Date.now() - start,
+    changes: { old: { selfRepairStatus: 'Pending' }, new: { selfRepairStatus: 'Submitted', amountRequested } },
+  });
+
+  if (claim.claimant && claim.claimant.email) {
+    await emailService.sendEmailNotification(
+      claim.claimant.email,
+      'Self-Repair Submission Received',
+      `Dear ${claim.claimant.name},\n\nWe have received your self-repair submission for claim reference: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id}.\n\nAmount requested: R${amountRequested}\n\nOur team will review your submission and notify you of the outcome shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+    );
+  }
+
+  if (claim.customerId) {
+    await notificationService.createAndEmit({
+      recipientId: claim.customerId,
+      recipientType: 'customer',
+      type: 'self_repair_submitted',
+      title: 'Self-Repair Submitted',
+      content: `Your self-repair submission for claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} is under review.`,
+      claimId: claim._id,
+    });
+  }
+
+  return claim;
+};
+
+// Admin approves the self-repair reimbursement
+const approveSelfRepair = async (claimId, { amountApproved }, req) => {
+  const claim = await Claim.findById(claimId);
+  if (!claim) throw new Error('Claim not found');
+  if (!claim.selfRepair || claim.selfRepair.status !== 'Submitted') throw new Error('No submitted self-repair to approve');
+  if (!amountApproved || amountApproved <= 0) throw new Error('A valid approved amount is required');
+
+  const start = Date.now();
+  claim.selfRepair.amountApproved = amountApproved;
+  claim.selfRepair.status = 'Approved';
+  claim.selfRepair.approvedAt = new Date();
+  await claim.save();
+
+  await writeAuditLog(req, {
+    action: 'UPDATE',
+    module: 'Claim',
+    actionDescription: `Approved self-repair reimbursement for claim ${claimId}, amount: ${amountApproved}`,
+    resourceType: 'Claim',
+    resourceId: claim._id,
+    statusCode: 200,
+    success: true,
+    responseTimeMs: Date.now() - start,
+    changes: { old: { selfRepairStatus: 'Submitted' }, new: { selfRepairStatus: 'Approved', amountApproved } },
+  });
+
+  if (claim.claimant && claim.claimant.email) {
+    await emailService.sendEmailNotification(
+      claim.claimant.email,
+      'Self-Repair Reimbursement Approved',
+      `Dear ${claim.claimant.name},\n\nGreat news! Your self-repair reimbursement for claim reference: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been approved.\n\nApproved reimbursement amount: R${amountApproved}\n\nPayment will be processed to your provided banking details shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+    );
+  }
+
+  if (claim.customerId) {
+    await notificationService.createAndEmit({
+      recipientId: claim.customerId,
+      recipientType: 'customer',
+      type: 'self_repair_approved',
+      title: 'Self-Repair Reimbursement Approved',
+      content: `Your self-repair reimbursement of R${amountApproved} for claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been approved.`,
+      claimId: claim._id,
+    });
+  }
+
+  return claim;
+};
+
+// Admin rejects the self-repair reimbursement
+const rejectSelfRepair = async (claimId, { rejectionReason }, req) => {
+  const claim = await Claim.findById(claimId);
+  if (!claim) throw new Error('Claim not found');
+  if (!claim.selfRepair || claim.selfRepair.status !== 'Submitted') throw new Error('No submitted self-repair to reject');
+  if (!rejectionReason || !rejectionReason.trim()) throw new Error('Rejection reason is required');
+
+  const start = Date.now();
+  claim.selfRepair.status = 'Rejected';
+  claim.selfRepair.rejectionReason = rejectionReason.trim();
+  await claim.save();
+
+  await writeAuditLog(req, {
+    action: 'UPDATE',
+    module: 'Claim',
+    actionDescription: `Rejected self-repair reimbursement for claim ${claimId}`,
+    resourceType: 'Claim',
+    resourceId: claim._id,
+    statusCode: 200,
+    success: true,
+    responseTimeMs: Date.now() - start,
+    changes: { old: { selfRepairStatus: 'Submitted' }, new: { selfRepairStatus: 'Rejected', rejectionReason } },
+  });
+
+  if (claim.claimant && claim.claimant.email) {
+    await emailService.sendEmailNotification(
+      claim.claimant.email,
+      'Self-Repair Reimbursement Not Approved',
+      `Dear ${claim.claimant.name},\n\nWe regret to inform you that your self-repair reimbursement for claim reference: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has not been approved.\n\nReason: ${rejectionReason.trim()}\n\nIf you believe this decision is incorrect, please contact our support team.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+    );
+  }
+
+  if (claim.customerId) {
+    await notificationService.createAndEmit({
+      recipientId: claim.customerId,
+      recipientType: 'customer',
+      type: 'self_repair_rejected',
+      title: 'Self-Repair Reimbursement Rejected',
+      content: `Your self-repair reimbursement for claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} was not approved. Reason: ${rejectionReason.trim()}`,
+      claimId: claim._id,
+    });
+  }
+
+  return claim;
+};
+
+// Admin marks reimbursement as paid — closes the claim
+const markSelfRepairPaid = async (claimId, req) => {
+  const claim = await Claim.findById(claimId);
+  if (!claim) throw new Error('Claim not found');
+  if (!claim.selfRepair || claim.selfRepair.status !== 'Approved') throw new Error('Self-repair must be approved before marking as paid');
+
+  const start = Date.now();
+  claim.selfRepair.status = 'Paid';
+  claim.selfRepair.paidAt = new Date();
+  claim.status = 'Completed';
+  await claim.save();
+
+  await writeAuditLog(req, {
+    action: 'UPDATE',
+    module: 'Claim',
+    actionDescription: `Self-repair reimbursement marked as paid for claim ${claimId}`,
+    resourceType: 'Claim',
+    resourceId: claim._id,
+    statusCode: 200,
+    success: true,
+    responseTimeMs: Date.now() - start,
+    changes: { old: { status: 'SelfRepair', selfRepairStatus: 'Approved' }, new: { status: 'Completed', selfRepairStatus: 'Paid' } },
+  });
+
+  if (claim.claimant && claim.claimant.email) {
+    await emailService.sendEmailNotification(
+      claim.claimant.email,
+      'Self-Repair Reimbursement Paid',
+      `Dear ${claim.claimant.name},\n\nYour self-repair reimbursement of R${claim.selfRepair.amountApproved} for claim reference: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been paid to your provided banking details.\n\nYour claim is now closed.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+    );
+  }
+
+  if (claim.customerId) {
+    await notificationService.createAndEmit({
+      recipientId: claim.customerId,
+      recipientType: 'customer',
+      type: 'self_repair_paid',
+      title: 'Reimbursement Paid',
+      content: `Your self-repair reimbursement of R${claim.selfRepair.amountApproved} for claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been paid. Claim closed.`,
+      claimId: claim._id,
+    });
+  }
+
+  return claim;
+};
+
+// Get all claims that are in self-repair workflow
+const getSelfRepairClaims = async () => {
+  return await Claim.find({ 'selfRepair.opted': true }).sort({ createdAt: -1 });
+};
+
 module.exports = {
   generateClaimLink,
   fileClaimService,
@@ -983,6 +1225,11 @@ module.exports = {
   rejectAssessorBid,
   rejectGarageBid,
   awardSupplierBid,
-  rejectSupplierBid
-
+  rejectSupplierBid,
+  optInSelfRepair,
+  submitSelfRepair,
+  approveSelfRepair,
+  rejectSelfRepair,
+  markSelfRepairPaid,
+  getSelfRepairClaims,
 };

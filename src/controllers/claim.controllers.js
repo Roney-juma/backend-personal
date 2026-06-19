@@ -293,6 +293,65 @@ const rejectSupplierBid = async (req, res) => {
   }
 };
 
+const optInSelfRepair = async (req, res) => {
+  try {
+    const claim = await claimService.optInSelfRepair(req.params.id, req);
+    res.status(200).json(claim);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+const submitSelfRepair = async (req, res) => {
+  try {
+    const { amountRequested, receipts, description, bankingDetails } = req.body;
+    const claim = await claimService.submitSelfRepair(req.params.id, { amountRequested, receipts, description, bankingDetails }, req);
+    res.status(200).json(claim);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+const approveSelfRepair = async (req, res) => {
+  try {
+    const { amountApproved } = req.body;
+    if (!amountApproved) return res.status(400).json({ message: 'amountApproved is required' });
+    const claim = await claimService.approveSelfRepair(req.params.id, { amountApproved }, req);
+    res.status(200).json(claim);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+const rejectSelfRepair = async (req, res) => {
+  try {
+    const { rejectionReason } = req.body;
+    if (!rejectionReason) return res.status(400).json({ message: 'rejectionReason is required' });
+    const claim = await claimService.rejectSelfRepair(req.params.id, { rejectionReason }, req);
+    res.status(200).json(claim);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+const markSelfRepairPaid = async (req, res) => {
+  try {
+    const claim = await claimService.markSelfRepairPaid(req.params.id, req);
+    res.status(200).json(claim);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+const getSelfRepairClaims = async (req, res) => {
+  try {
+    const claims = await claimService.getSelfRepairClaims();
+    res.status(200).json(claims);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   generateClaimLinkController,
   fileClaim,
@@ -320,5 +379,11 @@ module.exports = {
   rejectAssessorBid,
   rejectGarageBid,
   awardSupplierBid,
-  rejectSupplierBid
+  rejectSupplierBid,
+  optInSelfRepair,
+  submitSelfRepair,
+  approveSelfRepair,
+  rejectSelfRepair,
+  markSelfRepairPaid,
+  getSelfRepairClaims,
 };

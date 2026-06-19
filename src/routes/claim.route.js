@@ -33,7 +33,13 @@ router.post('/rejectGarageBid/:id', claimController.rejectGarageBid);
 router.post('/awardSupplier/:claimId/:bidId', claimController.awardSupplierBid);
 router.post('/rejectSupplierBid/:claimId/:bidId', claimController.rejectSupplierBid);
 
-
+// Self-repair routes
+router.get('/self-repair', claimController.getSelfRepairClaims);
+router.post('/self-repair/opt-in/:id', claimController.optInSelfRepair);
+router.patch('/self-repair/submit/:id', claimController.submitSelfRepair);
+router.patch('/self-repair/approve/:id', claimController.approveSelfRepair);
+router.patch('/self-repair/reject/:id', claimController.rejectSelfRepair);
+router.patch('/self-repair/pay/:id', claimController.markSelfRepairPaid);
 
 
 
