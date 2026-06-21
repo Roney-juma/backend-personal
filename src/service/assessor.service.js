@@ -311,10 +311,13 @@ const completeRepair = async (claimId, req) => {
     changes: { old: { status: 'Re-Assessment' }, new: { status: 'Completed', repairDate: claim.repairDate } },
   });
 
-  // Get garage and reduce their pending repairs
-  const garage = await Garage.findById(claim.awardedGarage.garageId);
-  garage.pendingWork -= 1;
-  await garage.save();
+  if (!claim.selfRepair.opted && claim.awardedGarage && claim.awardedGarage.garageId) {
+    const garage = await Garage.findById(claim.awardedGarage.garageId);
+    garage.pendingWork -= 1;
+    await garage.save();
+  }
+  
+  
 
   if (claim.claimant && claim.claimant.email) {
     await emailService.sendEmailNotification(
