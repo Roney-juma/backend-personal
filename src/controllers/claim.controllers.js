@@ -295,7 +295,8 @@ const rejectSupplierBid = async (req, res) => {
 
 const optInSelfRepair = async (req, res) => {
   try {
-    const claim = await claimService.optInSelfRepair(req.params.id, req);
+    const { selfRepair } = req.body;
+    const claim = await claimService.optInSelfRepair(req.params.id, selfRepair, req);
     res.status(200).json(claim);
   } catch (error) {
     res.status(400).json({ message: error.message });

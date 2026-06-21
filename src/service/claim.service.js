@@ -957,15 +957,22 @@ const getPaymentTotals = async () => {
 
 
 // Customer opts in to self-repair — only allowed when claim is Assessed
-const optInSelfRepair = async (claimId, req) => {
+// Body: { selfRepair: { parts: [{ partName, cost }], other, description } }
+const optInSelfRepair = async (claimId, estimate, req) => {
   const claim = await Claim.findById(claimId);
   if (!claim) throw new Error('Claim not found');
   if (claim.status !== 'Assessed') throw new Error('Self-repair is only available for assessed claims');
   if (claim.selfRepair && claim.selfRepair.opted) throw new Error('Self-repair already opted in for this claim');
 
+  const { parts = [], other = 0, description = '' } = estimate || {};
+
   const start = Date.now();
   claim.status = 'SelfRepair';
-  claim.selfRepair = { opted: true, status: 'Pending' };
+  claim.selfRepair = {
+    opted: true,
+    status: 'Pending',
+    estimate: { parts, other: Number(other) || 0, description },
+  };
   await claim.save();
 
   await writeAuditLog(req, {
@@ -1002,7 +1009,7 @@ const optInSelfRepair = async (claimId, req) => {
   return claim;
 };
 
-// Customer submits repair receipts and claimed amount
+// Customer submits receipts, amount and banking details for reimbursement
 const submitSelfRepair = async (claimId, { amountRequested, receipts, description, bankingDetails }, req) => {
   const claim = await Claim.findById(claimId);
   if (!claim) throw new Error('Claim not found');

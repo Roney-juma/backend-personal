@@ -175,6 +175,11 @@ const claimSchema = new Schema({
       enum: ['Pending', 'Submitted', 'Approved', 'Rejected', 'Paid'],
       default: 'Pending'
     },
+    estimate: {
+      parts: { type: [partSchema], default: [] },
+      other: { type: Number, default: 0 },
+      description: { type: String },
+    },
     amountRequested: { type: Number },
     amountApproved: { type: Number },
     receipts: [String],
