@@ -229,7 +229,7 @@ const getAssessorBids = async (assessorId) => {
         bidDate: bid.bidDate,
         claimStatus: claim.status,
         vehicleType: claim.vehiclesInvolved?.[0] || 'Unknown',
-        selfRepair: claim.selfRepair?.opted ? { status: claim.selfRepair.status } : null,
+        selfRepair: claim.selfRepair?.opted ? { status: claim.selfRepair.status, opted: claim.selfRepair.opted } : null,
       });
     });
   }
