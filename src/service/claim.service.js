@@ -1296,6 +1296,45 @@ const getSelfRepairClaims = async () => {
   return await Claim.find({ 'selfRepair.opted': true }).sort({ createdAt: -1 });
 };
 
+// Customer resubmits a rejected claim with updated details
+const resubmitRejectedClaim = async (id, updateData, req) => {
+  const claim = await Claim.findById(id);
+  if (!claim) throw new Error('Claim not found');
+  if (claim.status !== 'Rejected') throw new Error('Only rejected claims can be resubmitted');
+
+  const allowedFields = [
+    'incidentDetails', 'vehiclesInvolved', 'drivers', 'passengers',
+    'damage', 'description', 'damagedParts', 'injuries', 'witnesses',
+    'policeReport', 'supportingDocuments', 'additionalInfo',
+  ];
+
+  allowedFields.forEach((field) => {
+    if (updateData[field] !== undefined) {
+      claim[field] = updateData[field];
+    }
+  });
+
+  claim.status = 'Pending';
+  claim.rejectionReason = undefined;
+
+  const start = Date.now();
+  await claim.save();
+
+  await writeAuditLog(req, {
+    action: 'UPDATE',
+    module: 'Claim',
+    actionDescription: `Customer resubmitted rejected claim ${id}`,
+    resourceType: 'Claim',
+    resourceId: claim._id,
+    statusCode: 200,
+    success: true,
+    responseTimeMs: Date.now() - start,
+    changes: { old: { status: 'Rejected' }, new: { status: 'Pending' } },
+  });
+
+  return claim;
+};
+
 module.exports = {
   generateClaimLink,
   fileClaimService,
@@ -1331,4 +1370,5 @@ module.exports = {
   rejectSelfRepair,
   markSelfRepairPaid,
   getSelfRepairClaims,
+  resubmitRejectedClaim,
 };

@@ -364,6 +364,15 @@ const getSelfRepairClaims = async (req, res) => {
   }
 };
 
+const resubmitRejectedClaim = async (req, res) => {
+  try {
+    const claim = await claimService.resubmitRejectedClaim(req.params.id, req.body, req);
+    res.status(200).json(claim);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
 module.exports = {
   generateClaimLinkController,
   fileClaim,
@@ -399,4 +408,5 @@ module.exports = {
   rejectSelfRepair,
   markSelfRepairPaid,
   getSelfRepairClaims,
+  resubmitRejectedClaim,
 };

@@ -29,6 +29,8 @@ router.post('/rejectGarageBid/:id', claimController.rejectGarageBid);
 router.post('/awardSupplier/:claimId/:bidId', claimController.awardSupplierBid);
 router.post('/rejectSupplierBid/:claimId/:bidId', claimController.rejectSupplierBid);
 
+router.patch('/resubmit/:id', claimController.resubmitRejectedClaim);
+
 // Self-repair routes — must be declared before /:id to avoid route shadowing
 router.get('/self-repair', claimController.getSelfRepairClaims);
 router.post('/self-repair/opt-in/:id', claimController.optInSelfRepair);
