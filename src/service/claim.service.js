@@ -1248,7 +1248,7 @@ const reAssessSelfRepair = async (claimId, { notes, recommendedAmount }, req) =>
     assessedAt: new Date(),
   };
   claim.selfRepair.status = 'In-Review';
-  claim.status = 'Assessed';
+  claim.status = 'Completed';
   await claim.save();
 
   await writeAuditLog(req, {
