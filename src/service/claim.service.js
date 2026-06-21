@@ -1314,8 +1314,7 @@ const resubmitRejectedClaim = async (id, updateData, req) => {
     }
   });
 
-  claim.status = 'Pending';
-  claim.rejectionReason = undefined;
+  claim.status = 'Resubmitted';
 
   const start = Date.now();
   await claim.save();
@@ -1329,7 +1328,7 @@ const resubmitRejectedClaim = async (id, updateData, req) => {
     statusCode: 200,
     success: true,
     responseTimeMs: Date.now() - start,
-    changes: { old: { status: 'Rejected' }, new: { status: 'Pending' } },
+    changes: { old: { status: 'Rejected' }, new: { status: 'Resubmitted' } },
   });
 
   return claim;

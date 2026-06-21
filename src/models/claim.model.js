@@ -165,7 +165,7 @@ const claimSchema = new Schema({
   },
   status: {
     type: String,
-    enum: ['Pending', 'Approved', 'Rejected', 'Assessment', 'Assessed', 'Awarded', 'Repair', 'Garage', 'Re-Assessment', 'SelfRepair', 'Completed'],
+    enum: ['Pending', 'Approved', 'Rejected', 'Resubmitted', 'Assessment', 'Assessed', 'Awarded', 'Repair', 'Garage', 'Re-Assessment', 'SelfRepair', 'Completed'],
     default: 'Pending'
   },
   selfRepair: {
