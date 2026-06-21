@@ -1224,7 +1224,7 @@ const markSelfRepairPaid = async (claimId, req) => {
       recipientType: 'customer',
       type: 'self_repair_paid',
       title: 'Reimbursement Paid',
-      content: `Your self-repair reimbursement of R${claim.selfRepair.amountApproved} for claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been paid. Claim closed.`,
+      content: `Your self-repair reimbursement of KES${claim.selfRepair.amountApproved} for claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been paid. Claim closed.`,
       claimId: claim._id,
     });
   }
