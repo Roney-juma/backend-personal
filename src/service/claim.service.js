@@ -691,7 +691,13 @@ const updateClaim = async (id, updateData) => {
 const getBidsByClaim = async (id) => {
   const claim = await Claim.findById(id);
   if (!claim) throw new Error('Claim not found');
-  return claim.bids.filter(bid => bid.bidderType === 'assessor');
+  return {
+    bids: claim.bids.filter(bid => bid.bidderType === 'assessor'),
+    selfRepair: {
+      opted: claim.selfRepair?.opted ?? false,
+      status: claim.selfRepair?.status ?? null,
+    },
+  };
 };
 
 // Get garage bids by claim
