@@ -1033,25 +1033,26 @@ const submitSelfRepair = async (claimId, { bankingDetails }, req) => {
   claim.selfRepair.bankingDetails = { paymentMethod, phoneNumber, bankName, accountHolderName, accountNumber };
   claim.selfRepair.status = 'Submitted';
   claim.selfRepair.submittedAt = new Date();
+  claim.status = 'Re-Assessment';
   await claim.save();
 
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'Claim',
-    actionDescription: `Self-repair submission received for claim ${claimId}`,
+    actionDescription: `Self-repair submission received for claim ${claimId}, sent for re-assessment`,
     resourceType: 'Claim',
     resourceId: claim._id,
     statusCode: 200,
     success: true,
     responseTimeMs: Date.now() - start,
-    changes: { old: { selfRepairStatus: 'Pending' }, new: { selfRepairStatus: 'Submitted', amountRequested } },
+    changes: { old: { status: 'SelfRepair', selfRepairStatus: 'Submitted' }, new: { status: 'Re-Assessment' } },
   });
 
   if (claim.claimant && claim.claimant.email) {
     await emailService.sendEmailNotification(
       claim.claimant.email,
       'Self-Repair Submission Received',
-      `Dear ${claim.claimant.name},\n\nWe have received your self-repair submission for claim reference: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id}.\n\nAmount requested: R${amountRequested}\n\nOur team will review your submission and notify you of the outcome shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+      `Dear ${claim.claimant.name},\n\nWe have received your self-repair submission for claim reference: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id}.\n\nAmount requested: ${Number(amountRequested)}\n\nOur team will review your submission and notify you of the outcome shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
 
@@ -1064,6 +1065,28 @@ const submitSelfRepair = async (claimId, { bankingDetails }, req) => {
       content: `Your self-repair submission for claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} is under review.`,
       claimId: claim._id,
     });
+  }
+
+  // Notify the assessor who originally assessed the claim
+  const assessorId = claim.awardedAssessor?.assessorId;
+  if (assessorId) {
+    await notificationService.createAndEmit({
+      recipientId: assessorId,
+      recipientType: 'assessor',
+      type: 'self_repair_submitted',
+      title: 'Re-Assessment Required',
+      content: `The customer has submitted a self-repair claim for ${claim.vehiclesInvolved[0]?.licensePlate || claim._id}. Please review and re-assess.`,
+      claimId: claim._id,
+    });
+
+    const assessor = await Assessor.findById(assessorId);
+    if (assessor && assessor.email) {
+      await emailService.sendEmailNotification(
+        assessor.email,
+        'Re-Assessment Required',
+        `Dear ${assessor.name},\n\nThe customer has completed a self-repair for claim reference: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} and has submitted their repair costs for review.\n\nAmount requested: ${Number(amountRequested)}\n\nPlease log in to review the submission and provide your re-assessment.\n\nBest Regards,\nAdmin Team`
+      );
+    }
   }
 
   return claim;
