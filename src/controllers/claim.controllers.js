@@ -314,6 +314,16 @@ const submitSelfRepair = async (req, res) => {
   }
 };
 
+const reAssessSelfRepair = async (req, res) => {
+  try {
+    const { notes, recommendedAmount } = req.body;
+    const claim = await claimService.reAssessSelfRepair(req.params.id, { notes, recommendedAmount }, req);
+    res.status(200).json(claim);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
 const approveSelfRepair = async (req, res) => {
   try {
     const { amountApproved } = req.body;
@@ -384,6 +394,7 @@ module.exports = {
   rejectSupplierBid,
   optInSelfRepair,
   submitSelfRepair,
+  reAssessSelfRepair,
   approveSelfRepair,
   rejectSelfRepair,
   markSelfRepairPaid,

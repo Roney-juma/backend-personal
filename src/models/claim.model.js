@@ -191,6 +191,11 @@ const claimSchema = new Schema({
       accountHolderName: { type: String },
       accountNumber: { type: String },
     },
+    reAssessmentReport: {
+      notes: { type: String },
+      recommendedAmount: { type: Number },
+      assessedAt: { type: Date },
+    },
     submittedAt: { type: Date },
     approvedAt: { type: Date },
     rejectionReason: { type: String },

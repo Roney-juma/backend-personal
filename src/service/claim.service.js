@@ -1232,6 +1232,59 @@ const markSelfRepairPaid = async (claimId, req) => {
   return claim;
 };
 
+// Assessor re-assesses a self-repaired vehicle
+const reAssessSelfRepair = async (claimId, { notes, recommendedAmount }, req) => {
+  const claim = await Claim.findById(claimId);
+  if (!claim) throw new Error('Claim not found');
+  if (claim.status !== 'Re-Assessment') throw new Error('Claim is not in Re-Assessment status');
+  if (!claim.selfRepair || !claim.selfRepair.opted) throw new Error('This claim has no self-repair request');
+  if (!notes || !notes.trim()) throw new Error('Re-assessment notes are required');
+  if (!recommendedAmount || Number(recommendedAmount) <= 0) throw new Error('A valid recommendedAmount is required');
+
+  const start = Date.now();
+  claim.selfRepair.reAssessmentReport = {
+    notes: notes.trim(),
+    recommendedAmount: Number(recommendedAmount),
+    assessedAt: new Date(),
+  };
+  claim.selfRepair.status = 'In-Review';
+  claim.status = 'Assessed';
+  await claim.save();
+
+  await writeAuditLog(req, {
+    action: 'UPDATE',
+    module: 'Claim',
+    actionDescription: `Assessor submitted re-assessment report for self-repair claim ${claimId}`,
+    resourceType: 'Claim',
+    resourceId: claim._id,
+    statusCode: 200,
+    success: true,
+    responseTimeMs: Date.now() - start,
+    changes: { old: { status: 'Re-Assessment', selfRepairStatus: 'Submitted' }, new: { status: 'Assessed', selfRepairStatus: 'In-Review' } },
+  });
+
+  if (claim.claimant && claim.claimant.email) {
+    await emailService.sendEmailNotification(
+      claim.claimant.email,
+      'Self-Repair Re-Assessment Complete',
+      `Dear ${claim.claimant.name},\n\nYour self-repair submission for claim reference: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been re-assessed.\n\nRecommended reimbursement amount: ${Number(recommendedAmount)}\n\nOur team will now review the assessor's report and finalise your reimbursement. You will be notified of the outcome shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+    );
+  }
+
+  if (claim.customerId) {
+    await notificationService.createAndEmit({
+      recipientId: claim.customerId,
+      recipientType: 'customer',
+      type: 'self_repair_submitted',
+      title: 'Re-Assessment Complete',
+      content: `Your self-repair claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been re-assessed. Recommended amount: ${Number(recommendedAmount)}.`,
+      claimId: claim._id,
+    });
+  }
+
+  return claim;
+};
+
 // Get all claims that are in self-repair workflow
 const getSelfRepairClaims = async () => {
   return await Claim.find({ 'selfRepair.opted': true }).sort({ createdAt: -1 });
@@ -1267,6 +1320,7 @@ module.exports = {
   rejectSupplierBid,
   optInSelfRepair,
   submitSelfRepair,
+  reAssessSelfRepair,
   approveSelfRepair,
   rejectSelfRepair,
   markSelfRepairPaid,
