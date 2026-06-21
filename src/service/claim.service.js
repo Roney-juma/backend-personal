@@ -1190,7 +1190,7 @@ const rejectSelfRepair = async (claimId, { rejectionReason }, req) => {
 const markSelfRepairPaid = async (claimId, req) => {
   const claim = await Claim.findById(claimId);
   if (!claim) throw new Error('Claim not found');
-  if (!claim.selfRepair || claim.selfRepair.status !== 'Approved') throw new Error('Self-repair must be approved before marking as paid');
+  if (!claim.selfRepair || claim.selfRepair.status !== 'In-Review') throw new Error('Self-repair must be in review before marking as paid');
 
   const start = Date.now();
   claim.selfRepair.status = 'Paid';
