@@ -1118,6 +1118,7 @@ const rejectSelfRepair = async (claimId, { rejectionReason }, req) => {
   const start = Date.now();
   claim.selfRepair.status = 'Rejected';
   claim.selfRepair.rejectionReason = rejectionReason.trim();
+  claim.status = 'Assessed';
   await claim.save();
 
   await writeAuditLog(req, {
