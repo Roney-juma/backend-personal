@@ -15,10 +15,6 @@ router.post('/file-claim/:token', claimController.fileClaim);
 router.patch('/approve/:id', claimController.approveClaim)
 router.delete('/delete/:id', claimController.deleteClaim)
 router.patch('/reject/:id', claimController.rejectClaim)
-router.get('/:id', claimController.getClaimById)
-router.patch('/:id', claimController.updateClaimById)
-router.post('/awardClaim/:id', claimController.awardClaim)
-router.post('/awardGarage/:id', claimController.awardBidToGarage)
 router.get('/awarded', claimController.getAwardedClaims)
 router.get('/bids/:id', claimController.getBidsByClaim)
 router.get('/garageBids/:id', claimController.getGarageBidsByClaim)
@@ -33,13 +29,19 @@ router.post('/rejectGarageBid/:id', claimController.rejectGarageBid);
 router.post('/awardSupplier/:claimId/:bidId', claimController.awardSupplierBid);
 router.post('/rejectSupplierBid/:claimId/:bidId', claimController.rejectSupplierBid);
 
-// Self-repair routes
+// Self-repair routes — must be declared before /:id to avoid route shadowing
 router.get('/self-repair', claimController.getSelfRepairClaims);
 router.post('/self-repair/opt-in/:id', claimController.optInSelfRepair);
 router.patch('/self-repair/submit/:id', claimController.submitSelfRepair);
 router.patch('/self-repair/approve/:id', claimController.approveSelfRepair);
 router.patch('/self-repair/reject/:id', claimController.rejectSelfRepair);
 router.patch('/self-repair/pay/:id', claimController.markSelfRepairPaid);
+
+// Wildcard param routes last — must come after all static-segment routes
+router.get('/:id', claimController.getClaimById)
+router.post('/awardClaim/:id', claimController.awardClaim)
+router.post('/awardGarage/:id', claimController.awardBidToGarage)
+router.patch('/:id', claimController.updateClaimById)
 
 
 
