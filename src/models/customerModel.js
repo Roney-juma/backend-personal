@@ -46,6 +46,10 @@ const customerSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    deletionRequestedAt: {
+      type: Date,
+      default: null,
+    },
     fcmToken: { type: String },
   },
   {

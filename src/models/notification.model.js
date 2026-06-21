@@ -18,6 +18,7 @@ const notificationSchema = new Schema({
       'bid_awarded', 'bid_rejected', 'repair_started', 'claim_completed',
       'self_repair_opted', 'self_repair_submitted', 'self_repair_approved',
       'self_repair_rejected', 'self_repair_paid',
+      'account_deletion_requested',
     ],
     required: true,
   },

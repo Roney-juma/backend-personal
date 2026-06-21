@@ -101,6 +101,17 @@ const updateFcmToken = async (req, res) => {
   }
 };
 
+const requestAccountDeletion = async (req, res) => {
+  try {
+    const { email, phone } = req.body;
+    if (!email || !phone) return res.status(400).json({ message: 'email and phone are required' });
+    const response = await customerService.requestAccountDeletion({ email, phone });
+    res.status(200).json(response);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
 module.exports = {
   createCustomer,
   login,
@@ -111,4 +122,5 @@ module.exports = {
   getCustomerStats,
   getGarage,
   updateFcmToken,
+  requestAccountDeletion,
 };

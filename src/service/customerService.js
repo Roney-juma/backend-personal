@@ -164,6 +164,24 @@ const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
 // Helper function to convert degrees to radians
 const degToRad = (deg) => (deg * Math.PI) / 180;
 
+const requestAccountDeletion = async ({ email, phone }) => {
+  const customer = await Customer.findOne({ email, phone });
+  if (!customer) throw new Error('No account found matching the provided email and phone number');
+  if (customer.isDeleted) throw new Error('Account is already deleted');
+  if (customer.deletionRequestedAt) throw new Error('A deletion request is already pending');
+
+  customer.deletionRequestedAt = new Date();
+  await customer.save();
+
+  await emailService.sendEmailNotification(
+    customer.email,
+    'Account Deletion Request Received',
+    `Dear ${customer.firstName || customer.username},\n\nWe have received your request to delete your account. Our team will review it and process the deletion within 7 business days.\n\nIf you did not make this request, please contact support immediately.\n\nBest Regards,\nAVE Insurance Team`
+  );
+
+  return { message: 'Account deletion request submitted successfully' };
+};
+
 module.exports = {
   createCustomer,
   loginUser,
@@ -173,6 +191,7 @@ module.exports = {
   resetPassword,
   updateCustomer,
   getCustomerStats,
-  findGarages
+  findGarages,
+  requestAccountDeletion,
 };
 
