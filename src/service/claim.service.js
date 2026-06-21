@@ -970,7 +970,7 @@ const optInSelfRepair = async (claimId, estimate, req) => {
   claim.status = 'SelfRepair';
   claim.selfRepair = {
     opted: true,
-    status: 'Pending',
+    status: 'Submitted',
     estimate: { parts, other: Number(other) || 0, description },
   };
   await claim.save();
