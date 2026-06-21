@@ -305,8 +305,9 @@ const optInSelfRepair = async (req, res) => {
 
 const submitSelfRepair = async (req, res) => {
   try {
-    const { amountRequested, receipts, description, bankingDetails } = req.body;
-    const claim = await claimService.submitSelfRepair(req.params.id, { amountRequested, receipts, description, bankingDetails }, req);
+    const { bankingDetails } = req.body;
+    if (!bankingDetails) return res.status(400).json({ message: 'bankingDetails is required' });
+    const claim = await claimService.submitSelfRepair(req.params.id, { bankingDetails }, req);
     res.status(200).json(claim);
   } catch (error) {
     res.status(400).json({ message: error.message });

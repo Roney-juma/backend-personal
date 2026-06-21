@@ -1010,19 +1010,27 @@ const optInSelfRepair = async (claimId, estimate, req) => {
 };
 
 // Customer submits receipts, amount and banking details for reimbursement
-const submitSelfRepair = async (claimId, { amountRequested, receipts, description, bankingDetails }, req) => {
+const submitSelfRepair = async (claimId, { bankingDetails }, req) => {
   const claim = await Claim.findById(claimId);
   if (!claim) throw new Error('Claim not found');
   if (claim.status !== 'SelfRepair') throw new Error('Claim is not in self-repair status');
   if (!claim.selfRepair || !claim.selfRepair.opted) throw new Error('Self-repair was not opted in for this claim');
-  if (!amountRequested || amountRequested <= 0) throw new Error('A valid amount requested is required');
+
+  const { paymentMethod, phoneNumber, bankName, accountHolderName, accountNumber, amountRequested, description, receipts } = bankingDetails || {};
+
+  if (!amountRequested || Number(amountRequested) <= 0) throw new Error('A valid amountRequested is required');
   if (!receipts || receipts.length === 0) throw new Error('At least one receipt is required');
+  if (!paymentMethod) throw new Error('paymentMethod is required');
+
+  const isMpesa = paymentMethod.toLowerCase().includes('mpesa');
+  if (isMpesa && !phoneNumber) throw new Error('phoneNumber is required for Mpesa payments');
+  if (!isMpesa && (!bankName || !accountNumber)) throw new Error('bankName and accountNumber are required for bank payments');
 
   const start = Date.now();
-  claim.selfRepair.amountRequested = amountRequested;
+  claim.selfRepair.amountRequested = Number(amountRequested);
   claim.selfRepair.receipts = receipts;
   claim.selfRepair.description = description || '';
-  claim.selfRepair.bankingDetails = bankingDetails || {};
+  claim.selfRepair.bankingDetails = { paymentMethod, phoneNumber, bankName, accountHolderName, accountNumber };
   claim.selfRepair.status = 'Submitted';
   claim.selfRepair.submittedAt = new Date();
   await claim.save();

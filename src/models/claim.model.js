@@ -185,10 +185,11 @@ const claimSchema = new Schema({
     receipts: [String],
     description: { type: String },
     bankingDetails: {
-      accountHolder: { type: String },
+      paymentMethod: { type: String },
+      phoneNumber: { type: String },
       bankName: { type: String },
+      accountHolderName: { type: String },
       accountNumber: { type: String },
-      branchCode: { type: String },
     },
     submittedAt: { type: Date },
     approvedAt: { type: Date },
