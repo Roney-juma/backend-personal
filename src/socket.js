@@ -1,4 +1,5 @@
 const socketIo = require('socket.io');
+const logger = require('./middlewheres/logger');
 
 let io;
 
@@ -12,18 +13,17 @@ const init = (httpServer) => {
   });
 
   io.on('connection', (socket) => {
-    console.log('Socket connected:', socket.id);
+    logger.info('Socket connected: %s', socket.id);
 
-    // Client joins their personal room on connect
     socket.on('join-room', (userId) => {
       if (userId) {
         socket.join(`notification:${userId}`);
-        console.log(`Socket ${socket.id} joined notification:${userId}`);
+        logger.info('Socket %s joined notification:%s', socket.id, userId);
       }
     });
 
     socket.on('disconnect', () => {
-      console.log('Socket disconnected:', socket.id);
+      logger.info('Socket disconnected: %s', socket.id);
     });
   });
 

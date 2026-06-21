@@ -1,6 +1,7 @@
 const garageService = require('../service/garage.service');
 const tokenService = require('../service/token.service');
 const emailService = require('../service/email.service');
+const logger = require('../middlewheres/logger');
 
 const createGarage = async (req, res) => {
   try {
@@ -15,7 +16,7 @@ const createGarage = async (req, res) => {
 
     res.status(201).json(newGarage);
   } catch (error) {
-    console.error('Error creating garage:', error.message);
+    logger.error('Error creating garage: %s', error.message);
     res.status(409).json({ message: error.message });
   }
 };
@@ -32,7 +33,7 @@ const login = async (req, res) => {
     const tokens = tokenService.GenerateToken(user);
     res.status(200).json({ user, tokens });
   } catch (error) {
-    console.error('Error during login:', error.message);
+    logger.error('Error during garage login: %s', error.message);
     res.status(500).json({ message: error.message });
   }
 };
@@ -42,17 +43,9 @@ const getAllGarages = async (req, res) => {
     const { page = 1, limit = 10, city, estate, state } = req.query;
     const filter = {};
 
-    if (city) {
-      filter.city = city;
-    }
-
-    if (estate) {
-      filter.estate = estate;
-    }
-
-    if (state) {
-      filter.state = state;
-    }
+    if (city) filter.city = city;
+    if (estate) filter.estate = estate;
+    if (state) filter.state = state;
 
     const garages = await garageService.getAllGarages(filter, page, limit);
     res.status(200).json(garages);
@@ -104,23 +97,20 @@ const placeBid = async (req, res) => {
   const { garageId, description, timeline, parts } = req.body;
 
   try {
-
     const bid = await garageService.placeBid(req.params.id, garageId, description, timeline, parts);
-
     res.status(201).json(bid);
   } catch (error) {
-    console.error('Error placing bid:', error.message);
+    logger.error('Error placing garage bid: %s', error.message);
     res.status(500).json({ message: error.message });
   }
 };
-
 
 const completeRepair = async (req, res) => {
   try {
     const claim = await garageService.callForReAssessment(req.params.id);
     res.status(200).json(claim);
   } catch (error) {
-    console.error('Error completing repair:', error.message);
+    logger.error('Error completing repair: %s', error.message);
     res.status(500).json({ message: error.message });
   }
 };
@@ -130,10 +120,11 @@ const getGarageBids = async (req, res) => {
     const garageBids = await garageService.getGarageBids(req.params.garageId);
     res.status(200).json(garageBids);
   } catch (error) {
-    console.error('Error fetching garage bids:', error.message);
+    logger.error('Error fetching garage bids: %s', error.message);
     res.status(500).json({ message: error.message });
   }
 };
+
 const resetPassword = async (req, res) => {
   try {
     const { email, newPassword } = req.body;
@@ -143,7 +134,7 @@ const resetPassword = async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 };
-// Garage stats
+
 const getGarageStats = async (req, res) => {
   try {
     const stats = await garageService.getGarageStats();
@@ -152,7 +143,7 @@ const getGarageStats = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
-// Top Garages 
+
 const getTopGarages = async (req, res) => {
   try {
     const topGarages = await garageService.getTopGarages();
@@ -160,8 +151,7 @@ const getTopGarages = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-  };
-
+};
 
 const updateFcmToken = async (req, res) => {
   try {

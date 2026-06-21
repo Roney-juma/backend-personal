@@ -9,6 +9,7 @@ const notificationService = require('./notification.service');
 const emailService = require('./email.service');
 const ClaimToken = require('../models/claimToken.model');
 const crypto = require('crypto');
+const logger = require('../middlewheres/logger');
 
 const getGarageBidRankingData = (bid) => {
   const rating = bid?.garageDetails?.ratings?.averageRating ?? bid?.ratings ?? 0;
@@ -68,7 +69,7 @@ const generateClaimLink = async (email) => {
     );
     return claimLink;
   } catch (error) {
-    console.error(error);
+    logger.error('Failed to generate claim link: %s', error.message);
     return { error: 'Failed to generate claim link' };
   }
 };
@@ -306,7 +307,7 @@ const deleteClaim = async (id, req) => {
 
     return claim;
   } catch (error) {
-    console.error('Error deleting claim:', error);
+    logger.error('Error deleting claim: %s', error.message);
     throw error;
   }
 };

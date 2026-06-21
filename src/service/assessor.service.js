@@ -125,8 +125,6 @@ const getApprovedClaims = async (assessorId) => {
       latitude,
       longitude
     );
-    console.log("distance", distance)
-
     return distance <= 50;
   });
 

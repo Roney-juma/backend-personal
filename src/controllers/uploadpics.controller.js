@@ -1,10 +1,7 @@
-const multer = require('multer');
-const multerS3 = require('multer-s3');
 const AWS = require('aws-sdk');
-const path = require('path');
+const logger = require('../middlewheres/logger');
 require("dotenv").config();
 
-// Set up AWS S3 configuration
 const imageUpload = async (req, res) => {
     try {
         AWS.config.update({
@@ -19,25 +16,25 @@ const imageUpload = async (req, res) => {
         if (!file) {
             return res.status(400).json({ message: 'No file uploaded' });
         }
+
         const params = {
             Bucket: process.env.BUCKET_NAME,
             Key: `aveinsuranceclaims/image_${Date.now()}_${file.originalname}`,
-            Body: file.buffer,  
-            // ACL: 'public-read',
+            Body: file.buffer,
             ContentType: file.mimetype,
         };
+
         s3.upload(params, (err, data) => {
             if (err) {
-                console.error('Error uploading file: ', err);
+                logger.error('Error uploading file to S3: %s', err.message);
                 return res.status(500).json({ message: 'Error uploading file to S3', error: err });
             }
-            
             if (data) {
                 return res.status(201).json({ message: 'File uploaded successfully', url: data.Location });
             }
         });
     } catch (error) {
-        console.error('Server error: ', error);
+        logger.error('Server error during image upload: %s', error.message);
         return res.status(500).json({ message: 'Server side error', error: error });
     }
 };

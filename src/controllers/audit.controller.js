@@ -1,4 +1,5 @@
 const auditService = require("../service/audit.service");
+const logger = require('../middlewheres/logger');
 
 const logAudit = async (req, res) => {
   try {
@@ -14,7 +15,7 @@ const logAudit = async (req, res) => {
     const auditLogs = await auditService.getAuditLogs(filters, options);
     res.status(200).json(auditLogs);
   } catch (error) {
-    console.error('Error fetching audit logs:', error);
+    logger.error('Error fetching audit logs: %s', error.message);
     res.status(500).json({ success: false, message: 'Failed to fetch audit logs', error: error.message });
   }
 };

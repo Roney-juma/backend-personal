@@ -25,7 +25,7 @@ const getUserByEmail = async (email) => {
     const user = await Supplier.findOne({ email: email });
     return user;
   } catch (error) {
-    console.error("Error fetching user by email:", error);
+    require('../middlewheres/logger').error('Error fetching user by email: %s', error.message);
     throw error;
   }
 };

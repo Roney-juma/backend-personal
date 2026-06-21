@@ -73,7 +73,7 @@ module.exports.getAuditLogs = async (filters = {}, options = {}) => {
       },
     };
   } catch (error) {
-    console.error('Error fetching audit logs:', error);
+    require('../middlewheres/logger').error('Error fetching audit logs: %s', error.message);
     throw new Error('Failed to fetch audit logs');
   }
 };

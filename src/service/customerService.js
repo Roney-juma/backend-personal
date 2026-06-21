@@ -114,7 +114,6 @@ const getCustomerStats = async () => {
 
 // Find garages closer to my claim location
 const findGarages = async (claimId) => {
-  console.log("Here we go");
   const claim = await Claim.findById(claimId);
   if (!claim) {
     throw new Error('Invalid request: Claim not found');
@@ -145,7 +144,6 @@ const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
   const R = 6371; // Radius of the Earth in kilometers
   const dLat = degToRad(lat2 - lat1);
   const dLon = degToRad(lon2 - lon1);
-  console.log("Here we are",lat1, lon1, lat2, lon2);
 
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
@@ -156,7 +154,6 @@ const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
 
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   const distance = R * c; // Distance in kilometers
-  console.log("Destination", distance);
 
   return distance;
 };

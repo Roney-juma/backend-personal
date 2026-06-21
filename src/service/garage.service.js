@@ -113,7 +113,6 @@ const getAssessedClaims = async (garageId) => {
 
   const asseslatitude = garage.location.latitude
   const asseslongitude = garage.location.longitude;
-  console.log("asseslongitude, longitudestance", garage.location.latitude, asseslongitude)
   if (!asseslatitude || !asseslongitude) {
     throw new Error('garage location coordinates are missing');
   }
@@ -134,8 +133,6 @@ const getAssessedClaims = async (garageId) => {
       latitude,
       longitude
     );
-    console.log("distance", distance)
-
     return distance <= 20;
   });
 

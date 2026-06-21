@@ -1,4 +1,5 @@
 const AuditLog = require('../models/audit.model');
+const logger = require('../middlewheres/logger');
 
 const SENSITIVE_FIELDS = new Set(['password', 'newPassword', 'currentPassword', 'token', 'secret', 'apiKey', 'refreshToken']);
 
@@ -117,7 +118,7 @@ async function writeAuditLog(req, opts) {
       changes,
     });
   } catch (err) {
-    console.error('[Audit] Failed to write log entry:', err.message);
+    logger.error('[Audit] Failed to write log entry: %s', err.message);
   }
 }
 

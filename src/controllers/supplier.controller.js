@@ -1,13 +1,14 @@
 const supplierService = require('../service/supplier.service');
 const tokenService = require("../service/token.service");
 const emailService = require("../service/email.service");
+const logger = require('../middlewheres/logger');
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 
 const createSupplier = async (req, res) => {
     try {
         const supplier = await supplierService.createSupplier(req.body);
-        
+
         if (supplier && supplier.email) {
             emailService.sendEmailNotification(
                 supplier.email,
@@ -25,15 +26,14 @@ const createSupplier = async (req, res) => {
                 Best Regards,
                 Admin Team`
             );
-        
         }
 
         res.status(201).json(supplier);
     } catch (err) {
-      if (err.statusCode === 'Email is already registered') {
-        return res.status(400).json({ error: 'Email is already registered' });
-    }
-        console.error('Error creating Supplier:', err);
+        if (err.statusCode === 'Email is already registered') {
+            return res.status(400).json({ error: 'Email is already registered' });
+        }
+        logger.error('Error creating supplier: %s', err.message);
         res.status(500).json({ error: 'Server error' });
     }
 };
@@ -57,7 +57,7 @@ const getAllSuppliers = async (req, res) => {
         const suppliers = await supplierService.getAllSuppliers();
         res.status(200).json(suppliers);
     } catch (err) {
-        console.error('Error fetching suppliers:', err);
+        logger.error('Error fetching suppliers: %s', err.message);
         res.status(500).json({ error: 'Server error' });
     }
 };
@@ -70,7 +70,7 @@ const getSupplierById = async (req, res) => {
         }
         res.status(200).json(supplier);
     } catch (err) {
-        console.error('Error fetching supplier:', err);
+        logger.error('Error fetching supplier: %s', err.message);
         res.status(500).json({ error: 'Server error' });
     }
 };
@@ -83,7 +83,7 @@ const updateSupplier = async (req, res) => {
         }
         res.status(200).json(supplier);
     } catch (err) {
-        console.error('Error updating supplier:', err);
+        logger.error('Error updating supplier: %s', err.message);
         res.status(500).json({ error: 'Server error' });
     }
 };
@@ -93,7 +93,7 @@ const deleteSupplier = async (req, res) => {
         await supplierService.deleteSupplier(req.params.id);
         res.status(200).json({ message: 'Supplier deleted successfully' });
     } catch (err) {
-        console.error('Error deleting supplier:', err);
+        logger.error('Error deleting supplier: %s', err.message);
         res.status(500).json({ error: 'Server error' });
     }
 };
@@ -108,25 +108,22 @@ const getMyBidHistory = async (req, res) => {
 };
 
 const submitBidForSupply = async (req, res) => {
-  try {
-      const { claimId } = req.params;
-      const { supplierId, parts } = req.body;
-      console.log('Submitting supply parts:', { parts });
+    try {
+        const { claimId } = req.params;
+        const { supplierId, parts } = req.body;
+        logger.info('Submitting supply parts for claim %s', claimId);
 
-      // Call the service to submit the bid
-      const result = await supplierService.submitBidForSupply(claimId, supplierId, parts);
+        const result = await supplierService.submitBidForSupply(claimId, supplierId, parts);
 
-      // Handle duplicate bid case
-      if (result && result.error) {
-          return res.status(400).json({ message: result.error });
-      }
+        if (result && result.error) {
+            return res.status(400).json({ message: result.error });
+        }
 
-      // If successful, return the submitted bid
-      res.status(201).json({ message: 'Supply bid submitted successfully', supplyBid: result });
-  } catch (err) {
-      console.error('Error submitting supply bid:', err);
-      res.status(500).json({ message: 'Supply bid not submitted' });
-  }
+        res.status(201).json({ message: 'Supply bid submitted successfully', supplyBid: result });
+    } catch (err) {
+        logger.error('Error submitting supply bid: %s', err.message);
+        res.status(500).json({ message: 'Supply bid not submitted' });
+    }
 };
 
 const getAllClaimsInGarage = async (req, res) => {
@@ -134,7 +131,7 @@ const getAllClaimsInGarage = async (req, res) => {
         const claims = await supplierService.getClaimsInGarage();
         res.json(claims);
     } catch (err) {
-        console.error('Error fetching claims:', err);
+        logger.error('Error fetching claims in garage: %s', err.message);
         res.status(500).json({ message: 'Failed to fetch claims' });
     }
 };
@@ -144,28 +141,24 @@ const repairPartsDelivered = async (req, res) => {
         const claim = await supplierService.repairPartsDelivered(req.params.claimId);
         res.json(claim);
     } catch (err) {
-        console.error('Error delivering repair parts:', err);
+        logger.error('Error delivering repair parts: %s', err.message);
         res.status(500).json({ error: 'Server error' });
     }
 };
 
 const requestPasswordReset = async (email) => {
-    // Check if user exists
     const user = await supplierService.findByEmail(email);
     if (!user) {
         throw new Error('User with this email does not exist');
     }
 
-    // Generate a token (valid for 1 hour)
     const resetToken = crypto.randomBytes(32).toString('hex');
     const hashedToken = await bcrypt.hash(resetToken, 10);
-    
-    // Save hashed token and expiration date to the user in the database
+
     user.resetPasswordToken = hashedToken;
-    user.resetPasswordExpires = Date.now() + 3600000; // 1 hour from now
+    user.resetPasswordExpires = Date.now() + 3600000;
     await user.save();
 
-    // Send reset link to the user's email
     const resetUrl = `https://your-app.com/reset-password?token=${resetToken}&email=${email}`;
     await emailService.sendEmailNotification(
         user.email,
@@ -177,25 +170,25 @@ const requestPasswordReset = async (email) => {
 };
 
 const resetPassword = async (req, res) => {
-  try {
-      const { email, newPassword } = req.body;
-      const response = await supplierService.resetPassword(email, newPassword);
-      res.status(200).json(response);
-  } catch (err) {
-      res.status(400).json({ error: err.message });
-  }
+    try {
+        const { email, newPassword } = req.body;
+        const response = await supplierService.resetPassword(email, newPassword);
+        res.status(200).json(response);
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
 };
 
 const updateFcmToken = async (req, res) => {
-  try {
-    const { fcmToken } = req.body;
-    if (!fcmToken) return res.status(400).json({ message: 'fcmToken is required' });
-    const { updateFcmToken: update } = require('../service/firebase.service');
-    await update(req.params.id, 'supplier', fcmToken);
-    res.status(200).json({ message: 'FCM token updated' });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    try {
+        const { fcmToken } = req.body;
+        if (!fcmToken) return res.status(400).json({ message: 'fcmToken is required' });
+        const { updateFcmToken: update } = require('../service/firebase.service');
+        await update(req.params.id, 'supplier', fcmToken);
+        res.status(200).json({ message: 'FCM token updated' });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
 };
 
 module.exports = {

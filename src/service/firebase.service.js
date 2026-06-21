@@ -28,8 +28,7 @@ const sendPushNotification = async ({ recipientId, recipientType, title, body, d
       ),
     });
   } catch (err) {
-    // Log but never throw — FCM failure must not break the main flow
-    console.error('FCM send error:', err?.errorInfo?.message ?? err.message);
+    require('../middlewheres/logger').error('FCM send error: %s', err?.errorInfo?.message ?? err.message);
   }
 };
 

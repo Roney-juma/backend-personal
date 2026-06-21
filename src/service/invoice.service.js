@@ -82,7 +82,7 @@ const markAsSent = async (id) => {
         filename
       ).catch(() => {});
     } catch (err) {
-      console.error('Failed to generate/send invoice PDF:', err);
+      require('../middlewheres/logger').error('Failed to generate/send invoice PDF: %s', err.message);
     }
   }
 

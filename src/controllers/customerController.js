@@ -1,5 +1,6 @@
 const customerService = require("../service/customerService");
 const tokenService = require("../service/token.service");
+const logger = require('../middlewheres/logger');
 
 const createCustomer = async (req, res) => {
   try {
@@ -11,7 +12,7 @@ const createCustomer = async (req, res) => {
 
     res.status(201).json(customerCreated); // Resource created
   } catch (error) {
-    console.error('Error creating customer:', error);
+    logger.error('Error creating customer: %s', error.message);
     if (error.message === 'Customer already exists') {
       res.status(409).json({ error: 'Customer already exists' });
     } else {

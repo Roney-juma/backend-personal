@@ -32,17 +32,16 @@ const verifyToken = (roles = []) => (req, res, next) => {
 
           // Token is valid, attach decoded user info to request object
           req.user = decoded.payload;
-          console.log(req.user)
 
           // Check if the user's role is in the allowed roles
           if (roles.length && !roles.includes(req.user.role_ID)) {
               return res.status(403).json({ message: 'Forbidden: Restricted Access' });
           }
-console.log("Success")
+
           next();
       });
   } catch (err) {
-      console.error('Error verifying token:', err);
+      logger.error('Error verifying token:', err);
       return res.status(401).json({ message: 'Unauthorized' });
   }
 };

@@ -1,6 +1,7 @@
 const assessorService = require("../service/assessor.service");
 const tokenService = require("../service/token.service");
 const emailService = require("../service/email.service");
+const logger = require('../middlewheres/logger');
 
 const login = async (req, res) => {
   try {
@@ -50,7 +51,6 @@ const getAssessorById = async (req, res) => {
 
 const updateAssessor = async (req, res) => {
   try {
-    console.log("here we go 2")
     const updatedAssessor = await assessorService.updateAssessor(req.params.id, req.body, req);
     res.status(200).json(updatedAssessor);
   } catch (error) {
@@ -82,12 +82,9 @@ const placeBid = async (req, res) => {
 
   try {
     const bid = await assessorService.placeBid(claimId, assessorId, amount, description, timeline, req);
-    res.status(201).json({
-      message: 'Bid placed successfully',
-      bid,
-    });
+    res.status(201).json({ message: 'Bid placed successfully', bid });
   } catch (error) {
-    console.error('Error placing bid:', error.message);
+    logger.error('Error placing assessor bid: %s', error.message);
     res.status(500).json({ error: error.message });
   }
 };
@@ -125,7 +122,7 @@ const completeReAssessment = async (req, res) => {
     const claim = await assessorService.completeRepair(req.params.id, req);
     res.status(200).json(claim);
   } catch (error) {
-    console.error('Error completing repair:', error.message);
+    logger.error('Error completing re-assessment: %s', error.message);
     res.status(500).json({ message: error.message });
   }
 };
@@ -136,7 +133,7 @@ const rejectReAssessment = async (req, res) => {
     const claim = await assessorService.rejectRepair(req.params.id, rejectionReason, req);
     res.status(200).json(claim);
   } catch (error) {
-    console.error('Error completing repair:', error.message);
+    logger.error('Error rejecting re-assessment: %s', error.message);
     res.status(500).json({ message: error.message });
   }
 };
