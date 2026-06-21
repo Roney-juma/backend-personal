@@ -1031,7 +1031,7 @@ const submitSelfRepair = async (claimId, { bankingDetails }, req) => {
   claim.selfRepair.receipts = receipts;
   claim.selfRepair.description = description || '';
   claim.selfRepair.bankingDetails = { paymentMethod, phoneNumber, bankName, accountHolderName, accountNumber };
-  claim.selfRepair.status = 'Submitted';
+  claim.selfRepair.status = 'In-Review';
   claim.selfRepair.submittedAt = new Date();
   claim.status = 'Re-Assessment';
   await claim.save();

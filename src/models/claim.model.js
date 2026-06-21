@@ -172,7 +172,7 @@ const claimSchema = new Schema({
     opted: { type: Boolean, default: false },
     status: {
       type: String,
-      enum: ['Pending', 'Submitted', 'Approved', 'Rejected', 'Paid'],
+      enum: ['Pending', 'Submitted', 'Approved', 'Rejected', 'Paid', 'In-Review'],
       default: 'Pending'
     },
     estimate: {
