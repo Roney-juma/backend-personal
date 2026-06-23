@@ -4,12 +4,14 @@ const Customer = require('../models/customerModel');
 const Assessor = require('../models/assessor.model');
 const Garage = require('../models/garage.model');
 const Supplier = require('../models/supplier.model');
+const Investigator = require('../models/investigator.model');
 
 const MODEL_MAP = {
   customer: Customer,
   assessor: Assessor,
   garage: Garage,
   supplier: Supplier,
+  investigator: Investigator,
 };
 
 const sendPushNotification = async ({ recipientId, recipientType, title, body, data = {} }) => {

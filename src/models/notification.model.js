@@ -8,7 +8,7 @@ const notificationSchema = new Schema({
   },
   recipientType: {
     type: String,
-    enum: ['assessor', 'garage', 'supplier', 'customer', 'admin'],
+    enum: ['assessor', 'garage', 'supplier', 'customer', 'admin', 'investigator'],
     required: true,
   },
   type: {
@@ -19,6 +19,7 @@ const notificationSchema = new Schema({
       'self_repair_opted', 'self_repair_submitted', 'self_repair_approved',
       'self_repair_rejected', 'self_repair_paid',
       'account_deletion_requested',
+      'investigation_assigned', 'investigation_submitted', 'investigation_completed',
     ],
     required: true,
   },

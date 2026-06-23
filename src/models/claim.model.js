@@ -165,8 +165,16 @@ const claimSchema = new Schema({
   },
   status: {
     type: String,
-    enum: ['Pending', 'Approved', 'Rejected', 'Resubmitted', 'Assessment', 'Assessed', 'Awarded', 'Repair', 'Garage', 'Re-Assessment', 'SelfRepair', 'Completed'],
+    enum: ['Pending', 'Approved', 'Rejected', 'Resubmitted', 'Assessment', 'Assessed', 'Awarded', 'Repair', 'Garage', 'Re-Assessment', 'SelfRepair', 'Completed', 'UnderInvestigation', 'Investigated'],
     default: 'Pending'
+  },
+  fraud: {
+    suspected: { type: Boolean, default: false },
+    investigationId: { type: Schema.Types.ObjectId, ref: 'Investigation' },
+    awardedInvestigator: {
+      investigatorId: { type: Schema.Types.ObjectId, ref: 'Investigator' },
+      assignedDate: { type: Date },
+    },
   },
   selfRepair: {
     opted: { type: Boolean, default: false },
