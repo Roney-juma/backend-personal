@@ -14,6 +14,14 @@ const investigationSchema = new Schema({
     enum: ['Pending', 'Appointed', 'In Progress', 'Submitted', 'Reviewed'],
     default: 'Pending',
   },
+  // Snapshotted from the claim at the time of flagging so the investigator has full context
+  supportingDocuments: {
+    photos: [String],
+    videos: [String],
+    repairEstimates: [String],
+    medicalReports: [String],
+  },
+  assessmentReport: { type: Object },
   report: {
     findings: { type: String },
     conclusion: {

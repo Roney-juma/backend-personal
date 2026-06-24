@@ -135,6 +135,8 @@ const flagClaimAsFraud = async (claimId, reason, flaggedBy, flaggedByType, req) 
     flaggedByType,
     reason,
     status: 'Pending',
+    supportingDocuments: claim.supportingDocuments,
+    assessmentReport: claim.assessmentReport,
   });
 
   claim.fraud = {
