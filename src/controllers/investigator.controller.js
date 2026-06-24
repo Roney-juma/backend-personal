@@ -143,7 +143,8 @@ const getReportForm = async (req, res) => {
 // Investigator submits their report — investigationId from URL, token from body
 const submitReport = async (req, res) => {
   try {
-    const { token, ...report } = req.body;
+    const token = req.query.token || req.body.token;
+    const { token: _removed, ...report } = req.body;
     const investigation = await investigatorService.submitInvestigationReport(
       req.params.investigationId, token, report, req
     );
