@@ -7,7 +7,7 @@ const emailService = require('./email.service');
 const notificationService = require('./notification.service');
 const { writeAuditLog } = require('../utils/auditHelper');
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:4200';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://avics.aveafrica.com';
 
 // ─── Investigator CRUD (admin-managed) ───────────────────────────────────────
 
