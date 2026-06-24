@@ -4,9 +4,9 @@ const controller = require('../controllers/investigator.controller');
 const verifyToken = require('../middlewheres/verifyToken');
 
 // ─── Public: token-based access for investigators (no login required) ─────────
-// These must be declared before /:id to avoid route conflicts
+// Declared before /:id to avoid route conflicts
 router.get('/report/:token', controller.getReportForm);
-router.post('/report/:token', controller.submitReport);
+router.post('/investigations/:investigationId/submit', controller.submitReport);
 
 // ─── Admin: investigator CRUD ─────────────────────────────────────────────────
 router.post('/create', verifyToken(), controller.createInvestigator);

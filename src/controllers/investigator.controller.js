@@ -140,10 +140,13 @@ const getReportForm = async (req, res) => {
   }
 };
 
-// Investigator submits their report via the secure link token
+// Investigator submits their report — investigationId from URL, token from body
 const submitReport = async (req, res) => {
   try {
-    const investigation = await investigatorService.submitInvestigationReport(req.params.token, req.body, req);
+    const { token, ...report } = req.body;
+    const investigation = await investigatorService.submitInvestigationReport(
+      req.params.investigationId, token, report, req
+    );
     res.status(200).json(investigation);
   } catch (error) {
     logger.error('Error submitting investigation report: %s', error.message);

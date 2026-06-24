@@ -107,7 +107,7 @@ const deleteInvestigator = async (id, req) => {
 const getInvestigatorStats = async () => {
   const total = await Investigator.countDocuments();
   const active = await Investigator.countDocuments({ pendingInvestigations: { $gt: 0 } });
-  const activeInvestigations = await Investigation.countDocuments({ status: { $in: ['Pending', 'In Progress'] } });
+  const activeInvestigations = await Investigation.countDocuments({ status: { $in: ['Pending', 'Appointed', 'In Progress'] } });
   const submitted = await Investigation.countDocuments({ status: 'Submitted' });
   return { total, active, idle: total - active, activeInvestigations, awaitingReview: submitted };
 };
@@ -319,11 +319,12 @@ const getInvestigationByToken = async (token) => {
   return investigation;
 };
 
-// Investigator submits their report via the secure token link
-const submitInvestigationReport = async (token, report, req) => {
-  const investigation = await Investigation.findOne({ accessToken: token });
-  if (!investigation) throw new ApiError(404, 'Invalid investigation link');
-  if (investigation.tokenUsed) throw new ApiError(400, 'Report has already been submitted via this link');
+// Investigator submits their report — identified by investigationId, verified by token from the email link
+const submitInvestigationReport = async (investigationId, token, report, req) => {
+  const investigation = await Investigation.findById(investigationId);
+  if (!investigation) throw new ApiError(404, 'Investigation not found');
+  if (!investigation.accessToken || investigation.accessToken !== token) throw new ApiError(403, 'Invalid or mismatched access token');
+  if (investigation.tokenUsed) throw new ApiError(400, 'Report has already been submitted for this investigation');
   if (!['Appointed', 'In Progress'].includes(investigation.status)) {
     throw new ApiError(400, 'This investigation is no longer open for report submission');
   }
