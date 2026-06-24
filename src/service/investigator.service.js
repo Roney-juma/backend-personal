@@ -227,7 +227,9 @@ const appointInvestigator = async (investigationId, investigatorId, req) => {
   investigator.pendingInvestigations += 1;
   await investigator.save();
 
-  // Email investigator with secure link
+  const claimant = claim.claimant || {};
+
+  // Email investigator with secure link + customer contact details
   await emailService.sendEmailNotification(
     investigator.email,
     'Investigation Appointment — Action Required',
@@ -239,7 +241,16 @@ Claim ID:   ${claim._id}
 Vehicle:    ${claim.vehiclesInvolved?.[0]?.licensePlate || 'N/A'} — ${claim.vehiclesInvolved?.[0]?.make || ''} ${claim.vehiclesInvolved?.[0]?.model || ''}
 Reason:     ${investigation.reason}
 
-To access the claim details and submit your investigation report, please click the secure link below:
+── Customer Contact Details ──────────────────────
+Name:       ${claimant.name || 'N/A'}
+Email:      ${claimant.email || 'N/A'}
+Phone:      ${claimant.phone || 'N/A'}
+Address:    ${claimant.address || 'N/A'}
+─────────────────────────────────────────────────
+
+Please contact the customer directly to arrange your investigation.
+
+To access the full claim details and submit your investigation report, click the secure link below:
 
 ${investigationLink}
 
@@ -248,6 +259,31 @@ This link is unique to this investigation and can only be used once. Please do n
 Regards,
 The AVE Insurance Team`
   );
+
+  // Email customer with investigator details
+  if (claimant.email) {
+    await emailService.sendEmailNotification(
+      claimant.email,
+      'Investigator Appointed to Your Claim',
+      `Dear ${claimant.name || 'Valued Customer'},
+
+An investigator has been appointed to review your insurance claim (Vehicle: ${claim.vehiclesInvolved?.[0]?.licensePlate || claim._id}).
+
+── Appointed Investigator ────────────────────────
+Name:       ${investigator.name}
+Email:      ${investigator.email}
+Phone:      ${investigator.contactNumber}
+${investigator.licenseNumber ? `License No: ${investigator.licenseNumber}` : ''}
+─────────────────────────────────────────────────
+
+The investigator will reach out to you via email or phone to schedule a review. Please provide all necessary supporting documents and cooperate fully with the investigator to enable a quick closure of your claim.
+
+If you have not been contacted within 3 business days, please contact your insurance provider.
+
+Regards,
+The AVE Insurance Team`
+    );
+  }
 
   await writeAuditLog(req, {
     action: 'UPDATE',
