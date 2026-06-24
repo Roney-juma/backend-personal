@@ -61,16 +61,29 @@ const getStats = async (req, res) => {
 
 // ─── Admin: Investigation management ─────────────────────────────────────────
 
-const assignInvestigator = async (req, res) => {
+const flagClaimAsFraud = async (req, res) => {
   try {
-    const { investigatorId, reason, assignedByType } = req.body;
-    const assignedBy = req.user?.id || req.body.assignedBy;
-    const investigation = await investigatorService.assignInvestigator(
-      req.params.claimId, investigatorId, reason, assignedBy, assignedByType || 'insuranceCompany', req
+    const { reason, flaggedByType } = req.body;
+    const flaggedBy = req.user?.id || req.body.flaggedBy;
+    const investigation = await investigatorService.flagClaimAsFraud(
+      req.params.claimId, reason, flaggedBy, flaggedByType || 'insuranceCompany', req
     );
     res.status(201).json(investigation);
   } catch (error) {
-    logger.error('Error assigning investigator: %s', error.message);
+    logger.error('Error flagging claim as fraud: %s', error.message);
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
+
+const appointInvestigator = async (req, res) => {
+  try {
+    const { investigatorId } = req.body;
+    const investigation = await investigatorService.appointInvestigator(
+      req.params.investigationId, investigatorId, req
+    );
+    res.status(200).json(investigation);
+  } catch (error) {
+    logger.error('Error appointing investigator: %s', error.message);
     res.status(error.statusCode || 500).json({ message: error.message });
   }
 };
@@ -145,7 +158,8 @@ module.exports = {
   updateInvestigator,
   deleteInvestigator,
   getStats,
-  assignInvestigator,
+  flagClaimAsFraud,
+  appointInvestigator,
   reviewReport,
   getMyInvestigations,
   getAllInvestigations,

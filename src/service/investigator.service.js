@@ -114,58 +114,35 @@ const getInvestigatorStats = async () => {
 
 // ─── Investigation workflow ───────────────────────────────────────────────────
 
-// Insurance company assigns an investigator to a claim and emails them a secure link
-const assignInvestigator = async (claimId, investigatorId, reason, assignedBy, assignedByType, req) => {
+// Step 1 — Insurance company flags a claim as suspected fraud and opens an investigation
+const flagClaimAsFraud = async (claimId, reason, flaggedBy, flaggedByType, req) => {
   const claim = await Claim.findById(claimId);
   if (!claim) throw new ApiError(404, 'Claim not found');
 
   if (!['Assessed', 'Approved', 'Garage'].includes(claim.status)) {
-    throw new ApiError(400, 'Investigation can only be initiated after assessment report is submitted (claim status: Assessed, Approved, or Garage)');
+    throw new ApiError(400, 'A fraud flag can only be raised after the assessment report is submitted (claim status must be Assessed, Approved, or Garage)');
   }
 
-  const investigator = await Investigator.findById(investigatorId);
-  if (!investigator) throw new ApiError(404, 'Investigator not found');
-
-  const existing = await Investigation.findOne({ claimId, status: { $in: ['Pending', 'In Progress'] } });
+  const existing = await Investigation.findOne({ claimId, status: { $nin: ['Reviewed'] } });
   if (existing) throw new ApiError(400, 'An active investigation already exists for this claim');
 
   const start = Date.now();
-
-  // Generate a secure, single-use token for this investigation
-  const accessToken = crypto.randomBytes(32).toString('hex');
-  const investigationLink = `${FRONTEND_URL}/investigate?token=${accessToken}`;
+  const previousStatus = claim.status;
 
   const investigation = await Investigation.create({
     claimId,
-    investigatorId,
-    assignedBy,
-    assignedByType,
+    flaggedBy,
+    flaggedByType,
     reason,
     status: 'Pending',
-    accessToken,
   });
 
-  const previousStatus = claim.status;
   claim.fraud = {
     suspected: true,
     investigationId: investigation._id,
-    awardedInvestigator: { investigatorId, assignedDate: new Date() },
   };
   claim.status = 'UnderInvestigation';
   await claim.save();
-
-  investigator.pendingInvestigations += 1;
-  await investigator.save();
-
-  // Notify investigator via socket (in case they're on the admin portal)
-  await notificationService.createAndEmit({
-    recipientId: investigatorId,
-    recipientType: 'investigator',
-    type: 'investigation_assigned',
-    title: 'New Investigation Assigned',
-    content: `You have been assigned to investigate claim #${claimId}. Check your email for the secure access link.`,
-    claimId,
-  });
 
   // Notify customer
   if (claim.customerId) {
@@ -179,29 +156,7 @@ const assignInvestigator = async (claimId, investigatorId, reason, assignedBy, a
     });
   }
 
-  // Email investigator with secure link
-  await emailService.sendEmailNotification(
-    investigator.email,
-    'Investigation Assignment — Action Required',
-    `Dear ${investigator.name},
-
-You have been appointed to investigate the following insurance claim.
-
-Claim ID:   ${claimId}
-Vehicle:    ${claim.vehiclesInvolved?.[0]?.licensePlate || 'N/A'} — ${claim.vehiclesInvolved?.[0]?.make || ''} ${claim.vehiclesInvolved?.[0]?.model || ''}
-Reason:     ${reason}
-
-To access the claim details and submit your investigation report, please click the secure link below:
-
-${investigationLink}
-
-This link is unique to this investigation. Please do not share it.
-
-Regards,
-The AVE Insurance Team`
-  );
-
-  // Email customer — fraud detected notification
+  // Email customer
   if (claim.claimant && claim.claimant.email) {
     await emailService.sendEmailNotification(
       claim.claimant.email,
@@ -211,7 +166,7 @@ The AVE Insurance Team`
 We are writing to inform you that your insurance claim (Vehicle: ${claim.vehiclesInvolved?.[0]?.licensePlate || claimId}) has been flagged for further investigation by your insurance provider.
 
 What this means:
-- A qualified investigator has been assigned to review your claim.
+- A qualified investigator will be appointed to review your claim shortly.
 - This is a standard part of our claims process to ensure accuracy and fairness.
 - No action is required from you at this time.
 
@@ -227,13 +182,81 @@ The AVE Insurance Team`
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'Claim',
-    actionDescription: `Assigned investigator ${investigatorId} to claim ${claimId} for suspected fraud`,
+    actionDescription: `Flagged claim ${claimId} as suspected fraud — investigation opened`,
     resourceType: 'Claim',
     resourceId: claimId,
     statusCode: 201,
     success: true,
     responseTimeMs: Date.now() - start,
     changes: { old: { status: previousStatus }, new: { status: 'UnderInvestigation', investigationId: investigation._id } },
+  });
+
+  return investigation;
+};
+
+// Step 2 — Appoint an investigator to an existing (Pending) investigation and send them the secure link
+const appointInvestigator = async (investigationId, investigatorId, req) => {
+  const investigation = await Investigation.findById(investigationId).populate('claimId');
+  if (!investigation) throw new ApiError(404, 'Investigation not found');
+  if (investigation.status !== 'Pending') throw new ApiError(400, 'An investigator can only be appointed to a Pending investigation');
+  if (investigation.investigatorId) throw new ApiError(400, 'An investigator has already been appointed to this investigation');
+
+  const investigator = await Investigator.findById(investigatorId);
+  if (!investigator) throw new ApiError(404, 'Investigator not found');
+
+  const start = Date.now();
+  const claim = investigation.claimId;
+
+  const accessToken = crypto.randomBytes(32).toString('hex');
+  const investigationLink = `${FRONTEND_URL}/investigate?token=${accessToken}`;
+
+  investigation.investigatorId = investigatorId;
+  investigation.appointedAt = new Date();
+  investigation.accessToken = accessToken;
+  investigation.status = 'Appointed';
+
+  // Update fraud sub-doc on claim with the appointed investigator
+  await Claim.findByIdAndUpdate(claim._id, {
+    'fraud.awardedInvestigator': { investigatorId, assignedDate: new Date() },
+  });
+
+  await investigation.save();
+
+  investigator.pendingInvestigations += 1;
+  await investigator.save();
+
+  // Email investigator with secure link
+  await emailService.sendEmailNotification(
+    investigator.email,
+    'Investigation Appointment — Action Required',
+    `Dear ${investigator.name},
+
+You have been appointed to investigate the following insurance claim.
+
+Claim ID:   ${claim._id}
+Vehicle:    ${claim.vehiclesInvolved?.[0]?.licensePlate || 'N/A'} — ${claim.vehiclesInvolved?.[0]?.make || ''} ${claim.vehiclesInvolved?.[0]?.model || ''}
+Reason:     ${investigation.reason}
+
+To access the claim details and submit your investigation report, please click the secure link below:
+
+${investigationLink}
+
+This link is unique to this investigation and can only be used once. Please do not share it.
+
+Regards,
+The AVE Insurance Team`
+  );
+
+  await writeAuditLog(req, {
+    action: 'UPDATE',
+    module: 'Investigation',
+    actionDescription: `Appointed investigator ${investigatorId} to investigation ${investigationId}`,
+    resourceType: 'Investigation',
+    resourceId: investigationId,
+    statusCode: 200,
+    success: true,
+    responseTimeMs: Date.now() - start,
+    changes: { old: { status: 'Pending', investigatorId: null }, new: { status: 'Appointed', investigatorId } },
   });
 
   return investigation;
@@ -249,8 +272,8 @@ const getInvestigationByToken = async (token) => {
   if (investigation.tokenUsed) throw new ApiError(400, 'This investigation link has already been used to submit a report');
   if (investigation.status === 'Reviewed') throw new ApiError(400, 'This investigation has already been reviewed');
 
-  // Auto-transition Pending → In Progress on first visit
-  if (investigation.status === 'Pending') {
+  // Auto-transition Appointed → In Progress on first visit
+  if (investigation.status === 'Appointed') {
     investigation.status = 'In Progress';
     await investigation.save();
   }
@@ -263,7 +286,7 @@ const submitInvestigationReport = async (token, report, req) => {
   const investigation = await Investigation.findOne({ accessToken: token });
   if (!investigation) throw new ApiError(404, 'Invalid investigation link');
   if (investigation.tokenUsed) throw new ApiError(400, 'Report has already been submitted via this link');
-  if (!['Pending', 'In Progress'].includes(investigation.status)) {
+  if (!['Appointed', 'In Progress'].includes(investigation.status)) {
     throw new ApiError(400, 'This investigation is no longer open for report submission');
   }
 
@@ -468,7 +491,8 @@ module.exports = {
   updateInvestigator,
   deleteInvestigator,
   getInvestigatorStats,
-  assignInvestigator,
+  flagClaimAsFraud,
+  appointInvestigator,
   getInvestigationByToken,
   submitInvestigationReport,
   reviewInvestigationReport,

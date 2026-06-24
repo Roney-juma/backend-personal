@@ -17,7 +17,8 @@ router.put('/:id', verifyToken(), controller.updateInvestigator);
 router.delete('/:id', verifyToken(), controller.deleteInvestigator);
 
 // ─── Admin: investigation workflow ───────────────────────────────────────────
-router.post('/assign/:claimId', verifyToken(), controller.assignInvestigator);
+router.post('/flag/:claimId', verifyToken(), controller.flagClaimAsFraud);
+router.post('/investigations/:investigationId/appoint', verifyToken(), controller.appointInvestigator);
 router.put('/investigations/:investigationId/review', verifyToken(), controller.reviewReport);
 router.get('/my-investigations/:investigatorId', verifyToken(), controller.getMyInvestigations);
 router.get('/investigations/all', verifyToken(), controller.getAllInvestigations);
