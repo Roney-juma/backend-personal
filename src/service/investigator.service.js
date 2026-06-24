@@ -1,4 +1,4 @@
-const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const Investigator = require('../models/investigator.model');
 const Investigation = require('../models/investigation.model');
 const Claim = require('../models/claim.model');
@@ -7,23 +7,23 @@ const emailService = require('./email.service');
 const notificationService = require('./notification.service');
 const { writeAuditLog } = require('../utils/auditHelper');
 
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:4200';
+
+// ─── Investigator CRUD (admin-managed) ───────────────────────────────────────
+
 const createInvestigator = async (data, req) => {
   const existing = await Investigator.findOne({ email: data.email });
   if (existing) throw new ApiError(409, 'Investigator already exists with this email');
 
-  const plainPassword = data.password;
   const start = Date.now();
-  data.password = await bcrypt.hash(plainPassword, 10);
   const investigator = await Investigator.create(data);
 
   await emailService.sendEmailNotification(
     investigator.email,
     'Welcome to AVE Insurance — Investigator Account',
-    `Dear ${investigator.name},\n\nYour investigator account has been created.\n\nLogin Details:\n  Email:    ${investigator.email}\n  Password: ${plainPassword}\n  Role:     ${investigator.accountType}\n\nPlease log in and change your password at your earliest convenience.\n\nRegards,\nThe AVE Insurance Team`
+    `Dear ${investigator.name},\n\nYour investigator profile has been registered on the AVE Insurance platform.\n\nWhen you are assigned to a claim, you will receive a secure link via email to access the claim details and submit your investigation report. No login is required.\n\nRegards,\nThe AVE Insurance Team`
   );
 
-  const safeData = { ...data };
-  delete safeData.password;
   await writeAuditLog(req, {
     action: 'CREATE',
     module: 'Investigator',
@@ -33,20 +33,10 @@ const createInvestigator = async (data, req) => {
     statusCode: 201,
     success: true,
     responseTimeMs: Date.now() - start,
-    changes: { old: null, new: safeData },
+    changes: { old: null, new: data },
   });
 
   return investigator;
-};
-
-const loginWithEmailAndPassword = async (email, password) => {
-  const user = await Investigator.findOne({ email });
-  if (!user) throw new ApiError(401, 'Invalid email or password');
-
-  const isMatch = await user.isPasswordMatch(password);
-  if (!isMatch) throw new ApiError(401, 'Invalid email or password');
-
-  return user;
 };
 
 const getAllInvestigators = async (filter = {}, page = 1, limit = 10) => {
@@ -57,7 +47,7 @@ const getAllInvestigators = async (filter = {}, page = 1, limit = 10) => {
 
   const skip = (page - 1) * limit;
   const [investigators, total] = await Promise.all([
-    Investigator.find(query).select('-password').skip(skip).limit(Number(limit)).sort({ createdAt: -1 }),
+    Investigator.find(query).skip(skip).limit(Number(limit)).sort({ createdAt: -1 }),
     Investigator.countDocuments(query),
   ]);
 
@@ -65,7 +55,7 @@ const getAllInvestigators = async (filter = {}, page = 1, limit = 10) => {
 };
 
 const getInvestigatorById = async (id) => {
-  const investigator = await Investigator.findById(id).select('-password');
+  const investigator = await Investigator.findById(id);
   if (!investigator) throw new ApiError(404, 'Investigator not found');
   return investigator;
 };
@@ -74,14 +64,9 @@ const updateInvestigator = async (id, data, req) => {
   const investigator = await Investigator.findById(id);
   if (!investigator) throw new ApiError(404, 'Investigator not found');
 
-  // Never allow password changes via the update endpoint
-  delete data.password;
-
   const start = Date.now();
   const oldData = investigator.toObject();
-  delete oldData.password;
-
-  const updated = await Investigator.findByIdAndUpdate(id, data, { new: true }).select('-password');
+  const updated = await Investigator.findByIdAndUpdate(id, data, { new: true });
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -103,9 +88,7 @@ const deleteInvestigator = async (id, req) => {
   if (!investigator) throw new ApiError(404, 'Investigator not found');
 
   const snapshot = investigator.toObject();
-  delete snapshot.password;
   const start = Date.now();
-
   await Investigator.findByIdAndDelete(id);
 
   await writeAuditLog(req, {
@@ -121,14 +104,6 @@ const deleteInvestigator = async (id, req) => {
   });
 };
 
-const resetPassword = async (email, newPassword) => {
-  const user = await Investigator.findOne({ email });
-  if (!user) throw new ApiError(404, 'Investigator not found');
-  user.password = await bcrypt.hash(newPassword, 10);
-  await user.save();
-  return { message: 'Password reset successfully' };
-};
-
 const getInvestigatorStats = async () => {
   const total = await Investigator.countDocuments();
   const active = await Investigator.countDocuments({ pendingInvestigations: { $gt: 0 } });
@@ -137,7 +112,9 @@ const getInvestigatorStats = async () => {
   return { total, active, idle: total - active, activeInvestigations, awaitingReview: submitted };
 };
 
-// Insurance company assigns an investigator to a claim after suspecting fraud
+// ─── Investigation workflow ───────────────────────────────────────────────────
+
+// Insurance company assigns an investigator to a claim and emails them a secure link
 const assignInvestigator = async (claimId, investigatorId, reason, assignedBy, assignedByType, req) => {
   const claim = await Claim.findById(claimId);
   if (!claim) throw new ApiError(404, 'Claim not found');
@@ -154,6 +131,10 @@ const assignInvestigator = async (claimId, investigatorId, reason, assignedBy, a
 
   const start = Date.now();
 
+  // Generate a secure, single-use token for this investigation
+  const accessToken = crypto.randomBytes(32).toString('hex');
+  const investigationLink = `${FRONTEND_URL}/investigate?token=${accessToken}`;
+
   const investigation = await Investigation.create({
     claimId,
     investigatorId,
@@ -161,6 +142,7 @@ const assignInvestigator = async (claimId, investigatorId, reason, assignedBy, a
     assignedByType,
     reason,
     status: 'Pending',
+    accessToken,
   });
 
   const previousStatus = claim.status;
@@ -175,13 +157,13 @@ const assignInvestigator = async (claimId, investigatorId, reason, assignedBy, a
   investigator.pendingInvestigations += 1;
   await investigator.save();
 
-  // Notify investigator
+  // Notify investigator via socket (in case they're on the admin portal)
   await notificationService.createAndEmit({
     recipientId: investigatorId,
     recipientType: 'investigator',
     type: 'investigation_assigned',
     title: 'New Investigation Assigned',
-    content: `You have been assigned to investigate claim #${claimId}. Reason: ${reason}`,
+    content: `You have been assigned to investigate claim #${claimId}. Check your email for the secure access link.`,
     claimId,
   });
 
@@ -197,11 +179,26 @@ const assignInvestigator = async (claimId, investigatorId, reason, assignedBy, a
     });
   }
 
-  // Email investigator
+  // Email investigator with secure link
   await emailService.sendEmailNotification(
     investigator.email,
-    'Investigation Assignment — AVE Insurance',
-    `Dear ${investigator.name},\n\nYou have been assigned to investigate the following claim.\n\nClaim ID: ${claimId}\nReason: ${reason}\n\nPlease log in to the platform to begin your investigation.\n\nRegards,\nThe AVE Insurance Team`
+    'Investigation Assignment — Action Required',
+    `Dear ${investigator.name},
+
+You have been appointed to investigate the following insurance claim.
+
+Claim ID:   ${claimId}
+Vehicle:    ${claim.vehiclesInvolved?.[0]?.licensePlate || 'N/A'} — ${claim.vehiclesInvolved?.[0]?.make || ''} ${claim.vehiclesInvolved?.[0]?.model || ''}
+Reason:     ${reason}
+
+To access the claim details and submit your investigation report, please click the secure link below:
+
+${investigationLink}
+
+This link is unique to this investigation. Please do not share it.
+
+Regards,
+The AVE Insurance Team`
   );
 
   // Email customer — fraud detected notification
@@ -242,13 +239,32 @@ The AVE Insurance Team`
   return investigation;
 };
 
-// Investigator submits their investigation report
-const submitInvestigationReport = async (investigationId, report, req) => {
-  const investigation = await Investigation.findById(investigationId).populate('claimId');
-  if (!investigation) throw new ApiError(404, 'Investigation not found');
+// Investigator opens the link — returns claim + investigation details and auto-starts the investigation
+const getInvestigationByToken = async (token) => {
+  const investigation = await Investigation.findOne({ accessToken: token })
+    .populate('claimId')
+    .populate('investigatorId', 'name email contactNumber licenseNumber specializations');
 
+  if (!investigation) throw new ApiError(404, 'Invalid investigation link');
+  if (investigation.tokenUsed) throw new ApiError(400, 'This investigation link has already been used to submit a report');
+  if (investigation.status === 'Reviewed') throw new ApiError(400, 'This investigation has already been reviewed');
+
+  // Auto-transition Pending → In Progress on first visit
+  if (investigation.status === 'Pending') {
+    investigation.status = 'In Progress';
+    await investigation.save();
+  }
+
+  return investigation;
+};
+
+// Investigator submits their report via the secure token link
+const submitInvestigationReport = async (token, report, req) => {
+  const investigation = await Investigation.findOne({ accessToken: token });
+  if (!investigation) throw new ApiError(404, 'Invalid investigation link');
+  if (investigation.tokenUsed) throw new ApiError(400, 'Report has already been submitted via this link');
   if (!['Pending', 'In Progress'].includes(investigation.status)) {
-    throw new ApiError(400, 'Report has already been submitted for this investigation');
+    throw new ApiError(400, 'This investigation is no longer open for report submission');
   }
 
   const start = Date.now();
@@ -260,6 +276,7 @@ const submitInvestigationReport = async (investigationId, report, req) => {
     submittedAt: new Date(),
   };
   investigation.status = 'Submitted';
+  investigation.tokenUsed = true;
   await investigation.save();
 
   const claim = await Claim.findById(investigation.claimId);
@@ -268,15 +285,14 @@ const submitInvestigationReport = async (investigationId, report, req) => {
     await claim.save();
   }
 
-  // Decrement investigator pending count
   await Investigator.findByIdAndUpdate(investigation.investigatorId, {
     $inc: { pendingInvestigations: -1 },
   });
 
-  // Notify admin/insurance company (use assignedBy as recipient)
+  // Notify admin/insurance company
   await notificationService.createAndEmit({
     recipientId: investigation.assignedBy,
-    recipientType: investigation.assignedByType === 'admin' ? 'admin' : 'admin',
+    recipientType: 'admin',
     type: 'investigation_submitted',
     title: 'Investigation Report Submitted',
     content: `The investigation report for claim #${investigation.claimId} has been submitted. Conclusion: ${report.conclusion}`,
@@ -284,7 +300,7 @@ const submitInvestigationReport = async (investigationId, report, req) => {
   });
 
   // Notify customer
-  if (claim && claim.customerId) {
+  if (claim?.customerId) {
     await notificationService.createAndEmit({
       recipientId: claim.customerId,
       recipientType: 'customer',
@@ -298,9 +314,9 @@ const submitInvestigationReport = async (investigationId, report, req) => {
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'Investigation',
-    actionDescription: `Investigator submitted report for investigation ${investigationId}`,
+    actionDescription: `Investigator submitted report via secure link for investigation ${investigation._id}`,
     resourceType: 'Investigation',
-    resourceId: investigationId,
+    resourceId: investigation._id,
     statusCode: 200,
     success: true,
     responseTimeMs: Date.now() - start,
@@ -310,32 +326,7 @@ const submitInvestigationReport = async (investigationId, report, req) => {
   return investigation;
 };
 
-// Update investigation status to In Progress (investigator acknowledges assignment)
-const startInvestigation = async (investigationId, req) => {
-  const investigation = await Investigation.findById(investigationId);
-  if (!investigation) throw new ApiError(404, 'Investigation not found');
-  if (investigation.status !== 'Pending') throw new ApiError(400, 'Investigation is not in Pending status');
-
-  const start = Date.now();
-  investigation.status = 'In Progress';
-  await investigation.save();
-
-  await writeAuditLog(req, {
-    action: 'UPDATE',
-    module: 'Investigation',
-    actionDescription: `Investigation ${investigationId} marked as In Progress`,
-    resourceType: 'Investigation',
-    resourceId: investigationId,
-    statusCode: 200,
-    success: true,
-    responseTimeMs: Date.now() - start,
-    changes: { old: { status: 'Pending' }, new: { status: 'In Progress' } },
-  });
-
-  return investigation;
-};
-
-// Admin/insurance company reviews submitted report — claim status driven by conclusion
+// Admin/insurance reviews submitted report — claim status driven by conclusion
 const reviewInvestigationReport = async (investigationId, reviewNotes, reviewedBy, req) => {
   const investigation = await Investigation.findById(investigationId);
   if (!investigation) throw new ApiError(404, 'Investigation not found');
@@ -390,7 +381,7 @@ We apologise for any inconvenience caused by this review.
 Regards,
 The AVE Insurance Team`;
   } else {
-    // Inconclusive — claim stays at Investigated; admin must decide next step manually
+    // Inconclusive — stays at Investigated; admin must decide next step manually
     newClaimStatus = 'Investigated';
     notificationTitle = 'Investigation Update — Further Review Required';
     notificationContent = 'The investigation into your claim returned an inconclusive result. Your insurance provider is conducting a further review and will be in touch shortly.';
@@ -413,7 +404,6 @@ The AVE Insurance Team`;
     await claim.save();
   }
 
-  // Notify customer via socket + FCM
   if (claim?.customerId) {
     await notificationService.createAndEmit({
       recipientId: claim.customerId,
@@ -425,7 +415,6 @@ The AVE Insurance Team`;
     });
   }
 
-  // Email customer
   if (claim?.claimant?.email) {
     await emailService.sendEmailNotification(claim.claimant.email, emailSubject, emailBody);
   }
@@ -474,16 +463,14 @@ const getInvestigationById = async (id) => {
 
 module.exports = {
   createInvestigator,
-  loginWithEmailAndPassword,
   getAllInvestigators,
   getInvestigatorById,
   updateInvestigator,
   deleteInvestigator,
-  resetPassword,
   getInvestigatorStats,
   assignInvestigator,
+  getInvestigationByToken,
   submitInvestigationReport,
-  startInvestigation,
   reviewInvestigationReport,
   getMyInvestigations,
   getAllInvestigations,

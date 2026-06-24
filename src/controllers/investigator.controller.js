@@ -1,6 +1,7 @@
 const investigatorService = require('../service/investigator.service');
-const tokenService = require('../service/token.service');
 const logger = require('../middlewheres/logger');
+
+// ─── Admin: Investigator management ──────────────────────────────────────────
 
 const createInvestigator = async (req, res) => {
   try {
@@ -9,18 +10,6 @@ const createInvestigator = async (req, res) => {
   } catch (error) {
     logger.error('Error creating investigator: %s', error.message);
     res.status(error.statusCode || 409).json({ message: error.message });
-  }
-};
-
-const login = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const user = await investigatorService.loginWithEmailAndPassword(email, password);
-    const tokens = tokenService.GenerateToken(user);
-    res.status(200).json({ user, tokens });
-  } catch (error) {
-    logger.error('Error during investigator login: %s', error.message);
-    res.status(error.statusCode || 401).json({ message: error.message });
   }
 };
 
@@ -61,16 +50,6 @@ const deleteInvestigator = async (req, res) => {
   }
 };
 
-const resetPassword = async (req, res) => {
-  try {
-    const { email, newPassword } = req.body;
-    const result = await investigatorService.resetPassword(email, newPassword);
-    res.status(200).json(result);
-  } catch (error) {
-    res.status(error.statusCode || 400).json({ message: error.message });
-  }
-};
-
 const getStats = async (req, res) => {
   try {
     const stats = await investigatorService.getInvestigatorStats();
@@ -80,14 +59,14 @@ const getStats = async (req, res) => {
   }
 };
 
+// ─── Admin: Investigation management ─────────────────────────────────────────
+
 const assignInvestigator = async (req, res) => {
   try {
-    const { claimId } = req.params;
     const { investigatorId, reason, assignedByType } = req.body;
     const assignedBy = req.user?.id || req.body.assignedBy;
-
     const investigation = await investigatorService.assignInvestigator(
-      claimId, investigatorId, reason, assignedBy, assignedByType || 'insuranceCompany', req
+      req.params.claimId, investigatorId, reason, assignedBy, assignedByType || 'insuranceCompany', req
     );
     res.status(201).json(investigation);
   } catch (error) {
@@ -96,35 +75,14 @@ const assignInvestigator = async (req, res) => {
   }
 };
 
-const startInvestigation = async (req, res) => {
-  try {
-    const investigation = await investigatorService.startInvestigation(req.params.investigationId, req);
-    res.status(200).json(investigation);
-  } catch (error) {
-    res.status(error.statusCode || 500).json({ message: error.message });
-  }
-};
-
-const submitReport = async (req, res) => {
-  try {
-    const investigation = await investigatorService.submitInvestigationReport(
-      req.params.investigationId, req.body, req
-    );
-    res.status(200).json(investigation);
-  } catch (error) {
-    logger.error('Error submitting investigation report: %s', error.message);
-    res.status(error.statusCode || 500).json({ message: error.message });
-  }
-};
-
 const reviewReport = async (req, res) => {
   try {
     const { reviewNotes } = req.body;
     const reviewedBy = req.user?.id || req.body.reviewedBy;
-    const investigation = await investigatorService.reviewInvestigationReport(
+    const result = await investigatorService.reviewInvestigationReport(
       req.params.investigationId, reviewNotes, reviewedBy, req
     );
-    res.status(200).json(investigation);
+    res.status(200).json(result);
   } catch (error) {
     res.status(error.statusCode || 500).json({ message: error.message });
   }
@@ -157,33 +115,41 @@ const getInvestigation = async (req, res) => {
   }
 };
 
-const updateFcmToken = async (req, res) => {
+// ─── Public: Token-based investigator access (no login required) ──────────────
+
+// Investigator opens their email link — returns claim + investigation details
+const getReportForm = async (req, res) => {
   try {
-    const { fcmToken } = req.body;
-    if (!fcmToken) return res.status(400).json({ message: 'fcmToken is required' });
-    const { updateFcmToken: update } = require('../service/firebase.service');
-    await update(req.params.id, 'investigator', fcmToken);
-    res.status(200).json({ message: 'FCM token updated' });
+    const investigation = await investigatorService.getInvestigationByToken(req.params.token);
+    res.status(200).json(investigation);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(error.statusCode || 400).json({ message: error.message });
+  }
+};
+
+// Investigator submits their report via the secure link token
+const submitReport = async (req, res) => {
+  try {
+    const investigation = await investigatorService.submitInvestigationReport(req.params.token, req.body, req);
+    res.status(200).json(investigation);
+  } catch (error) {
+    logger.error('Error submitting investigation report: %s', error.message);
+    res.status(error.statusCode || 500).json({ message: error.message });
   }
 };
 
 module.exports = {
   createInvestigator,
-  login,
   getAllInvestigators,
   getInvestigator,
   updateInvestigator,
   deleteInvestigator,
-  resetPassword,
   getStats,
   assignInvestigator,
-  startInvestigation,
-  submitReport,
   reviewReport,
   getMyInvestigations,
   getAllInvestigations,
   getInvestigation,
-  updateFcmToken,
+  getReportForm,
+  submitReport,
 };

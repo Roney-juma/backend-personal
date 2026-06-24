@@ -21,6 +21,8 @@ const investigationSchema = new Schema({
     evidence: [String],
     submittedAt: { type: Date },
   },
+  accessToken: { type: String, unique: true, sparse: true },
+  tokenUsed: { type: Boolean, default: false },
   reviewNotes: { type: String },
   reviewedAt: { type: Date },
   reviewedBy: { type: Schema.Types.ObjectId },
