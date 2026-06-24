@@ -210,7 +210,7 @@ const appointInvestigator = async (investigationId, investigatorId, req) => {
   const claim = investigation.claimId;
 
   const accessToken = crypto.randomBytes(32).toString('hex');
-  const investigationLink = `${FRONTEND_URL}/investigate?token=${accessToken}`;
+  const investigationLink = `${FRONTEND_URL}/investigators/report/token=${accessToken}`;
 
   investigation.investigatorId = investigatorId;
   investigation.appointedAt = new Date();
