@@ -350,13 +350,13 @@ const submitInvestigationReport = async (token, report, req) => {
     $inc: { pendingInvestigations: -1 },
   });
 
-  // Notify admin/insurance company
+  // Notify admin/insurance company who flagged the claim
   await notificationService.createAndEmit({
-    recipientId: investigation.assignedBy,
+    recipientId: investigation.flaggedBy,
     recipientType: 'admin',
     type: 'investigation_submitted',
     title: 'Investigation Report Submitted',
-    content: `The investigation report for claim #${investigation.claimId} has been submitted. Conclusion: ${report.conclusion}`,
+    content: `The investigation report for claim #${investigation.claimId} has been submitted. Investigator conclusion: ${report.conclusion}. Please review and make a final decision.`,
     claimId: investigation.claimId,
   });
 
@@ -387,53 +387,51 @@ const submitInvestigationReport = async (token, report, req) => {
   return investigation;
 };
 
-// Admin/insurance reviews submitted report — claim status driven by conclusion
-const reviewInvestigationReport = async (investigationId, reviewNotes, reviewedBy, req) => {
+// Admin makes the final decision on a claim after reviewing the investigation report
+// decision: 'reject' | 'clear' | 'inconclusive'
+const reviewInvestigationReport = async (investigationId, decision, reviewNotes, reviewedBy, req) => {
   const investigation = await Investigation.findById(investigationId);
   if (!investigation) throw new ApiError(404, 'Investigation not found');
-  if (investigation.status !== 'Submitted') throw new ApiError(400, 'Only submitted investigations can be reviewed');
-
-  const conclusion = investigation.report?.conclusion;
-  if (!conclusion) throw new ApiError(400, 'Investigation report has no conclusion recorded');
-
-  const start = Date.now();
-  investigation.reviewNotes = reviewNotes;
-  investigation.reviewedAt = new Date();
-  investigation.reviewedBy = reviewedBy;
-  investigation.status = 'Reviewed';
-  await investigation.save();
+  if (investigation.status !== 'Submitted') throw new ApiError(400, 'Only submitted investigations can have a final decision recorded');
+  if (!['reject', 'clear', 'inconclusive'].includes(decision)) {
+    throw new ApiError(400, 'decision must be one of: reject, clear, inconclusive');
+  }
 
   const claim = await Claim.findById(investigation.claimId);
   const previousClaimStatus = claim?.status;
+  const vehicle = claim?.vehiclesInvolved?.[0]?.licensePlate || String(investigation.claimId);
+  const customerName = claim?.claimant?.name || 'Valued Customer';
+
   let newClaimStatus;
   let notificationTitle;
   let notificationContent;
   let emailSubject;
   let emailBody;
 
-  if (conclusion === 'Fraud Confirmed') {
+  if (decision === 'reject') {
     newClaimStatus = 'Rejected';
-    notificationTitle = 'Claim Rejected — Fraud Detected';
-    notificationContent = 'Following a thorough investigation, your insurance claim has been rejected due to confirmed fraudulent activity. Please contact your insurance provider if you wish to appeal this decision.';
-    emailSubject = 'Claim Rejected — Fraud Investigation Outcome';
-    emailBody = `Dear ${claim?.claimant?.name || 'Valued Customer'},
+    notificationTitle = 'Claim Rejected';
+    notificationContent = 'Your insurance claim has been rejected following a fraud investigation. Please contact your insurance provider if you wish to appeal this decision.';
+    emailSubject = 'Claim Rejected — Final Decision';
+    emailBody = `Dear ${customerName},
 
-We regret to inform you that your insurance claim (Vehicle: ${claim?.vehiclesInvolved?.[0]?.licensePlate || investigation.claimId}) has been rejected following a fraud investigation.
+We regret to inform you that your insurance claim (Vehicle: ${vehicle}) has been rejected following a fraud investigation.
 
-Reason: ${reviewNotes || 'Fraudulent activity was confirmed during the investigation process.'}
+Decision: Claim Rejected
+Reason:   ${reviewNotes || 'Fraudulent activity was identified during the investigation process.'}
 
 If you believe this decision is incorrect, you have the right to appeal. Please contact your insurance provider within 30 days of receiving this notice.
 
 Regards,
 The AVE Insurance Team`;
-  } else if (conclusion === 'Fraud Not Found') {
+  } else if (decision === 'clear') {
     newClaimStatus = 'Assessed';
     notificationTitle = 'Claim Cleared — Investigation Complete';
-    notificationContent = 'The investigation into your claim has found no evidence of fraud. Your claim will now continue through the normal assessment process.';
+    notificationContent = 'Your claim has been reviewed and cleared following the fraud investigation. Your claim will now continue through the normal process.';
     emailSubject = 'Good News — Your Claim Has Been Cleared';
-    emailBody = `Dear ${claim?.claimant?.name || 'Valued Customer'},
+    emailBody = `Dear ${customerName},
 
-We are pleased to inform you that the investigation into your insurance claim (Vehicle: ${claim?.vehiclesInvolved?.[0]?.licensePlate || investigation.claimId}) has been completed and no fraud was found.
+We are pleased to inform you that your insurance claim (Vehicle: ${vehicle}) has been reviewed and cleared following the fraud investigation.
 
 Your claim will now continue through the normal claims process. You will receive further updates as your claim progresses.
 
@@ -442,23 +440,30 @@ We apologise for any inconvenience caused by this review.
 Regards,
 The AVE Insurance Team`;
   } else {
-    // Inconclusive — stays at Investigated; admin must decide next step manually
     newClaimStatus = 'Investigated';
-    notificationTitle = 'Investigation Update — Further Review Required';
-    notificationContent = 'The investigation into your claim returned an inconclusive result. Your insurance provider is conducting a further review and will be in touch shortly.';
+    notificationTitle = 'Claim Update — Further Review Required';
+    notificationContent = 'Your insurance provider requires additional information before a final decision can be made on your claim. You will be contacted shortly.';
     emailSubject = 'Claim Update — Further Review Required';
-    emailBody = `Dear ${claim?.claimant?.name || 'Valued Customer'},
+    emailBody = `Dear ${customerName},
 
-The investigation into your insurance claim (Vehicle: ${claim?.vehiclesInvolved?.[0]?.licensePlate || investigation.claimId}) has returned an inconclusive result.
+Your insurance claim (Vehicle: ${vehicle}) requires further review before a final decision can be made.
 
-Your insurance provider is conducting a further review. No action is required from you at this time. We will notify you once a final decision has been reached.
+${reviewNotes ? `Note: ${reviewNotes}\n\n` : ''}Your insurance provider will be in touch shortly. No action is required from you at this time.
 
 Regards,
 The AVE Insurance Team`;
   }
 
+  const start = Date.now();
+
+  investigation.reviewNotes = reviewNotes;
+  investigation.reviewedAt = new Date();
+  investigation.reviewedBy = reviewedBy;
+  investigation.status = 'Reviewed';
+  await investigation.save();
+
   if (claim) {
-    if (conclusion === 'Fraud Confirmed') {
+    if (decision === 'reject') {
       claim.rejectionReason = reviewNotes || 'Claim rejected following fraud investigation';
     }
     claim.status = newClaimStatus;
@@ -483,7 +488,7 @@ The AVE Insurance Team`;
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'Investigation',
-    actionDescription: `Investigation ${investigationId} reviewed — conclusion: ${conclusion}, claim status → ${newClaimStatus}`,
+    actionDescription: `Admin made final decision on investigation ${investigationId} — decision: ${decision}, claim status → ${newClaimStatus}`,
     resourceType: 'Investigation',
     resourceId: investigationId,
     statusCode: 200,
@@ -491,11 +496,11 @@ The AVE Insurance Team`;
     responseTimeMs: Date.now() - start,
     changes: {
       old: { investigationStatus: 'Submitted', claimStatus: previousClaimStatus },
-      new: { investigationStatus: 'Reviewed', claimStatus: newClaimStatus, conclusion, reviewNotes },
+      new: { investigationStatus: 'Reviewed', claimStatus: newClaimStatus, decision, reviewNotes },
     },
   });
 
-  return { investigation, claimStatus: newClaimStatus, conclusion };
+  return { investigation, claimStatus: newClaimStatus, decision };
 };
 
 const getMyInvestigations = async (investigatorId) => {

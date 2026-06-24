@@ -90,10 +90,10 @@ const appointInvestigator = async (req, res) => {
 
 const reviewReport = async (req, res) => {
   try {
-    const { reviewNotes } = req.body;
+    const { decision, reviewNotes } = req.body;
     const reviewedBy = req.user?.id || req.body.reviewedBy;
     const result = await investigatorService.reviewInvestigationReport(
-      req.params.investigationId, reviewNotes, reviewedBy, req
+      req.params.investigationId, decision, reviewNotes, reviewedBy, req
     );
     res.status(200).json(result);
   } catch (error) {
