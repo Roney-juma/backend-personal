@@ -335,6 +335,7 @@ const submitInvestigationReport = async (investigationId, token, report, req) =>
     findings: report.findings,
     conclusion: report.conclusion,
     evidence: report.evidence || [],
+    comprehensiveReport: report.comprehensiveReport || '',
     submittedAt: new Date(),
   };
   investigation.status = 'Submitted';

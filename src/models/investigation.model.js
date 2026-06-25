@@ -42,6 +42,7 @@ const investigationSchema = new Schema({
       enum: ['Fraud Confirmed', 'Fraud Not Found', 'Inconclusive'],
     },
     evidence: [String],
+    comprehensiveReport: { type: String },
     submittedAt: { type: Date },
   },
 
