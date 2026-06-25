@@ -265,7 +265,8 @@ const approveClaim = async (id, req) => {
     await emailService.sendEmailNotification(
       claimant.email,
       'Claim Approval Notification',
-      `Dear ${claimant.name},\n\nWe are pleased to inform you that your claim with ID: ${claim.vehiclesInvolved[0].licensePlate} has been approved. The compensation will be processed shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+      `Dear ${claimant.name},\n\nWe acknowledge receipt of your claim regarding vehicle registration number ${claim.vehiclesInvolved[0].licensePlate}.\n\nTo facilitate the claims process, an assessor will be appointed shortly to inspect and assess the vehicle. The assessment findings will enable us to determine the next steps and process your claim accordingly.\n\nOur team will keep you informed throughout the process and will contact you should any additional information be required.\n\nThank you for choosing Ave Insurance.\n\nKind regards,\n\nClaims Department\nAve Insurance`
+      
     );
   }
   if (claim.customerId) {
