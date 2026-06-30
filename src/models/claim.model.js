@@ -147,12 +147,18 @@ const claimSchema = new Schema({
     },
   }],
   policeReport: {
-    reportNumber: { type: String },
-    officerName: { type: String },
-    department: { type: String },
+    reportNumber: { type: String, required: true },
+    officerName: { type: String, required: true },
+    department: { type: String, required: true },
   },
   supportingDocuments: {
-    photos: [String],
+    photos: {
+      type: [String],
+      validate: {
+        validator: (v) => Array.isArray(v) && v.length > 0,
+        message: 'At least one supporting photo is required',
+      },
+    },
     videos: [String],
     repairEstimates: [String],
     medicalReports: [String],
