@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(echo \"=== search for letterhead/neurodev assets ===\"; find /Users/tt/Development/Backend/backend-personal -iname \"*neurodev*\" -o -iname \"*letterhead*\" 2>/dev/null; echo \"--- downloads/desktop ---\"; ls -t ~/Downloads 2>/dev/null | head -20; echo \"...\"; find ~/Downloads ~/Desktop -maxdepth 2 \\\\\\( -iname \"*neurodev*\" -o -iname \"*letterhead*\" \\\\\\) 2>/dev/null; echo \"=== tooling ===\"; which mmdc pandoc wkhtmltopdf node npx chromium 2>/dev/null; echo \"node: $\\(node -v 2>/dev/null\\)\")",
+      "Read(//Users/tt/Downloads/**)",
+      "Read(//Users/tt/Desktop/Neurodev Invoice_files/**)",
+      "Read(//Users/tt/Downloads/Custom letterhead design/**)",
+      "Bash(sed -e 's/<[^>]*>/ /g' '/Users/tt/Downloads/Custom letterhead design/Neurodev Letterhead.dc.html')",
+      "Bash(grep -iE 'neurodev|@|www|\\\\.com|tel|phone|\\\\+?[0-9]{6,}|address|street|road|kigali|rwanda|nairobi|kenya|ltd|reg')",
+      "Read(//Users/tt/Desktop/**)",
+      "Bash(echo \"exit:$?\")",
+      "Bash(node build.js)",
+      "Read(//private/tmp/**)",
+      "Bash(qlmanage -t -s 1100 -o /tmp/qlprev \"/Users/tt/Development/Backend/backend-personal/docs/AI-Claims-Intelligence-Platform-Proposal.pdf\")",
+      "Bash(ls -la /tmp/qlprev/)",
+      "Bash(mkdir -p /tmp/qlprev)",
+      "Bash(qlmanage -t -s 1200 -o /tmp/qlprev \"/Users/tt/Development/Backend/backend-personal/docs/AI-Claims-Intelligence-Platform-Proposal.pdf\")",
+      "Read(//tmp/**)",
+      "Read(//tmp/qlprev/**)",
+      "Read(//private/tmp/qlprev/**)"
+    ]
+  }
+}
