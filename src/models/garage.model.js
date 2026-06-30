@@ -26,7 +26,6 @@ const garageSchema = new mongoose.Schema({
   },
   services: [{ type: String }],
   fcmToken: { type: String },
-  whatsappNumber: { type: String, default: null },
   ratings: {
     averageRating: { type: Number, default: 0 },
     totalRatings: { type: Number, default: 0 },

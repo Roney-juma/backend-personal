@@ -43,7 +43,6 @@ const assessorSchema = new Schema({
     }]
   },
   fcmToken: { type: String },
-  whatsappNumber: { type: String, default: null },
 }, { timestamps: true });
 
 assessorSchema.pre('save', async function (next) {

@@ -48,9 +48,9 @@ Best Regards,
 Admin Team`
     );
   }
-  if (savedGarage && savedGarage.whatsappNumber) {
+  if (savedGarage && savedGarage.contactNumber) {
     await whatsappService.sendWhatsAppMessage(
-      savedGarage.whatsappNumber,
+      savedGarage.contactNumber,
       `Hi ${savedGarage.name}, welcome to Ave Insurance! Your garage account has been created. Log in with your registered email to start receiving claim assignments. — Ave Insurance`
     );
   }
@@ -212,9 +212,9 @@ const placeBid = async (claimId, garageId, description, timeline, parts) => {
         .join('\n')}\n\nThank you for your participation.`
     );
   }
-  if (garage && garage.whatsappNumber) {
+  if (garage && garage.contactNumber) {
     await whatsappService.sendWhatsAppMessage(
-      garage.whatsappNumber,
+      garage.contactNumber,
       `Hi ${garage.name}, your bid of R${totalCost} on claim ${claim._id} has been placed successfully. We'll notify you of the outcome. — Ave Insurance`
     );
   }
@@ -256,9 +256,9 @@ Best Regards,
 Admin Team`
       );
     }
-    if (assessor && assessor.whatsappNumber) {
+    if (assessor && assessor.contactInfo?.phone) {
       await whatsappService.sendWhatsAppMessage(
-        assessor.whatsappNumber,
+        assessor.contactInfo.phone,
         `Hi ${assessor.name}, re-assessment required for claim ${raVehicle}. The garage has completed the repair — please visit to verify. — Ave Insurance`
       );
     }

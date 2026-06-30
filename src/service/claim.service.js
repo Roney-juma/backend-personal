@@ -65,9 +65,9 @@ const generateClaimLink = async (email) => {
     const claimLink = `https://avics.aveafrica.com/file-claim/${token}`;
     const claimLinkMessage = `Dear ${customer.firstName},\n\nClick this link to file a claim: ${claimLink}\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`;
     await emailService.sendEmailNotification(email, 'File a claim here', claimLinkMessage);
-    if (customer.whatsappNumber) {
+    if (customer.phone) {
       await whatsappService.sendWhatsAppMessage(
-        customer.whatsappNumber,
+        customer.phone,
         `Hi ${customer.firstName}, your claim link is ready:\n${claimLink}\n\nThis link is for one-time use. — Ave Insurance`
       );
     }
@@ -105,7 +105,6 @@ const fileClaimService = async (token, claimDetails, req) => {
         address: customer.address || 'Not Provided',
         phone: customer.phone,
         email: customer.email,
-        whatsappNumber: customer.whatsappNumber || null,
       },
       ...claimDetails,
     });
@@ -127,9 +126,9 @@ const fileClaimService = async (token, claimDetails, req) => {
     if (newClaim.claimant.email) {
       await emailService.sendEmailNotification(newClaim.claimant.email, 'Claim Submission Confirmation', submissionMsg);
     }
-    if (newClaim.claimant.whatsappNumber) {
+    if (newClaim.claimant.phone) {
       await whatsappService.sendWhatsAppMessage(
-        newClaim.claimant.whatsappNumber,
+        newClaim.claimant.phone,
         `Hi ${newClaim.claimant.name}, your claim has been submitted and is under review. We'll keep you updated. — Ave Insurance`
       );
     }
@@ -157,7 +156,6 @@ const createClaim = async (data, req) => {
       address: claimant.address,
       phone: claimant.phone,
       email: claimant.email,
-      whatsappNumber: claimant.whatsappNumber || null,
     };
     const start = Date.now();
     const claim = new Claim(data);
@@ -167,9 +165,9 @@ const createClaim = async (data, req) => {
     if (claimant.email) {
       await emailService.sendEmailNotification(claimant.email, 'Claim Submission Confirmation', createConfirmMsg);
     }
-    if (claimant.whatsappNumber) {
+    if (claimant.phone) {
       await whatsappService.sendWhatsAppMessage(
-        claimant.whatsappNumber,
+        claimant.phone,
         `Hi ${claimant.name}, your claim has been submitted successfully and is under review. We'll update you at each step. — Ave Insurance`
       );
     }
@@ -281,9 +279,9 @@ const approveClaim = async (id, req) => {
       `Dear ${claimant.name},\n\nWe acknowledge receipt of your claim regarding vehicle registration number ${vehicle}.\n\nTo facilitate the claims process, an assessor will be appointed shortly to inspect and assess the vehicle. The assessment findings will enable us to determine the next steps and process your claim accordingly.\n\nOur team will keep you informed throughout the process and will contact you should any additional information be required.\n\nThank you for choosing Ave Insurance.\n\nKind regards,\n\nClaims Department\nAve Insurance`
     );
   }
-  if (claimant && claimant.whatsappNumber) {
+  if (claimant && claimant.phone) {
     await whatsappService.sendWhatsAppMessage(
-      claimant.whatsappNumber,
+      claimant.phone,
       `Hi ${claimant.name}, your claim (${vehicle}) has been *approved*. An assessor will be appointed shortly. — Ave Insurance`
     );
   }
@@ -295,7 +293,7 @@ const approveClaim = async (id, req) => {
       title: 'Claim Approved',
       content: `Your claim (${vehicle}) has been approved.`,
       claimId: claim._id,
-      whatsappNumber: claimant?.whatsappNumber,
+      whatsappNumber: claimant?.phone,
     });
   }
   return claim;
@@ -369,9 +367,9 @@ const rejectClaim = async (id, rejectionReason, req) => {
       `Dear ${claimant.name},\n\nWe regret to inform you that your claim (Reference: ${vehicle}) has been rejected.\n\nReason for rejection: ${rejectionReason.trim()}\n\nIf you believe this decision is incorrect or would like to discuss further, please contact our support team.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
-  if (claimant && claimant.whatsappNumber) {
+  if (claimant && claimant.phone) {
     await whatsappService.sendWhatsAppMessage(
-      claimant.whatsappNumber,
+      claimant.phone,
       `Hi ${claimant.name}, your claim (${vehicle}) has been *rejected*.\nReason: ${rejectionReason.trim()}\n\nContact support to discuss. — Ave Insurance`
     );
   }
@@ -383,7 +381,7 @@ const rejectClaim = async (id, rejectionReason, req) => {
       title: 'Claim Rejected',
       content: `Your claim (${vehicle}) has been rejected. Reason: ${rejectionReason.trim()}`,
       claimId: claim._id,
-      whatsappNumber: claimant?.whatsappNumber,
+      whatsappNumber: claimant?.phone,
     });
   }
 
@@ -470,9 +468,9 @@ const awardClaim = async (id, bidId, req) => {
       'Claim Award Notification',
       `Dear ${assessor.name},\n\nCongratulations! You have been awarded the claim with ID: ${vehicle}. You are required to submit a report within 3 days.\n\nPlease ensure that the report is submitted on time to facilitate the next steps in the claims process.\n\nBest Regards,\nAdmin Team`
     );
-    if (assessor.whatsappNumber) {
+    if (assessor.contactInfo?.phone) {
       await whatsappService.sendWhatsAppMessage(
-        assessor.whatsappNumber,
+        assessor.contactInfo?.phone,
         `Hi ${assessor.name}, you have been *awarded* claim ${vehicle}. Please submit your assessment report within 3 days. — Ave Insurance`
       );
     }
@@ -484,9 +482,9 @@ const awardClaim = async (id, bidId, req) => {
       `Dear ${claim.claimant.name},\n\nWe are pleased to inform you that your claim with ID: ${vehicle} has been awarded to an assessor. The assessor, ${assessor?.name}, will be visiting to assess the state of your vehicle.\n\nHere are the assessor's contact details:\n- Phone: ${assessor?.phone}\n- Email: ${assessor?.email}\n\nPlease feel free to reach out to the assessor to coordinate the visit.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
-  if (claim.claimant && claim.claimant.whatsappNumber) {
+  if (claim.claimant && claim.claimant.phone) {
     await whatsappService.sendWhatsAppMessage(
-      claim.claimant.whatsappNumber,
+      claim.claimant.phone,
       `Hi ${claim.claimant.name}, an assessor has been assigned to your claim (${vehicle}).\n\nAssessor: ${assessor?.name}\nPhone: ${assessor?.phone}\nEmail: ${assessor?.email}\n\nThey will contact you to arrange a visit. — Ave Insurance`
     );
   }
@@ -563,9 +561,9 @@ const awardBidToGarage = async (id, bidId, req) => {
       `Dear ${garage.name},\n\nCongratulations! Your bid for the claim with ID: ${gVehicle} has been awarded. You are requested to proceed with the repair of the vehicle as soon as possible.\n\nPlease ensure that all necessary repairs are completed in a timely and professional manner.\n\nThank you for your cooperation.\n\nBest Regards,\nAdmin Team`
     );
   }
-  if (garage.whatsappNumber) {
+  if (garage.contactNumber) {
     await whatsappService.sendWhatsAppMessage(
-      garage.whatsappNumber,
+      garage.contactNumber,
       `Hi ${garage.name}, your bid for claim ${gVehicle} has been *awarded*. Please proceed with the repair as soon as possible. — Ave Insurance`
     );
   }
@@ -577,9 +575,9 @@ const awardBidToGarage = async (id, bidId, req) => {
       `Dear ${claim.claimant.name},\n\nWe are pleased to inform you that your claim for (ID: ${gVehicle}) has been processed, and your vehicle will be repaired at the following garage:\n\nGarage Details:\n- Name: ${garage.name}\n- Location: ${garage.location.name}\n- Timeline: ${bid.garageDetails?.timeline || 'No timeline available'}\n- Ratings: ${garage.ratings.averageRating || 'No ratings available'}\n- Description: ${garage.description || 'No description available'}\n\nThe garage will contact you shortly to proceed with the repairs. If you have any questions, please feel free to reach out.\n\nThank you for choosing our services.\n\nBest Regards,\nAdmin Team`
     );
   }
-  if (claim.claimant?.whatsappNumber) {
+  if (claim.claimant?.phone) {
     await whatsappService.sendWhatsAppMessage(
-      claim.claimant.whatsappNumber,
+      claim.claimant.phone,
       `Hi ${claim.claimant.name}, your vehicle (${gVehicle}) has been assigned to *${garage.name}* for repair.\n📍 ${garage.location.name}\n⭐ Rating: ${garage.ratings.averageRating || 'N/A'}\n\nThe garage will contact you shortly. — Ave Insurance`
     );
   }
@@ -661,9 +659,9 @@ const rejectAssessorBid = async (id, bidId, req) => {
       `Dear ${assessor.name},\n\nWe regret to inform you that your bid for claim ID: ${raVehicle} has not been successful.\n\nThank you for your participation.\n\nBest Regards,\nAdmin Team`
     );
   }
-  if (assessor && assessor.whatsappNumber) {
+  if (assessor && assessor.contactInfo?.phone) {
     await whatsappService.sendWhatsAppMessage(
-      assessor.whatsappNumber,
+      assessor.contactInfo?.phone,
       `Hi ${assessor.name}, your bid for claim ${raVehicle} was not successful this time. Thank you for participating. — Ave Insurance`
     );
   }
@@ -715,9 +713,9 @@ const rejectGarageBid = async (id, bidId, req) => {
       `Dear ${garage.name},\n\nWe regret to inform you that your bid for claim ID: ${rgVehicle} has not been successful.\n\nThank you for your participation.\n\nBest Regards,\nAdmin Team`
     );
   }
-  if (garage && garage.whatsappNumber) {
+  if (garage && garage.contactNumber) {
     await whatsappService.sendWhatsAppMessage(
-      garage.whatsappNumber,
+      garage.contactNumber,
       `Hi ${garage.name}, your bid for claim ${rgVehicle} was not successful this time. Thank you for participating. — Ave Insurance`
     );
   }
@@ -869,9 +867,9 @@ const awardSupplierBid = async (claimId, bidId, req) => {
       `Dear ${supplier.name},\n\nCongratulations! Your parts bid for claim ID: ${claimId} has been awarded. Please proceed with delivering the parts as soon as possible.\n\nBest Regards,\nAdmin Team`
     );
   }
-  if (supplier && supplier.whatsappNumber) {
+  if (supplier && supplier.phone) {
     await whatsappService.sendWhatsAppMessage(
-      supplier.whatsappNumber,
+      supplier.phone,
       `Hi ${supplier.name}, your parts bid for claim ${claimId} has been *awarded*. Please proceed with delivering the parts. — Ave Insurance`
     );
   }
@@ -918,9 +916,9 @@ const rejectSupplierBid = async (claimId, bidId, req) => {
       `Dear ${supplier.name},\n\nWe regret to inform you that your parts bid for claim ID: ${claimId} has not been successful.\n\nThank you for your participation.\n\nBest Regards,\nAdmin Team`
     );
   }
-  if (supplier && supplier.whatsappNumber) {
+  if (supplier && supplier.phone) {
     await whatsappService.sendWhatsAppMessage(
-      supplier.whatsappNumber,
+      supplier.phone,
       `Hi ${supplier.name}, your parts bid for claim ${claimId} was not successful this time. Thank you for participating. — Ave Insurance`
     );
   }
@@ -1069,9 +1067,9 @@ const optInSelfRepair = async (claimId, estimate, req) => {
       `Dear ${claim.claimant.name},\n\nYou have opted to repair your vehicle yourself for claim reference: ${srVehicle}.\n\nPlease submit your repair receipts and the total amount spent so we can process your reimbursement.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
-  if (claim.claimant && claim.claimant.whatsappNumber) {
+  if (claim.claimant && claim.claimant.phone) {
     await whatsappService.sendWhatsAppMessage(
-      claim.claimant.whatsappNumber,
+      claim.claimant.phone,
       `Hi ${claim.claimant.name}, you've opted for *self-repair* on claim ${srVehicle}. Please submit your receipts and total cost to receive reimbursement. — Ave Insurance`
     );
   }
@@ -1083,7 +1081,7 @@ const optInSelfRepair = async (claimId, estimate, req) => {
       title: 'Self-Repair Opt-In Confirmed',
       content: `You have opted in for self-repair on claim ${srVehicle}. Please submit your receipts.`,
       claimId: claim._id,
-      whatsappNumber: claim.claimant?.whatsappNumber,
+      whatsappNumber: claim.claimant?.phone,
     });
   }
 
@@ -1137,9 +1135,9 @@ const submitSelfRepair = async (claimId, { bankingDetails }, req) => {
       `Dear ${claim.claimant.name},\n\nWe have received your self-repair submission for claim reference: ${ssrVehicle}.\n\nAmount requested: ${Number(amountRequested)}\n\nOur team will review your submission and notify you of the outcome shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
-  if (claim.claimant && claim.claimant.whatsappNumber) {
+  if (claim.claimant && claim.claimant.phone) {
     await whatsappService.sendWhatsAppMessage(
-      claim.claimant.whatsappNumber,
+      claim.claimant.phone,
       `Hi ${claim.claimant.name}, we've received your self-repair submission for claim ${ssrVehicle}.\nAmount requested: R${Number(amountRequested)}\n\nWe'll review and update you shortly. — Ave Insurance`
     );
   }
@@ -1151,7 +1149,7 @@ const submitSelfRepair = async (claimId, { bankingDetails }, req) => {
       title: 'Self-Repair Submitted',
       content: `Your self-repair submission for claim ${ssrVehicle} is under review.`,
       claimId: claim._id,
-      whatsappNumber: claim.claimant?.whatsappNumber,
+      whatsappNumber: claim.claimant?.phone,
     });
   }
 
@@ -1166,7 +1164,7 @@ const submitSelfRepair = async (claimId, { bankingDetails }, req) => {
       title: 'Re-Assessment Required',
       content: `The customer has submitted a self-repair claim for ${ssrVehicle}. Please review and re-assess.`,
       claimId: claim._id,
-      whatsappNumber: assessor?.whatsappNumber,
+      whatsappNumber: assessor?.contactInfo?.phone,
     });
 
     if (assessor && assessor.email) {
@@ -1176,9 +1174,9 @@ const submitSelfRepair = async (claimId, { bankingDetails }, req) => {
         `Dear ${assessor.name},\n\nThe customer has completed a self-repair for claim reference: ${ssrVehicle} and has submitted their repair costs for review.\n\nAmount requested: ${Number(amountRequested)}\n\nPlease log in to review the submission and provide your re-assessment.\n\nBest Regards,\nAdmin Team`
       );
     }
-    if (assessor && assessor.whatsappNumber) {
+    if (assessor && assessor.contactInfo?.phone) {
       await whatsappService.sendWhatsAppMessage(
-        assessor.whatsappNumber,
+        assessor.contactInfo?.phone,
         `Hi ${assessor.name}, re-assessment required for claim ${ssrVehicle}. The customer has submitted self-repair costs of R${Number(amountRequested)}. Please log in to review. — Ave Insurance`
       );
     }
@@ -1220,9 +1218,9 @@ const approveSelfRepair = async (claimId, { amountApproved }, req) => {
       `Dear ${claim.claimant.name},\n\nGreat news! Your self-repair reimbursement for claim reference: ${aprVehicle} has been approved.\n\nApproved reimbursement amount: R${amountApproved}\n\nPayment will be processed to your provided banking details shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
-  if (claim.claimant && claim.claimant.whatsappNumber) {
+  if (claim.claimant && claim.claimant.phone) {
     await whatsappService.sendWhatsAppMessage(
-      claim.claimant.whatsappNumber,
+      claim.claimant.phone,
       `Hi ${claim.claimant.name}, your self-repair reimbursement for claim ${aprVehicle} has been *approved*! ✅\nAmount: R${amountApproved}\n\nPayment will be processed to your banking details shortly. — Ave Insurance`
     );
   }
@@ -1234,7 +1232,7 @@ const approveSelfRepair = async (claimId, { amountApproved }, req) => {
       title: 'Self-Repair Reimbursement Approved',
       content: `Your self-repair reimbursement of R${amountApproved} for claim ${aprVehicle} has been approved.`,
       claimId: claim._id,
-      whatsappNumber: claim.claimant?.whatsappNumber,
+      whatsappNumber: claim.claimant?.phone,
     });
   }
 
@@ -1274,9 +1272,9 @@ const rejectSelfRepair = async (claimId, { rejectionReason }, req) => {
       `Dear ${claim.claimant.name},\n\nWe regret to inform you that your self-repair reimbursement for claim reference: ${rjVehicle} has not been approved.\n\nReason: ${rejectionReason.trim()}\n\nIf you believe this decision is incorrect, please contact our support team.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
-  if (claim.claimant && claim.claimant.whatsappNumber) {
+  if (claim.claimant && claim.claimant.phone) {
     await whatsappService.sendWhatsAppMessage(
-      claim.claimant.whatsappNumber,
+      claim.claimant.phone,
       `Hi ${claim.claimant.name}, your self-repair reimbursement for claim ${rjVehicle} was not approved.\nReason: ${rejectionReason.trim()}\n\nPlease contact support to discuss. — Ave Insurance`
     );
   }
@@ -1288,7 +1286,7 @@ const rejectSelfRepair = async (claimId, { rejectionReason }, req) => {
       title: 'Self-Repair Reimbursement Rejected',
       content: `Your self-repair reimbursement for claim ${rjVehicle} was not approved. Reason: ${rejectionReason.trim()}`,
       claimId: claim._id,
-      whatsappNumber: claim.claimant?.whatsappNumber,
+      whatsappNumber: claim.claimant?.phone,
     });
   }
 
@@ -1327,9 +1325,9 @@ const markSelfRepairPaid = async (claimId, req) => {
       `Dear ${claim.claimant.name},\n\nYour self-repair reimbursement of R${claim.selfRepair.amountApproved} for claim reference: ${paidVehicle} has been paid to your provided banking details.\n\nYour claim is now closed.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
-  if (claim.claimant && claim.claimant.whatsappNumber) {
+  if (claim.claimant && claim.claimant.phone) {
     await whatsappService.sendWhatsAppMessage(
-      claim.claimant.whatsappNumber,
+      claim.claimant.phone,
       `Hi ${claim.claimant.name}, your reimbursement of R${claim.selfRepair.amountApproved} for claim ${paidVehicle} has been *paid* to your banking details. Your claim is now closed. 🎉 — Ave Insurance`
     );
   }
@@ -1341,7 +1339,7 @@ const markSelfRepairPaid = async (claimId, req) => {
       title: 'Reimbursement Paid',
       content: `Your self-repair reimbursement of R${claim.selfRepair.amountApproved} for claim ${paidVehicle} has been paid. Claim closed.`,
       claimId: claim._id,
-      whatsappNumber: claim.claimant?.whatsappNumber,
+      whatsappNumber: claim.claimant?.phone,
     });
   }
 
@@ -1387,9 +1385,9 @@ const reAssessSelfRepair = async (claimId, { notes, recommendedAmount }, req) =>
       `Dear ${claim.claimant.name},\n\nYour self-repair submission for claim reference: ${raVeh} has been re-assessed.\n\nRecommended reimbursement amount: R${Number(recommendedAmount)}\n\nOur team will now review the assessor's report and finalise your reimbursement. You will be notified of the outcome shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
-  if (claim.claimant && claim.claimant.whatsappNumber) {
+  if (claim.claimant && claim.claimant.phone) {
     await whatsappService.sendWhatsAppMessage(
-      claim.claimant.whatsappNumber,
+      claim.claimant.phone,
       `Hi ${claim.claimant.name}, your self-repair claim ${raVeh} has been re-assessed.\nRecommended reimbursement: R${Number(recommendedAmount)}\n\nWe'll finalise and notify you of the outcome. — Ave Insurance`
     );
   }
@@ -1401,7 +1399,7 @@ const reAssessSelfRepair = async (claimId, { notes, recommendedAmount }, req) =>
       title: 'Re-Assessment Complete',
       content: `Your self-repair claim ${raVeh} has been re-assessed. Recommended amount: R${Number(recommendedAmount)}.`,
       claimId: claim._id,
-      whatsappNumber: claim.claimant?.whatsappNumber,
+      whatsappNumber: claim.claimant?.phone,
     });
   }
 
@@ -1449,9 +1447,9 @@ const approveGlassClaim = async (claimId, req) => {
       `Dear ${claim.claimant.name},\n\nYour glass/windscreen claim (Reference: ${vehicle}) has been approved. A service provider will be assigned shortly to carry out the replacement.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
-  if (claim.claimant?.whatsappNumber) {
+  if (claim.claimant?.phone) {
     await whatsappService.sendWhatsAppMessage(
-      claim.claimant.whatsappNumber,
+      claim.claimant.phone,
       `Hi ${claim.claimant.name}, your glass/windscreen claim (${vehicle}) has been *approved*. A service provider will be assigned shortly. — Ave Insurance`
     );
   }
@@ -1509,9 +1507,9 @@ const assignGlassSupplier = async (claimId, { supplierId, appointmentDate, notes
       `Dear ${supplier.name},\n\nYou have been assigned to replace the windscreen/glass for claim ID: ${vehicle}.\n\n${appointmentDate ? `Appointment date: ${new Date(appointmentDate).toDateString()}\n\n` : ''}${notes ? `Notes: ${notes}\n\n` : ''}Please contact the customer to confirm the appointment.\n\nCustomer: ${claim.claimant?.name}\nPhone: ${claim.claimant?.phone}\nEmail: ${claim.claimant?.email}\n\nBest Regards,\nAdmin Team`
     );
   }
-  if (supplier.whatsappNumber) {
+  if (supplier.phone) {
     await whatsappService.sendWhatsAppMessage(
-      supplier.whatsappNumber,
+      supplier.phone,
       `Hi ${supplier.name}, you have been assigned to a glass replacement for claim ${vehicle}.\nCustomer: ${claim.claimant?.name} | ${claim.claimant?.phone}${appointmentDate ? `\nAppointment: ${new Date(appointmentDate).toDateString()}` : ''}\n\nPlease contact the customer to confirm. — Ave Insurance`
     );
   }
@@ -1522,9 +1520,9 @@ const assignGlassSupplier = async (claimId, { supplierId, appointmentDate, notes
       `Dear ${claim.claimant.name},\n\nA service provider has been assigned to replace your windscreen/glass for claim (Reference: ${vehicle}).\n\nService Provider: ${supplier.name}\nPhone: ${supplier.phone}\nEmail: ${supplier.email}\n\nThey will contact you shortly to arrange the replacement.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
-  if (claim.claimant?.whatsappNumber) {
+  if (claim.claimant?.phone) {
     await whatsappService.sendWhatsAppMessage(
-      claim.claimant.whatsappNumber,
+      claim.claimant.phone,
       `Hi ${claim.claimant.name}, a service provider has been assigned for your glass replacement (${vehicle}).\n\n🔧 ${supplier.name}\n📞 ${supplier.phone}\n\nThey will contact you to arrange the replacement. — Ave Insurance`
     );
   }
@@ -1575,9 +1573,9 @@ const completeGlassRepair = async (claimId, req) => {
       `Dear ${claim.claimant.name},\n\nYour windscreen/glass replacement for claim (Reference: ${vehicle}) has been completed. Your claim is now closed.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
-  if (claim.claimant?.whatsappNumber) {
+  if (claim.claimant?.phone) {
     await whatsappService.sendWhatsAppMessage(
-      claim.claimant.whatsappNumber,
+      claim.claimant.phone,
       `Hi ${claim.claimant.name}, your glass/windscreen replacement for claim ${vehicle} has been *completed*. Your claim is now closed. ✅ — Ave Insurance`
     );
   }

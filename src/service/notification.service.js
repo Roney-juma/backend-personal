@@ -15,13 +15,23 @@ const getRecipientModel = (recipientType) => {
   }
 };
 
-// Resolve recipient's WhatsApp number from DB when not provided inline
+// Maps recipientType to the field path that holds the phone number in each model
+const PHONE_FIELD = {
+  customer:     { select: 'phone',        resolve: (d) => d?.phone },
+  assessor:     { select: 'contactInfo',  resolve: (d) => d?.contactInfo?.phone },
+  garage:       { select: 'contactNumber',resolve: (d) => d?.contactNumber },
+  supplier:     { select: 'phone',        resolve: (d) => d?.phone },
+  investigator: { select: 'contactNumber',resolve: (d) => d?.contactNumber },
+};
+
+// Resolve recipient's phone number from DB when not provided inline
 const resolveWhatsAppNumber = async (recipientId, recipientType, inlineNumber) => {
   if (inlineNumber) return inlineNumber;
   const Model = getRecipientModel(recipientType);
-  if (!Model) return null;
-  const doc = await Model.findById(recipientId).select('whatsappNumber').lean();
-  return doc?.whatsappNumber || null;
+  const fieldMap = PHONE_FIELD[recipientType];
+  if (!Model || !fieldMap) return null;
+  const doc = await Model.findById(recipientId).select(fieldMap.select).lean();
+  return fieldMap.resolve(doc) || null;
 };
 
 const createAndEmit = async ({

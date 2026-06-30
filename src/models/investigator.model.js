@@ -17,7 +17,6 @@ const investigatorSchema = new mongoose.Schema({
     longitude: Number,
     latitude: Number,
   },
-  whatsappNumber: { type: String, default: null },
   pendingInvestigations: { type: Number, default: 0 },
   ratings: {
     averageRating: { type: Number, default: 0 },

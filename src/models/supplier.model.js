@@ -34,7 +34,6 @@ const supplierSchema = new mongoose.Schema({
   },
   partsAvailable: [{ type: String }],
   fcmToken: { type: String },
-  whatsappNumber: { type: String, default: null },
 }, { timestamps: true });
 
 supplierSchema.methods.isPasswordMatch = async function (password) {

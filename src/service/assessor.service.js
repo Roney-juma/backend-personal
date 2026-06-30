@@ -335,9 +335,9 @@ Best Regards,
 Admin Team`
     );
   }
-  if (claim.claimant && claim.claimant.whatsappNumber) {
+  if (claim.claimant && claim.claimant.phone) {
     await whatsappService.sendWhatsAppMessage(
-      claim.claimant.whatsappNumber,
+      claim.claimant.phone,
       `Hi ${claim.claimant.name}, the repair for your vehicle (${crVehicle}) has been *completed*. Please verify and confirm you're satisfied. — Ave Insurance`
     );
   }
@@ -359,9 +359,9 @@ const rejectRepair = async (claimId, rejectionReason, req) => {
       `Dear ${garage.name},\n    Your repair for claim with ID: ${rrVehicle} has been rejected due to ${rejectionReason}. Please contact the Assessor to discuss further.\n    Thank you for your cooperation.\n    Best Regards,\n    Admin Team`
     );
   }
-  if (garage && garage.whatsappNumber) {
+  if (garage && garage.contactNumber) {
     await whatsappService.sendWhatsAppMessage(
-      garage.whatsappNumber,
+      garage.contactNumber,
       `Hi ${garage.name}, the repair for claim ${rrVehicle} has been *rejected*.\nReason: ${rejectionReason}\n\nPlease contact the assessor to discuss. — Ave Insurance`
     );
   }
