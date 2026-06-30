@@ -78,11 +78,12 @@ const bidSchema = new Schema({
 
 const claimSchema = new Schema({
   customerId: { type: Schema.Types.ObjectId, ref: 'Customer', required: true },
+  claimTypeId: { type: Schema.Types.ObjectId, ref: 'ClaimType', required: false },
   claimant: {
     name: { type: String },
     address: { type: String },
     phone: { type: String },
-    email: { type: String }
+    email: { type: String },
   },
   incidentDetails: {
     date: { type: Date, required: true },
@@ -165,7 +166,7 @@ const claimSchema = new Schema({
   },
   status: {
     type: String,
-    enum: ['Pending', 'Approved', 'Rejected', 'Resubmitted', 'Assessment', 'Assessed', 'Awarded', 'Repair', 'Garage', 'Re-Assessment', 'SelfRepair', 'Completed', 'UnderInvestigation', 'Investigated'],
+    enum: ['Pending', 'Approved', 'Rejected', 'Resubmitted', 'Assessment', 'Assessed', 'Awarded', 'Repair', 'Garage', 'Re-Assessment', 'SelfRepair', 'Completed', 'UnderInvestigation', 'Investigated', 'GlassApproved', 'GlassRepair'],
     default: 'Pending'
   },
   fraud: {
@@ -236,7 +237,18 @@ const claimSchema = new Schema({
   supplierBids: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'SupplyBid'
-  }]
+  }],
+  glassRepair: {
+    supplierId: { type: Schema.Types.ObjectId, ref: 'Supplier' },
+    appointmentDate: { type: Date },
+    completedAt: { type: Date },
+    notes: { type: String },
+    status: {
+      type: String,
+      enum: ['Pending', 'Assigned', 'Completed'],
+      default: 'Pending',
+    },
+  },
 }, { timestamps: true });
 
 const Claim = mongoose.model('Claim', claimSchema);

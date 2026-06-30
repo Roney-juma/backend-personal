@@ -373,6 +373,44 @@ const resubmitRejectedClaim = async (req, res) => {
   }
 };
 
+const approveGlassClaim = async (req, res) => {
+  try {
+    const claim = await claimService.approveGlassClaim(req.params.id, req);
+    res.status(200).json(claim);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+const assignGlassSupplier = async (req, res) => {
+  try {
+    const { supplierId, appointmentDate, notes } = req.body;
+    if (!supplierId) return res.status(400).json({ message: 'supplierId is required' });
+    const claim = await claimService.assignGlassSupplier(req.params.id, { supplierId, appointmentDate, notes }, req);
+    res.status(200).json(claim);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+const completeGlassRepair = async (req, res) => {
+  try {
+    const claim = await claimService.completeGlassRepair(req.params.id, req);
+    res.status(200).json(claim);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+const getGlassClaims = async (req, res) => {
+  try {
+    const claims = await claimService.getGlassClaims();
+    res.status(200).json(claims);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   generateClaimLinkController,
   fileClaim,
@@ -409,4 +447,8 @@ module.exports = {
   markSelfRepairPaid,
   getSelfRepairClaims,
   resubmitRejectedClaim,
+  approveGlassClaim,
+  assignGlassSupplier,
+  completeGlassRepair,
+  getGlassClaims,
 };
