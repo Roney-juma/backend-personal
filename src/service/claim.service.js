@@ -248,7 +248,10 @@ const getClaims = async () => {
 
 // Get claims by customer ID
 const getClaimsByCustomer = async (customerId) => {
-  return await Claim.find({ customerId: customerId }).populate('customerId');
+  return await Claim.find({ customerId: customerId })
+    .populate('customerId')
+    .populate({ path: 'garageRepairReport.garageId', select: 'name email contactNumber _id' })
+    .populate({ path: 'reAssessmentReport.assessorId', select: 'name email _id' });
 };
 
 // Approve a claim
@@ -391,9 +394,10 @@ const rejectClaim = async (id, rejectionReason, req) => {
 // Get a specific claim by ID
 const getClaimById = async (id) => {
   const claim = await Claim.findById(id)
-    // .populate('bids.assessorId')
     .populate({ path: 'bids.assessorId', select: 'name email phone _id' })
-    .populate({ path: 'bids.garageId', select: 'name email phone _id' });
+    .populate({ path: 'bids.garageId', select: 'name email phone _id' })
+    .populate({ path: 'garageRepairReport.garageId', select: 'name email contactNumber _id' })
+    .populate({ path: 'reAssessmentReport.assessorId', select: 'name email _id' });
 
   if (!claim) {
     throw new Error('Claim not found');
