@@ -81,6 +81,43 @@ const generateClaimLink = async (email) => {
 };
 
 
+// Generate a link that opens the conversational AI claim-filing assistant.
+// Uses the same single-use token mechanism, but points at /ai/claim-intake.
+const generateAiClaimLink = async (email) => {
+  try {
+    const customer = await Customer.findOne({ email });
+
+    if (!customer) {
+      return { error: 'Customer not found' };
+    }
+    const token = crypto.randomBytes(20).toString('hex');
+
+    const ttlHours = Number(process.env.CLAIM_LINK_TTL_HOURS || 72);
+    const claimToken = new ClaimToken({
+      customerId: customer._id,
+      token,
+      expiresAt: new Date(Date.now() + ttlHours * 3600 * 1000),
+    });
+
+    await claimToken.save();
+
+    // Base of the AI chat page (the API host that serves GET /ai/claim-intake).
+    const base = (process.env.AI_INTAKE_URL || 'https://avics.aveafrica.com/ai/claim-intake').replace(/\/$/, '');
+    const claimLink = `${base}/${token}`;
+
+    await emailService.sendEmailNotification(
+      email,
+      'File your claim with our AI assistant',
+      `Dear ${customer.firstName},\n\nClick this link to file your claim by chatting with our assistant: ${claimLink}\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+    );
+    return claimLink;
+  } catch (error) {
+    logger.error('Failed to generate AI claim link: %s', error.message);
+    return { error: 'Failed to generate AI claim link' };
+  }
+};
+
+
 // File the claim for Web
 
 const fileClaimService = async (token, claimDetails, req) => {
@@ -1748,6 +1785,7 @@ const resubmitRejectedClaim = async (id, updateData, req) => {
 
 module.exports = {
   generateClaimLink,
+  generateAiClaimLink,
   fileClaimService,
   createClaim,
   getClaims,

@@ -11,6 +11,7 @@ router.get('/', claimController.getClaims)
 router.get('/count', claimController.countClaimsByStatus)
 router.get('/total-cost', claimController.getClaimsTotalCost)
 router.post('/generate-claim-link', claimController.generateClaimLinkController);
+router.post('/generate-ai-claim-link', claimController.generateAiClaimLinkController);
 router.post('/file-claim/:token', claimController.fileClaim);
 router.patch('/approve/:id', claimController.approveClaim)
 router.delete('/delete/:id', claimController.deleteClaim)
