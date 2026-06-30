@@ -50,16 +50,16 @@ const sendWhatsAppMessage = async (to, message) => {
       res.on('data', (chunk) => { body += chunk; });
       res.on('end', () => {
         if (res.statusCode >= 200 && res.statusCode < 300) {
-          logger.info('WhatsApp sent | to=%s', recipient);
+          logger.info(`WhatsApp sent | to=${recipient}`);
         } else {
-          logger.error('WhatsApp API error | to=%s | status=%d | body=%s', recipient, res.statusCode, body);
+          logger.error(`WhatsApp API error | to=${recipient} | status=${res.statusCode} | body=${body}`);
         }
         resolve();
       });
     });
 
     req.on('error', (err) => {
-      logger.error('WhatsApp request failed | to=%s | %s', recipient, err.message);
+      logger.error(`WhatsApp request failed | to=${recipient} | ${err.message}`);
       resolve();
     });
 
