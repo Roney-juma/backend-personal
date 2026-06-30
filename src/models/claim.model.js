@@ -89,15 +89,8 @@ const claimSchema = new Schema({
     date: { type: Date, required: true },
     time: { type: String, required: true },
     location: { type: String, required: true },
-    longitude:
-    {
-      type: Number,
-      required: false
-    },
-    latitude:
-    {
-      type: Number,
-    },
+    longitude: { type: Number, required: true },
+    latitude: { type: Number, required: true },
     description: { type: String, required: true },
     weatherConditions: { type: String },
     roadConditions: { type: String },
