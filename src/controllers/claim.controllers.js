@@ -14,6 +14,18 @@ const generateClaimLinkController = async (req, res) => {
   }
 };
 
+const generateAiClaimLinkController = async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    const claimLink = await claimService.generateAiClaimLink(email);
+    res.status(200).json({ message: 'AI claim link generated successfully', claimLink });
+
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Server error' });
+  }
+};
+
 
 const fileClaim = async (req, res) => {
   const { token } = req.params;
@@ -435,6 +447,7 @@ const getGlassClaims = async (req, res) => {
 
 module.exports = {
   generateClaimLinkController,
+  generateAiClaimLinkController,
   fileClaim,
   createClaim,
   getClaims,
