@@ -1,5 +1,16 @@
 const { runClaimIntake } = require('../ai/agents/claimIntake.agent');
+const { renderIntakePage } = require('../ai/intakePage');
 const logger = require('../middlewheres/logger');
+
+/**
+ * GET /ai/claim-intake/:token
+ * Serves the browser chat page. The page itself POSTs to the same path to talk
+ * to the agent. Token validation happens on the POST (so the page can render
+ * friendly errors in-chat).
+ */
+const claimIntakePage = (req, res) => {
+  res.type('html').send(renderIntakePage(req.params.token));
+};
 
 /**
  * POST /ai/claim-intake/:token   (token-authenticated via verifyClaimToken)
@@ -33,4 +44,4 @@ const claimIntake = async (req, res) => {
   }
 };
 
-module.exports = { claimIntake };
+module.exports = { claimIntake, claimIntakePage };
