@@ -230,12 +230,23 @@ const placeBid = async (claimId, garageId, description, timeline, parts) => {
   return response;
 };
 
-// Call for Re-Assessment
-const callForReAssessment = async (claimId) => {
+// Call for Re-Assessment — garage submits repair report at the same time
+const callForReAssessment = async (claimId, garageId, report = {}) => {
   const claim = await Claim.findById(claimId);
   if (!claim) throw new Error('Claim not found');
   if (claim.status !== 'Repair') throw new Error('Claim must be in Repair to call for re-assessment');
 
+  claim.garageRepairReport = {
+    garageId: garageId || null,
+    workDone: report.workDone || '',
+    vehicleCondition: report.vehicleCondition || '',
+    partsSalvaged: Array.isArray(report.partsSalvaged) ? report.partsSalvaged : [],
+    partsReplaced: Array.isArray(report.partsReplaced) ? report.partsReplaced : [],
+    receipts: Array.isArray(report.receipts) ? report.receipts : [],
+    photos: Array.isArray(report.photos) ? report.photos : [],
+    totalRepairCost: report.totalRepairCost ? Number(report.totalRepairCost) : null,
+    submittedAt: new Date(),
+  };
   claim.status = 'Re-Assessment';
   claim.repairDate = new Date();
   await claim.save();

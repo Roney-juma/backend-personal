@@ -176,6 +176,17 @@ const claimSchema = new Schema({
     assessorId: { type: Schema.Types.ObjectId, ref: 'Assessor' },
     submittedAt: { type: Date },
   },
+  garageRepairReport: {
+    garageId: { type: Schema.Types.ObjectId, ref: 'Garage' },
+    workDone: { type: String },
+    vehicleCondition: { type: String },
+    partsSalvaged: [{ partName: { type: String }, description: { type: String } }],
+    partsReplaced: [{ partName: { type: String }, cost: { type: Number } }],
+    receipts: [String],
+    photos: [String],
+    totalRepairCost: { type: Number },
+    submittedAt: { type: Date },
+  },
   fraud: {
     suspected: { type: Boolean, default: false },
     investigationId: { type: Schema.Types.ObjectId, ref: 'Investigation' },
