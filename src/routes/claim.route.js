@@ -38,7 +38,8 @@ router.patch('/self-repair/submit/:id', claimController.submitSelfRepair);
 router.patch('/self-repair/re-assess/:id', claimController.reAssessSelfRepair);
 router.patch('/self-repair/approve/:id', claimController.approveSelfRepair);
 router.patch('/self-repair/reject/:id', claimController.rejectSelfRepair);
-router.patch('/self-repair/pay/:id', claimController.markSelfRepairPaid);
+router.patch('/self-repair/pay-deposit/:id', claimController.payInitialDeposit);
+router.patch('/self-repair/pay-settlement/:id', claimController.payFinalSettlement);
 
 // Glass / motor glass claim routes — before wildcard /:id
 router.get('/glass', claimController.getGlassClaims);

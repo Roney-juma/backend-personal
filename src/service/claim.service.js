@@ -1186,14 +1186,24 @@ const submitSelfRepair = async (claimId, { bankingDetails }, req) => {
 };
 
 // Admin approves the self-repair reimbursement
-const approveSelfRepair = async (claimId, { amountApproved }, req) => {
+const approveSelfRepair = async (claimId, { totalAwardedAmount, depositPercentage }, req) => {
   const claim = await Claim.findById(claimId);
   if (!claim) throw new Error('Claim not found');
   if (!claim.selfRepair || claim.selfRepair.status !== 'Submitted') throw new Error('No submitted self-repair to approve');
-  if (!amountApproved || amountApproved <= 0) throw new Error('A valid approved amount is required');
+  if (!totalAwardedAmount || Number(totalAwardedAmount) <= 0) throw new Error('A valid totalAwardedAmount is required');
+  if (!depositPercentage || Number(depositPercentage) <= 0 || Number(depositPercentage) >= 100) throw new Error('depositPercentage must be between 1 and 99');
+
+  const total = Number(totalAwardedAmount);
+  const pct = Number(depositPercentage);
+  const deposit = Number((total * pct / 100).toFixed(2));
+  const finalSettlement = Number((total - deposit).toFixed(2));
 
   const start = Date.now();
-  claim.selfRepair.amountApproved = amountApproved;
+  claim.selfRepair.totalAwardedAmount = total;
+  claim.selfRepair.depositPercentage = pct;
+  claim.selfRepair.depositAmount = deposit;
+  claim.selfRepair.finalSettlementAmount = finalSettlement;
+  claim.selfRepair.amountApproved = total;
   claim.selfRepair.status = 'Approved';
   claim.selfRepair.approvedAt = new Date();
   await claim.save();
@@ -1201,27 +1211,40 @@ const approveSelfRepair = async (claimId, { amountApproved }, req) => {
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'Claim',
-    actionDescription: `Approved self-repair reimbursement for claim ${claimId}, amount: ${amountApproved}`,
+    actionDescription: `Approved cash-in-lieu for claim ${claimId} — total: ${total}, deposit: ${pct}% (KES ${deposit}), final settlement: KES ${finalSettlement}`,
     resourceType: 'Claim',
     resourceId: claim._id,
     statusCode: 200,
     success: true,
     responseTimeMs: Date.now() - start,
-    changes: { old: { selfRepairStatus: 'Submitted' }, new: { selfRepairStatus: 'Approved', amountApproved } },
+    changes: { old: { selfRepairStatus: 'Submitted' }, new: { selfRepairStatus: 'Approved', totalAwardedAmount: total, depositPercentage: pct, depositAmount: deposit, finalSettlementAmount: finalSettlement } },
   });
 
   const aprVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   if (claim.claimant && claim.claimant.email) {
     await emailService.sendEmailNotification(
       claim.claimant.email,
-      'Self-Repair Reimbursement Approved',
-      `Dear ${claim.claimant.name},\n\nGreat news! Your self-repair reimbursement for claim reference: ${aprVehicle} has been approved.\n\nApproved reimbursement amount: R${amountApproved}\n\nPayment will be processed to your provided banking details shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+      'Cash-in-Lieu Approved',
+      `Dear ${claim.claimant.name},
+
+Your cash-in-lieu request for claim reference: ${aprVehicle} has been approved.
+
+Total awarded amount: KES ${total}
+Initial deposit (paid first): KES ${deposit}
+Final settlement (paid after re-assessment): KES ${finalSettlement}
+
+Your initial deposit will be processed to your provided banking details shortly. Once you complete the repair, an assessor will verify the work and your final settlement will be released.
+
+Thank you for choosing Ave Insurance.
+
+Best Regards,
+Admin Team`
     );
   }
   if (claim.claimant && claim.claimant.phone) {
     await whatsappService.sendWhatsAppMessage(
       claim.claimant.phone,
-      `Hi ${claim.claimant.name}, your self-repair reimbursement for claim ${aprVehicle} has been *approved*! ✅\nAmount: R${amountApproved}\n\nPayment will be processed to your banking details shortly. — Ave Insurance`
+      `Hi ${claim.claimant.name}, your cash-in-lieu for claim ${aprVehicle} has been *approved*.\n\nTotal: KES ${total}\nInitial deposit: KES ${deposit}\nFinal settlement: KES ${finalSettlement}\n\nYour deposit will be paid to your banking details shortly. — Ave Insurance`
     );
   }
   if (claim.customerId) {
@@ -1229,8 +1252,8 @@ const approveSelfRepair = async (claimId, { amountApproved }, req) => {
       recipientId: claim.customerId,
       recipientType: 'customer',
       type: 'self_repair_approved',
-      title: 'Self-Repair Reimbursement Approved',
-      content: `Your self-repair reimbursement of R${amountApproved} for claim ${aprVehicle} has been approved.`,
+      title: 'Cash-in-Lieu Approved',
+      content: `Your cash-in-lieu of KES ${total} (deposit: KES ${deposit}) for claim ${aprVehicle} has been approved.`,
       claimId: claim._id,
       whatsappNumber: claim.claimant?.phone,
     });
@@ -1293,14 +1316,77 @@ const rejectSelfRepair = async (claimId, { rejectionReason }, req) => {
   return claim;
 };
 
-// Admin marks reimbursement as paid — closes the claim
-const markSelfRepairPaid = async (claimId, req) => {
+// Admin pays the initial deposit — client can now proceed with repairs
+const payInitialDeposit = async (claimId, req) => {
   const claim = await Claim.findById(claimId);
   if (!claim) throw new Error('Claim not found');
-  if (!claim.selfRepair || claim.selfRepair.status !== 'In-Review') throw new Error('Self-repair must be in review before marking as paid');
+  if (!claim.selfRepair || claim.selfRepair.status !== 'Approved') throw new Error('Self-repair must be approved before paying the initial deposit');
 
   const start = Date.now();
-  claim.selfRepair.status = 'Paid';
+  claim.selfRepair.status = 'DepositPaid';
+  claim.selfRepair.depositPaidAt = new Date();
+  await claim.save();
+
+  await writeAuditLog(req, {
+    action: 'UPDATE',
+    module: 'Claim',
+    actionDescription: `Initial deposit of KES ${claim.selfRepair.depositAmount} paid for claim ${claimId}`,
+    resourceType: 'Claim',
+    resourceId: claim._id,
+    statusCode: 200,
+    success: true,
+    responseTimeMs: Date.now() - start,
+    changes: { old: { selfRepairStatus: 'Approved' }, new: { selfRepairStatus: 'DepositPaid', depositPaidAt: claim.selfRepair.depositPaidAt } },
+  });
+
+  const depVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
+  if (claim.claimant && claim.claimant.email) {
+    await emailService.sendEmailNotification(
+      claim.claimant.email,
+      'Cash-in-Lieu Initial Deposit Paid',
+      `Dear ${claim.claimant.name},
+
+Your initial deposit of KES ${claim.selfRepair.depositAmount} for claim reference: ${depVehicle} has been paid to your provided banking details.
+
+Please proceed with the repair. Once complete, an assessor will verify the work and your final settlement of KES ${claim.selfRepair.finalSettlementAmount} will be released.
+
+Thank you for choosing Ave Insurance.
+
+Best Regards,
+Admin Team`
+    );
+  }
+  if (claim.claimant && claim.claimant.phone) {
+    await whatsappService.sendWhatsAppMessage(
+      claim.claimant.phone,
+      `Hi ${claim.claimant.name}, your initial deposit of KES ${claim.selfRepair.depositAmount} for claim ${depVehicle} has been *paid*.\n\nPlease proceed with the repair. Your final settlement of KES ${claim.selfRepair.finalSettlementAmount} will follow after re-assessment. — Ave Insurance`
+    );
+  }
+  if (claim.customerId) {
+    await notificationService.createAndEmit({
+      recipientId: claim.customerId,
+      recipientType: 'customer',
+      type: 'self_repair_deposit_paid',
+      title: 'Initial Deposit Paid',
+      content: `Your initial deposit of KES ${claim.selfRepair.depositAmount} for claim ${depVehicle} has been paid. Proceed with repairs.`,
+      claimId: claim._id,
+      whatsappNumber: claim.claimant?.phone,
+    });
+  }
+
+  return claim;
+};
+
+// Admin pays the final settlement after re-assessment — closes the claim
+const payFinalSettlement = async (claimId, req) => {
+  const claim = await Claim.findById(claimId);
+  if (!claim) throw new Error('Claim not found');
+  if (!claim.selfRepair || claim.selfRepair.status !== 'In-Review') throw new Error('Re-assessment must be complete before paying the final settlement');
+  if (!claim.selfRepair.depositPaidAt) throw new Error('Initial deposit must be paid before the final settlement');
+
+  const start = Date.now();
+  claim.selfRepair.status = 'SettlementPaid';
+  claim.selfRepair.finalSettlementPaidAt = new Date();
   claim.selfRepair.paidAt = new Date();
   claim.status = 'Completed';
   await claim.save();
@@ -1308,36 +1394,48 @@ const markSelfRepairPaid = async (claimId, req) => {
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'Claim',
-    actionDescription: `Self-repair reimbursement marked as paid for claim ${claimId}`,
+    actionDescription: `Final settlement of KES ${claim.selfRepair.finalSettlementAmount} paid for claim ${claimId} — claim closed`,
     resourceType: 'Claim',
     resourceId: claim._id,
     statusCode: 200,
     success: true,
     responseTimeMs: Date.now() - start,
-    changes: { old: { status: 'SelfRepair', selfRepairStatus: 'Approved' }, new: { status: 'Completed', selfRepairStatus: 'Paid' } },
+    changes: { old: { selfRepairStatus: 'In-Review' }, new: { status: 'Completed', selfRepairStatus: 'SettlementPaid' } },
   });
 
-  const paidVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
+  const setVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   if (claim.claimant && claim.claimant.email) {
     await emailService.sendEmailNotification(
       claim.claimant.email,
-      'Self-Repair Reimbursement Paid',
-      `Dear ${claim.claimant.name},\n\nYour self-repair reimbursement of R${claim.selfRepair.amountApproved} for claim reference: ${paidVehicle} has been paid to your provided banking details.\n\nYour claim is now closed.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+      'Cash-in-Lieu Final Settlement Paid — Claim Closed',
+      `Dear ${claim.claimant.name},
+
+Your final settlement of KES ${claim.selfRepair.finalSettlementAmount} for claim reference: ${setVehicle} has been paid to your provided banking details.
+
+Summary:
+- Initial deposit paid: KES ${claim.selfRepair.depositAmount}
+- Final settlement paid: KES ${claim.selfRepair.finalSettlementAmount}
+- Total cash-in-lieu received: KES ${claim.selfRepair.totalAwardedAmount}
+
+Your claim is now closed. Thank you for choosing Ave Insurance.
+
+Best Regards,
+Admin Team`
     );
   }
   if (claim.claimant && claim.claimant.phone) {
     await whatsappService.sendWhatsAppMessage(
       claim.claimant.phone,
-      `Hi ${claim.claimant.name}, your reimbursement of R${claim.selfRepair.amountApproved} for claim ${paidVehicle} has been *paid* to your banking details. Your claim is now closed. 🎉 — Ave Insurance`
+      `Hi ${claim.claimant.name}, your final settlement of KES ${claim.selfRepair.finalSettlementAmount} for claim ${setVehicle} has been *paid*.\n\nTotal received: KES ${claim.selfRepair.totalAwardedAmount}. Your claim is now closed. — Ave Insurance`
     );
   }
   if (claim.customerId) {
     await notificationService.createAndEmit({
       recipientId: claim.customerId,
       recipientType: 'customer',
-      type: 'self_repair_paid',
-      title: 'Reimbursement Paid',
-      content: `Your self-repair reimbursement of R${claim.selfRepair.amountApproved} for claim ${paidVehicle} has been paid. Claim closed.`,
+      type: 'self_repair_settlement_paid',
+      title: 'Final Settlement Paid — Claim Closed',
+      content: `Final settlement of KES ${claim.selfRepair.finalSettlementAmount} paid for claim ${setVehicle}. Total received: KES ${claim.selfRepair.totalAwardedAmount}.`,
       claimId: claim._id,
       whatsappNumber: claim.claimant?.phone,
     });
@@ -1362,7 +1460,7 @@ const reAssessSelfRepair = async (claimId, { notes, recommendedAmount }, req) =>
     assessedAt: new Date(),
   };
   claim.selfRepair.status = 'In-Review';
-  claim.status = 'Completed';
+  // claim.status left as-is — final settlement payment closes the claim
   await claim.save();
 
   await writeAuditLog(req, {
@@ -1669,7 +1767,8 @@ module.exports = {
   reAssessSelfRepair,
   approveSelfRepair,
   rejectSelfRepair,
-  markSelfRepairPaid,
+  payInitialDeposit,
+  payFinalSettlement,
   getSelfRepairClaims,
   resubmitRejectedClaim,
   approveGlassClaim,

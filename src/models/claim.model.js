@@ -181,7 +181,7 @@ const claimSchema = new Schema({
     opted: { type: Boolean, default: false },
     status: {
       type: String,
-      enum: ['Pending', 'Submitted', 'Approved', 'Rejected', 'Paid', 'In-Review'],
+      enum: ['Pending', 'Submitted', 'Approved', 'Rejected', 'Paid', 'In-Review', 'DepositPaid', 'SettlementPaid'],
       default: 'Pending'
     },
     estimate: {
@@ -191,6 +191,13 @@ const claimSchema = new Schema({
     },
     amountRequested: { type: Number },
     amountApproved: { type: Number },
+    // Cash-in-lieu two-stage payment
+    totalAwardedAmount: { type: Number },
+    depositPercentage: { type: Number },
+    depositAmount: { type: Number },
+    depositPaidAt: { type: Date },
+    finalSettlementAmount: { type: Number },
+    finalSettlementPaidAt: { type: Date },
     receipts: [String],
     description: { type: String },
     bankingDetails: {

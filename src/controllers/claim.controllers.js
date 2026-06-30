@@ -326,9 +326,10 @@ const reAssessSelfRepair = async (req, res) => {
 
 const approveSelfRepair = async (req, res) => {
   try {
-    const { amountApproved } = req.body;
-    if (!amountApproved) return res.status(400).json({ message: 'amountApproved is required' });
-    const claim = await claimService.approveSelfRepair(req.params.id, { amountApproved }, req);
+    const { totalAwardedAmount, depositPercentage } = req.body;
+    if (!totalAwardedAmount) return res.status(400).json({ message: 'totalAwardedAmount is required' });
+    if (!depositPercentage) return res.status(400).json({ message: 'depositPercentage is required' });
+    const claim = await claimService.approveSelfRepair(req.params.id, { totalAwardedAmount, depositPercentage }, req);
     res.status(200).json(claim);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -346,9 +347,18 @@ const rejectSelfRepair = async (req, res) => {
   }
 };
 
-const markSelfRepairPaid = async (req, res) => {
+const payInitialDeposit = async (req, res) => {
   try {
-    const claim = await claimService.markSelfRepairPaid(req.params.id, req);
+    const claim = await claimService.payInitialDeposit(req.params.id, req);
+    res.status(200).json(claim);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+const payFinalSettlement = async (req, res) => {
+  try {
+    const claim = await claimService.payFinalSettlement(req.params.id, req);
     res.status(200).json(claim);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -444,7 +454,8 @@ module.exports = {
   reAssessSelfRepair,
   approveSelfRepair,
   rejectSelfRepair,
-  markSelfRepairPaid,
+  payInitialDeposit,
+  payFinalSettlement,
   getSelfRepairClaims,
   resubmitRejectedClaim,
   approveGlassClaim,
