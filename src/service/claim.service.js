@@ -265,7 +265,7 @@ const approveClaim = async (id, req) => {
     await emailService.sendEmailNotification(
       claimant.email,
       'Claim Approval Notification',
-      `Dear ${claimant.name},\n\nWe acknowledge receipt of your claim regarding vehicle registration number ${claim.vehiclesInvolved[0].licensePlate}.\n\nTo facilitate the claims process, an assessor will be appointed shortly to inspect and assess the vehicle. The assessment findings will enable us to determine the next steps and process your claim accordingly.\n\nOur team will keep you informed throughout the process and will contact you should any additional information be required.\n\nThank you for choosing Ave Insurance.\n\nKind regards,\n\nClaims Department\nAve Insurance`
+      `Dear ${claimant.name},\n\nWe acknowledge receipt of your claim regarding vehicle registration number ${claim.vehiclesInvolved[0]?.licensePlate || claim._id}.\n\nTo facilitate the claims process, an assessor will be appointed shortly to inspect and assess the vehicle. The assessment findings will enable us to determine the next steps and process your claim accordingly.\n\nOur team will keep you informed throughout the process and will contact you should any additional information be required.\n\nThank you for choosing Ave Insurance.\n\nKind regards,\n\nClaims Department\nAve Insurance`
       
     );
   }
@@ -441,7 +441,7 @@ const awardClaim = async (id, bidId, req) => {
     await emailService.sendEmailNotification(
       assessor.email,
       'Claim Award Notification',
-      `Dear ${assessor.name},\n\nCongratulations! You have been awarded the claim with ID: ${claim.vehiclesInvolved[0].licensePlate}. You are required to submit a report within 3 days.\n\nPlease ensure that the report is submitted on time to facilitate the next steps in the claims process.\n\nBest Regards,\nAdmin Team`
+      `Dear ${assessor.name},\n\nCongratulations! You have been awarded the claim with ID: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id}. You are required to submit a report within 3 days.\n\nPlease ensure that the report is submitted on time to facilitate the next steps in the claims process.\n\nBest Regards,\nAdmin Team`
     );
 
     // Send email notification to the claimant
@@ -449,7 +449,7 @@ const awardClaim = async (id, bidId, req) => {
       await emailService.sendEmailNotification(
         claim.claimant.email,
         'Assessor Visit Notification',
-        `Dear ${claim.claimant.name},\n\nWe are pleased to inform you that your claim with ID: ${claim.vehiclesInvolved[0].licensePlate} has been awarded to an assessor. The assessor, ${assessor.name}, will be visiting to assess the state of your vehicle.\n\nHere are the assessor's contact details:\n- Phone: ${assessor.phone}\n- Email: ${assessor.email}\n\nPlease feel free to reach out to the assessor to coordinate the visit.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+        `Dear ${claim.claimant.name},\n\nWe are pleased to inform you that your claim with ID: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been awarded to an assessor. The assessor, ${assessor.name}, will be visiting to assess the state of your vehicle.\n\nHere are the assessor's contact details:\n- Phone: ${assessor.phone}\n- Email: ${assessor.email}\n\nPlease feel free to reach out to the assessor to coordinate the visit.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
       );
     }
   }
@@ -522,7 +522,7 @@ const awardBidToGarage = async (id, bidId, req) => {
     await emailService.sendEmailNotification(
       garage.email,
       'Bid Award Notification',
-      `Dear ${garage.name},\n\nCongratulations! Your bid for the claim with ID: ${claim.vehiclesInvolved[0].licensePlate} has been awarded. You are requested to proceed with the repair of the vehicle as soon as possible.\n\nPlease ensure that all necessary repairs are completed in a timely and professional manner.\n\nThank you for your cooperation.\n\nBest Regards,\nAdmin Team`
+      `Dear ${garage.name},\n\nCongratulations! Your bid for the claim with ID: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been awarded. You are requested to proceed with the repair of the vehicle as soon as possible.\n\nPlease ensure that all necessary repairs are completed in a timely and professional manner.\n\nThank you for your cooperation.\n\nBest Regards,\nAdmin Team`
     );
   }
 
@@ -533,11 +533,11 @@ const awardBidToGarage = async (id, bidId, req) => {
       claim.claimant?.email,
       'Repair Details for Your Vehicle',
       `Dear ${claim.claimant?.name},\n
-      \nWe are pleased to inform you that your claim for (ID: ${claim.vehiclesInvolved[0].licensePlate}) has been processed, and your vehicle will be repaired at the following garage:\n
+      \nWe are pleased to inform you that your claim for (ID: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id}) has been processed, and your vehicle will be repaired at the following garage:\n
       \nGarage Details:
       \n- Name: ${garage.name}
       \n- Location: ${garage.location.name},
-      \n- Timeline: ${bid.garageDetails.$exists ? bid.garageDetails.timeline : 'No timeline available'}
+      \n- Timeline: ${bid.garageDetails?.timeline || 'No timeline available'}
       \n- Ratings: ${garage.ratings.averageRating || 'No ratings available'}
       \n- Description: ${garage.description || 'No description available'}\n
       \nThe garage will contact you shortly to proceed with the repairs. If you have any questions, please feel free to reach out.\n\nThank you for choosing our services.\n\nBest Regards,\nAdmin Team`
