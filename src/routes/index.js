@@ -18,6 +18,7 @@ const companySupport = require("./companySupport.route")
 const notifications = require("./notification.route")
 const investigators = require("./investigator.route")
 const ai = require("./ai.route")
+const claimTypes = require("./claimType.route")
 
 
 const router = express.Router()
@@ -41,6 +42,7 @@ router.use("/support", companySupport)
 router.use("/notifications", notifications)
 router.use("/investigators", investigators)
 router.use("/ai", ai)
+router.use("/claim-types", claimTypes)
 
 
 module.exports  = router

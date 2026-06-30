@@ -4,6 +4,7 @@ const bcrypt = require('bcrypt');
 const Claim = require('../models/claim.model');
 const ApiError = require('../utils/ApiError');
 const emailService = require("../service/email.service");
+const whatsappService = require('./whatsapp.service');
 const { writeAuditLog } = require('../utils/auditHelper');
 
 
@@ -288,12 +289,104 @@ const resetPassword = async (email, newPassword, req) => {
   return { message: 'Password has been reset successfully' };
 };
 
+const submitReAssessmentReport = async (claimId, { notes, photos, outcome, assessorId }, req) => {
+  const claim = await Claim.findById(claimId);
+  if (!claim) throw new Error('Claim not found');
+  if (claim.status !== 'Re-Assessment') throw new Error('Claim must be under Re-Assessment to submit a report');
+  if (!notes || !notes.trim()) throw new Error('Notes are required');
+  if (!outcome || !['Passed', 'Failed'].includes(outcome)) throw new Error('outcome must be Passed or Failed');
+
+  const start = Date.now();
+  const vehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
+
+  claim.reAssessmentReport = {
+    notes: notes.trim(),
+    photos: Array.isArray(photos) ? photos : [],
+    outcome,
+    assessorId: assessorId || null,
+    submittedAt: new Date(),
+  };
+
+  if (outcome === 'Passed') {
+    claim.status = 'ReAssessed';
+  } else {
+    // Failed — return directly to Repair and notify garage
+    claim.status = 'Repair';
+
+    if (claim.awardedGarage?.garageId) {
+      const garage = await Garage.findById(claim.awardedGarage.garageId);
+      if (garage?.email) {
+        await emailService.sendEmailNotification(
+          garage.email,
+          'Re-Assessment Failed — Further Repair Required',
+          `Dear ${garage.name},
+
+The re-assessment for vehicle (${vehicle}) has been marked as Failed.
+
+Assessor notes: ${notes.trim()}
+
+Please review the issues and complete the outstanding repair work. Once done, resubmit for re-assessment.
+
+Best Regards,
+Admin Team`
+        );
+      }
+      if (garage?.contactNumber) {
+        await whatsappService.sendWhatsAppMessage(
+          garage.contactNumber,
+          `Hi ${garage.name}, the re-assessment for vehicle (${vehicle}) has *failed*.\n\nNotes: ${notes.trim()}\n\nPlease fix the outstanding issues and resubmit for re-assessment. — Ave Insurance`
+        );
+      }
+    }
+
+    if (claim.claimant?.email) {
+      await emailService.sendEmailNotification(
+        claim.claimant.email,
+        'Repair Re-Assessment — Further Work Required',
+        `Dear ${claim.claimant.name},
+
+Following the re-assessment of your vehicle (${vehicle}), our assessor has identified outstanding issues that require further attention from the garage.
+
+We have notified the garage and they will be in contact to arrange the additional work. We apologise for the inconvenience.
+
+Best Regards,
+Admin Team`
+      );
+    }
+    if (claim.claimant?.phone) {
+      await whatsappService.sendWhatsAppMessage(
+        claim.claimant.phone,
+        `Hi ${claim.claimant.name}, the re-assessment of your vehicle (${vehicle}) found outstanding issues. The garage has been notified to complete the remaining work. We'll keep you updated. — Ave Insurance`
+      );
+    }
+  }
+
+  await claim.save();
+
+  await writeAuditLog(req, {
+    action: 'UPDATE',
+    module: 'Claim',
+    actionDescription: `Assessor submitted re-assessment report for claim ${claimId} — outcome: ${outcome}`,
+    resourceType: 'Claim',
+    resourceId: claim._id,
+    statusCode: 200,
+    success: true,
+    responseTimeMs: Date.now() - start,
+    changes: { old: { status: 'Re-Assessment' }, new: { status: claim.status, outcome } },
+  });
+
+  return claim;
+};
+
 const completeRepair = async (claimId, req) => {
   const claim = await Claim.findById(claimId);
   if (!claim) throw new Error('Claim not found');
-  if (claim.status !== 'Re-Assessment') throw new Error('Claim must be under Re-Assessment to mark it as Completed');
+  if (claim.status !== 'ReAssessed') throw new Error('Re-assessment must be submitted and passed before completing');
+  if (claim.reAssessmentReport?.outcome !== 'Passed') throw new Error('Re-assessment outcome is not Passed — cannot complete');
 
+  const vehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   const start = Date.now();
+
   claim.status = 'Completed';
   claim.repairDate = new Date();
   await claim.save();
@@ -301,38 +394,43 @@ const completeRepair = async (claimId, req) => {
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'Claim',
-    actionDescription: `Marked repair as completed for claim ${claimId}`,
+    actionDescription: `Admin completed claim ${claimId} following passed re-assessment`,
     resourceType: 'Claim',
     resourceId: claim._id,
     statusCode: 200,
     success: true,
     responseTimeMs: Date.now() - start,
-    changes: { old: { status: 'Re-Assessment' }, new: { status: 'Completed', repairDate: claim.repairDate } },
+    changes: { old: { status: 'ReAssessed' }, new: { status: 'Completed' } },
   });
 
-  if (!claim.selfRepair.opted && claim.awardedGarage && claim.awardedGarage.garageId) {
+  if (!claim.selfRepair?.opted && claim.awardedGarage?.garageId) {
     const garage = await Garage.findById(claim.awardedGarage.garageId);
-    garage.pendingWork -= 1;
-    await garage.save();
+    if (garage) { garage.pendingWork = Math.max(0, (garage.pendingWork || 1) - 1); await garage.save(); }
   }
-  
-  
 
-  if (claim.claimant && claim.claimant.email) {
+  if (claim.claimant?.email) {
     await emailService.sendEmailNotification(
       claim.claimant.email,
-      'Repair Completed - Verification Pending',
+      'Repair Verified & Claim Closed',
       `Dear ${claim.claimant.name},
 
-We are pleased to inform you that the repair for your claim with ID: ${claim.vehiclesInvolved[0].licensePlate} has been completed.
-Please verify that the vehicle has been fully repaired.
-If you are satisfied with the repair, please reply to this email to confirm.
-Thank you for your patience during this process.
+We are pleased to inform you that the repair of your vehicle (${vehicle}) has been independently verified by our assessor and confirmed as satisfactory.
+
+Your claim is now closed.
+
+Thank you for choosing Ave Insurance.
 
 Best Regards,
 Admin Team`
     );
   }
+  if (claim.claimant?.phone) {
+    await whatsappService.sendWhatsAppMessage(
+      claim.claimant.phone,
+      `Hi ${claim.claimant.name}, great news! The repair of your vehicle (${vehicle}) has been verified and your claim is now *closed*. Thank you for choosing Ave Insurance.`
+    );
+  }
+
   return claim;
 };
 const rejectRepair = async (claimId, rejectionReason, req) => {
@@ -342,16 +440,21 @@ const rejectRepair = async (claimId, rejectionReason, req) => {
 
   const start = Date.now();
   claim.status = 'Repair';
+  const rrVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   const garage = await Garage.findById(claim.awardedGarage.garageId);
-  await emailService.sendEmailNotification(
-    garage.email,
-    'Repair Rejected ',
-    `Dear ${garage.name},
-    Your repair for claim with ID: ${claim.vehiclesInvolved[0].licensePlate} has been rejected due to ${rejectionReason}. Please contact the Assessor to discuss further.
-    Thank you for your cooperation.
-    Best Regards,
-    Admin Team`
+  if (garage && garage.email) {
+    await emailService.sendEmailNotification(
+      garage.email,
+      'Repair Rejected',
+      `Dear ${garage.name},\n    Your repair for claim with ID: ${rrVehicle} has been rejected due to ${rejectionReason}. Please contact the Assessor to discuss further.\n    Thank you for your cooperation.\n    Best Regards,\n    Admin Team`
     );
+  }
+  if (garage && garage.contactNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      garage.contactNumber,
+      `Hi ${garage.name}, the repair for claim ${rrVehicle} has been *rejected*.\nReason: ${rejectionReason}\n\nPlease contact the assessor to discuss. — Ave Insurance`
+    );
+  }
 
   claim.rejectionReason = rejectionReason;
   await claim.save();
@@ -425,6 +528,7 @@ module.exports = {
   placeBid,
   getAssessorBids,
   submitAssessmentReport,
+  submitReAssessmentReport,
   resetPassword,
   completeRepair,
   rejectRepair,

@@ -4,6 +4,7 @@ const Assessor = require('../models/assessor.model');
 const customerModel = require("../models/customerModel");
 const bcrypt = require('bcrypt');
 const emailService = require("./email.service");
+const whatsappService = require('./whatsapp.service');
 const tokenService = require("./token.service");
 const SupplyBid = require('../models/supplyBids.model');
 
@@ -25,7 +26,6 @@ const createGarage = async (garage) => {
   const newGarage = new Garage(garage);
   const savedGarage = await newGarage.save();
 
-  // Send email notification
   if (savedGarage && savedGarage.email) {
     await emailService.sendEmailNotification(
       savedGarage.email,
@@ -46,6 +46,12 @@ Thank you for choosing Ave Insurance.
 
 Best Regards,
 Admin Team`
+    );
+  }
+  if (savedGarage && savedGarage.contactNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      savedGarage.contactNumber,
+      `Hi ${savedGarage.name}, welcome to Ave Insurance! Your garage account has been created. Log in with your registered email to start receiving claim assignments. — Ave Insurance`
     );
   }
 
@@ -206,6 +212,12 @@ const placeBid = async (claimId, garageId, description, timeline, parts) => {
         .join('\n')}\n\nThank you for your participation.`
     );
   }
+  if (garage && garage.contactNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      garage.contactNumber,
+      `Hi ${garage.name}, your bid of R${totalCost} on claim ${claim._id} has been placed successfully. We'll notify you of the outcome. — Ave Insurance`
+    );
+  }
   const response = {
     claim,
     garageDetails: {
@@ -218,29 +230,47 @@ const placeBid = async (claimId, garageId, description, timeline, parts) => {
   return response;
 };
 
-// Call for Re-Assessment
-const callForReAssessment = async (claimId) => {
+// Call for Re-Assessment — garage submits repair report at the same time
+const callForReAssessment = async (claimId, garageId, report = {}) => {
   const claim = await Claim.findById(claimId);
   if (!claim) throw new Error('Claim not found');
   if (claim.status !== 'Repair') throw new Error('Claim must be in Repair to call for re-assessment');
 
+  claim.garageRepairReport = {
+    garageId: garageId || null,
+    workDone: report.workDone || '',
+    vehicleCondition: report.vehicleCondition || '',
+    partsSalvaged: Array.isArray(report.partsSalvaged) ? report.partsSalvaged : [],
+    partsReplaced: Array.isArray(report.partsReplaced) ? report.partsReplaced : [],
+    receipts: Array.isArray(report.receipts) ? report.receipts : [],
+    photos: Array.isArray(report.photos) ? report.photos : [],
+    totalRepairCost: report.totalRepairCost ? Number(report.totalRepairCost) : null,
+    submittedAt: new Date(),
+  };
   claim.status = 'Re-Assessment';
   claim.repairDate = new Date();
   await claim.save();
   if (claim.awardedAssessor && claim.awardedAssessor.assessorId) {
     const assessor = await Assessor.findById(claim.awardedAssessor.assessorId);
+    const raVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
     if (assessor && assessor.email) {
       await emailService.sendEmailNotification(
         assessor.email,
         'Re-Assessment Required - Repair Completed',
         `Dear ${assessor.name},
 
-The repair for the claim with ID: ${claim.vehiclesInvolved[0].licensePlate} has been completed. Please visit the location to verify that the vehicle has been fully repaired.
+The repair for the claim with ID: ${raVehicle} has been completed. Please visit the location to verify that the vehicle has been fully repaired.
 
 Thank you for your prompt attention to this matter.
 
 Best Regards,
 Admin Team`
+      );
+    }
+    if (assessor && assessor.contactInfo?.phone) {
+      await whatsappService.sendWhatsAppMessage(
+        assessor.contactInfo.phone,
+        `Hi ${assessor.name}, re-assessment required for claim ${raVehicle}. The garage has completed the repair — please visit to verify. — Ave Insurance`
       );
     }
   }

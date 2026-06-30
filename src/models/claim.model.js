@@ -78,11 +78,12 @@ const bidSchema = new Schema({
 
 const claimSchema = new Schema({
   customerId: { type: Schema.Types.ObjectId, ref: 'Customer', required: true },
+  claimTypeId: { type: Schema.Types.ObjectId, ref: 'ClaimType', required: false },
   claimant: {
     name: { type: String },
     address: { type: String },
     phone: { type: String },
-    email: { type: String }
+    email: { type: String },
   },
   incidentDetails: {
     date: { type: Date, required: true },
@@ -165,8 +166,26 @@ const claimSchema = new Schema({
   },
   status: {
     type: String,
-    enum: ['Pending', 'Approved', 'Rejected', 'Resubmitted', 'Assessment', 'Assessed', 'Awarded', 'Repair', 'Garage', 'Re-Assessment', 'SelfRepair', 'Completed', 'UnderInvestigation', 'Investigated'],
+    enum: ['Pending', 'Approved', 'Rejected', 'Resubmitted', 'Assessment', 'Assessed', 'Awarded', 'Repair', 'Garage', 'Re-Assessment', 'ReAssessed', 'SelfRepair', 'Completed', 'UnderInvestigation', 'Investigated', 'GlassApproved', 'GlassRepair'],
     default: 'Pending'
+  },
+  reAssessmentReport: {
+    notes: { type: String },
+    photos: [String],
+    outcome: { type: String, enum: ['Passed', 'Failed'] },
+    assessorId: { type: Schema.Types.ObjectId, ref: 'Assessor' },
+    submittedAt: { type: Date },
+  },
+  garageRepairReport: {
+    garageId: { type: Schema.Types.ObjectId, ref: 'Garage' },
+    workDone: { type: String },
+    vehicleCondition: { type: String },
+    partsSalvaged: [{ partName: { type: String }, description: { type: String } }],
+    partsReplaced: [{ partName: { type: String }, cost: { type: Number } }],
+    receipts: [String],
+    photos: [String],
+    totalRepairCost: { type: Number },
+    submittedAt: { type: Date },
   },
   fraud: {
     suspected: { type: Boolean, default: false },
@@ -180,7 +199,7 @@ const claimSchema = new Schema({
     opted: { type: Boolean, default: false },
     status: {
       type: String,
-      enum: ['Pending', 'Submitted', 'Approved', 'Rejected', 'Paid', 'In-Review'],
+      enum: ['Pending', 'Submitted', 'Approved', 'Rejected', 'Paid', 'In-Review', 'DepositPaid', 'SettlementPaid'],
       default: 'Pending'
     },
     estimate: {
@@ -190,6 +209,13 @@ const claimSchema = new Schema({
     },
     amountRequested: { type: Number },
     amountApproved: { type: Number },
+    // Cash-in-lieu two-stage payment
+    totalAwardedAmount: { type: Number },
+    depositPercentage: { type: Number },
+    depositAmount: { type: Number },
+    depositPaidAt: { type: Date },
+    finalSettlementAmount: { type: Number },
+    finalSettlementPaidAt: { type: Date },
     receipts: [String],
     description: { type: String },
     bankingDetails: {
@@ -236,7 +262,18 @@ const claimSchema = new Schema({
   supplierBids: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'SupplyBid'
-  }]
+  }],
+  glassRepair: {
+    supplierId: { type: Schema.Types.ObjectId, ref: 'Supplier' },
+    appointmentDate: { type: Date },
+    completedAt: { type: Date },
+    notes: { type: String },
+    status: {
+      type: String,
+      enum: ['Pending', 'Assigned', 'Completed'],
+      default: 'Pending',
+    },
+  },
 }, { timestamps: true });
 
 const Claim = mongoose.model('Claim', claimSchema);
