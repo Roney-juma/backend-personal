@@ -78,6 +78,7 @@ const bidSchema = new Schema({
 
 const claimSchema = new Schema({
   customerId: { type: Schema.Types.ObjectId, ref: 'Customer', required: true },
+  claimTypeId: { type: Schema.Types.ObjectId, ref: 'ClaimType', required: false },
   claimant: {
     name: { type: String },
     address: { type: String },
