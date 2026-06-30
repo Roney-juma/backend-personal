@@ -1,4 +1,5 @@
 const { runClaimIntake } = require('../ai/agents/claimIntake.agent');
+const { runStaffAssistant } = require('../ai/agents/staffAssistant.agent');
 const { renderIntakePage } = require('../ai/intakePage');
 const logger = require('../middlewheres/logger');
 
@@ -44,4 +45,28 @@ const claimIntake = async (req, res) => {
   }
 };
 
-module.exports = { claimIntake, claimIntakePage };
+/**
+ * POST /ai/staff-assistant   (staff JWT via verifyToken)
+ *
+ * Body: { messages?: AnthropicMessage[], userMessage: string }
+ * Returns: { messages, reply }   — read-only Q&A over operational data + KB.
+ */
+const staffAssistant = async (req, res) => {
+  try {
+    const { messages = [], userMessage } = req.body || {};
+    if (!userMessage || typeof userMessage !== 'string') {
+      return res.status(400).json({ message: 'userMessage is required' });
+    }
+    const result = await runStaffAssistant({
+      user: req.user,
+      messages: Array.isArray(messages) ? messages : [],
+      userMessage,
+    });
+    res.status(200).json(result);
+  } catch (err) {
+    logger.error(`staffAssistant error: ${err.message}`);
+    res.status(500).json({ message: err.message || 'Staff assistant error' });
+  }
+};
+
+module.exports = { claimIntake, claimIntakePage, staffAssistant };
