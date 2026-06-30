@@ -7,6 +7,7 @@ const emailService = require("./email.service");
 const whatsappService = require('./whatsapp.service');
 const tokenService = require("./token.service");
 const SupplyBid = require('../models/supplyBids.model');
+const cache = require('../cache');
 
 const createGarage = async (garage) => {
   const plainPassword = garage.password;
@@ -25,6 +26,8 @@ const createGarage = async (garage) => {
   // Create and save the new Garage
   const newGarage = new Garage(garage);
   const savedGarage = await newGarage.save();
+  await cache.del('cache:stats:garages', 'cache:garages:top');
+  await cache.delPattern('cache:garages:all:*');
 
   if (savedGarage && savedGarage.email) {
     await emailService.sendEmailNotification(
@@ -69,80 +72,65 @@ const loginUserWithEmailAndPassword = async (email, password) => {
 };
 
 const getAllGarages = async (filter = {}, page = 1, limit = 10) => {
-  try {
-    const query = {};
+  const key = `cache:garages:all:${page}:${limit}:${JSON.stringify(filter)}`;
+  return cache.wrap(key, async () => {
+    try {
+      const query = {};
+      if (filter.city) query.location.city = filter.city;
+      if (filter.estate) query.location.estate = filter.estate;
+      if (filter.state) query.location.state = filter.state;
 
-    if (filter.city) {
-      query.location.city = filter.city;
+      const totalGarages = await Garage.countDocuments(query);
+      const garages = await Garage.find(query)
+        .skip((page - 1) * limit)
+        .limit(limit);
+
+      return { garages, totalGarages, currentPage: page, totalPages: Math.ceil(totalGarages / limit) };
+    } catch (error) {
+      throw error;
     }
-
-    if (filter.estate) {
-      query.location.estate = filter.estate;
-    }
-
-    if (filter.state) {
-      query.location.state = filter.state;
-    }
-
-    const totalGarages = await Garage.countDocuments(query);
-
-    const garages = await Garage.find(query)
-      .skip((page - 1) * limit)
-      .limit(limit);
-
-    return {
-      garages,
-      totalGarages,
-      currentPage: page,
-      totalPages: Math.ceil(totalGarages / limit),
-    };
-  } catch (error) {
-    throw error;
-  }
+  }, 1800);
 };
 
 const getGarage = async (garageId) => {
-  return await Garage.findById(garageId);
+  return cache.wrap(`cache:garage:${garageId}`, () => Garage.findById(garageId), 1800);
 };
 
 const updateGarage = async (garageId, updateData) => {
-  return await Garage.findByIdAndUpdate(garageId, updateData, { new: true });
+  const result = await Garage.findByIdAndUpdate(garageId, updateData, { new: true });
+  await cache.del(`cache:garage:${garageId}`, 'cache:stats:garages', 'cache:garages:top');
+  await cache.delPattern('cache:garages:all:*');
+  return result;
 };
 
 const deleteGarage = async (garageId) => {
-  return await Garage.findByIdAndDelete(garageId);
+  const result = await Garage.findByIdAndDelete(garageId);
+  await cache.del(`cache:garage:${garageId}`, 'cache:stats:garages', 'cache:garages:top');
+  await cache.delPattern('cache:garages:all:*');
+  return result;
 };
 
 const getAssessedClaims = async (garageId) => {
-  const garage = await Garage.findById(garageId);
-  if (!garage) throw new Error('garage not found');
+  return cache.wrap(`cache:garage:assessed-claims:${garageId}`, async () => {
+    const garage = await Garage.findById(garageId);
+    if (!garage) throw new Error('garage not found');
 
-  const asseslatitude = garage.location.latitude
-  const asseslongitude = garage.location.longitude;
-  if (!asseslatitude || !asseslongitude) {
-    throw new Error('garage location coordinates are missing');
-  }
+    const asseslatitude = garage.location.latitude;
+    const asseslongitude = garage.location.longitude;
+    if (!asseslatitude || !asseslongitude) {
+      throw new Error('garage location coordinates are missing');
+    }
 
-  const claims = await Claim.find({
-    status: 'Garage',
-    awardedGarage: { $exists: false }
-  });
-  // Filter claims based on proximity to the assessor's location
-  const nearbyClaims = claims.filter((claim) => {
-    const { latitude, longitude } = claim.incidentDetails;
+    const claims = await Claim.find({ status: 'Garage', awardedGarage: { $exists: false } });
+    const nearbyClaims = claims.filter((claim) => {
+      const { latitude, longitude } = claim.incidentDetails;
+      if (!latitude || !longitude) return false;
+      const distance = getDistanceFromLatLonInKm(asseslatitude, asseslongitude, latitude, longitude);
+      return distance <= 20;
+    });
 
-    if (!latitude || !longitude) return false;
-
-    const distance = getDistanceFromLatLonInKm(
-      asseslatitude,
-      asseslongitude,
-      latitude,
-      longitude
-    );
-    return distance <= 20;
-  });
-
-  return nearbyClaims;
+    return nearbyClaims;
+  }, 300);
 };
 const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
   const R = 6371; // Radius of the Earth in kilometers
@@ -202,6 +190,8 @@ const placeBid = async (claimId, garageId, description, timeline, parts) => {
   };
   claim.bids.push(newBid);
   await claim.save();
+  await cache.del(`cache:garage:bids:${garageId}`);
+  await cache.delPattern('cache:claims:*');
 
   if (garage && garage.email) {
     await emailService.sendEmailNotification(
@@ -250,6 +240,8 @@ const callForReAssessment = async (claimId, garageId, report = {}) => {
   claim.status = 'Re-Assessment';
   claim.repairDate = new Date();
   await claim.save();
+  await cache.delPattern('cache:claims:*');
+  await cache.del(`cache:claim:${claimId}`);
   if (claim.awardedAssessor && claim.awardedAssessor.assessorId) {
     const assessor = await Assessor.findById(claim.awardedAssessor.assessorId);
     const raVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
@@ -280,7 +272,7 @@ Admin Team`
 
 const getGarageBids = async (garageId) => {
   if (!garageId) throw new Error('garageId is required');
-
+  return cache.wrap(`cache:garage:bids:${garageId}`, async () => {
   const garageIdStr = garageId.toString();
 
   const claims = await Claim.find({
@@ -324,6 +316,7 @@ const getGarageBids = async (garageId) => {
   });
 
   return garageBids;
+  }, 600);
 };
 
 const resetPassword = async (email, newPassword) => {
@@ -351,22 +344,18 @@ const resetPassword = async (email, newPassword) => {
 
 // Garage stats include  count, pendingWork and averageRating
 const getGarageStats = async () => {
-  const garagesCount = await Garage.countDocuments();
-  const pendingWorkCount = await Garage.countDocuments({ pendingWork: { $gt: 0 } });
-  const averageRating = await Garage.aggregate([
-    {
-      $group: {
-        _id: null,
-        averageRating: { $avg: '$ratings.averageRating' },
-      },
-    },
-  ]);
-
-  return { garagesCount, pendingWorkCount, averageRating: averageRating[0].averageRating || 0 };
+  return cache.wrap('cache:stats:garages', async () => {
+    const garagesCount = await Garage.countDocuments();
+    const pendingWorkCount = await Garage.countDocuments({ pendingWork: { $gt: 0 } });
+    const averageRating = await Garage.aggregate([
+      { $group: { _id: null, averageRating: { $avg: '$ratings.averageRating' } } },
+    ]);
+    return { garagesCount, pendingWorkCount, averageRating: averageRating[0]?.averageRating || 0 };
+  }, 1800);
 };
 // Top 10 garages with highest number of claims awarded
 const getTopGarages = async () => {
-  const topGarages = await Garage.aggregate([
+  return cache.wrap('cache:garages:top', () => Garage.aggregate([
     {
       $lookup: {
         from: 'claims',
@@ -385,8 +374,7 @@ const getTopGarages = async () => {
     },
     { $sort: { totalClaimsRepaired: -1 } },
     { $limit: 10 },
-  ]);
-  return topGarages;
+  ]), 3600);
 }
 
 

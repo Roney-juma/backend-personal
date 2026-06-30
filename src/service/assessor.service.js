@@ -6,6 +6,7 @@ const ApiError = require('../utils/ApiError');
 const emailService = require("../service/email.service");
 const whatsappService = require('./whatsapp.service');
 const { writeAuditLog } = require('../utils/auditHelper');
+const cache = require('../cache');
 
 
 
@@ -20,6 +21,7 @@ const createAssessor = async (assessorData, req) => {
   safeData.password = await bcrypt.hash(assessorData.password, 10);
   assessorData.password = safeData.password;
   const newAssessor = await Assessor.create(assessorData);
+  await cache.del('cache:assessors:all', 'cache:stats:assessors', 'cache:assessors:top');
 
   await writeAuditLog(req, {
     action: 'CREATE',
@@ -36,13 +38,15 @@ const createAssessor = async (assessorData, req) => {
   return newAssessor;
 };
 const getAssessors = async () => {
-  return await Assessor.find();
+  return cache.wrap('cache:assessors:all', () => Assessor.find(), 1800);
 };
 
 const getAssessorById = async (id) => {
-  const assessor = await Assessor.findById(id);
-  if (!assessor) throw new ApiError(404, 'Assessor not found');
-  return assessor;
+  return cache.wrap(`cache:assessor:${id}`, async () => {
+    const assessor = await Assessor.findById(id);
+    if (!assessor) throw new ApiError(404, 'Assessor not found');
+    return assessor;
+  }, 1800);
 };
 
 const updateAssessor = async (id, assessorData, req) => {
@@ -52,6 +56,7 @@ const updateAssessor = async (id, assessorData, req) => {
   const start = Date.now();
   const oldData = assessor.toObject();
   const updatedAssessor = await Assessor.findByIdAndUpdate(id, assessorData, { new: true });
+  await cache.del('cache:assessors:all', `cache:assessor:${id}`, 'cache:stats:assessors', 'cache:assessors:top');
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -75,6 +80,7 @@ const deleteAssessor = async (id, req) => {
   const start = Date.now();
   const snapshot = assessor.toObject();
   const deletedAssessor = await Assessor.findByIdAndDelete(id);
+  await cache.del('cache:assessors:all', `cache:assessor:${id}`, 'cache:stats:assessors', 'cache:assessors:top');
 
   await writeAuditLog(req, {
     action: 'DELETE',
@@ -101,35 +107,29 @@ const loginUserWithEmailAndPassword = async (email, password) => {
 };
 
 const getApprovedClaims = async (assessorId) => {
-  const assessor = await Assessor.findById(assessorId);
-  if (!assessor) throw new Error('Assessor not found');
+  return cache.wrap(`cache:assessor:approved-claims:${assessorId}`, async () => {
+    const assessor = await Assessor.findById(assessorId);
+    if (!assessor) throw new Error('Assessor not found');
 
-  const asseslatitude = assessor.location.latitude
-  const asseslongitude = assessor.location.longitude;
-  if (!asseslatitude || !asseslongitude) {
-    throw new Error('Assessor location coordinates are missing');
-  }
+    const asseslatitude = assessor.location.latitude;
+    const asseslongitude = assessor.location.longitude;
+    if (!asseslatitude || !asseslongitude) {
+      throw new Error('Assessor location coordinates are missing');
+    }
 
-  const claims = await Claim.find({
-    status: 'Approved',
-    awardedAssessor: { $exists: false }
-  });
-  // Filter claims based on proximity to the assessor's location
-  const nearbyClaims = claims.filter((claim) => {
-    const { latitude, longitude } = claim.incidentDetails;
+    const claims = await Claim.find({
+      status: 'Approved',
+      awardedAssessor: { $exists: false }
+    });
+    const nearbyClaims = claims.filter((claim) => {
+      const { latitude, longitude } = claim.incidentDetails;
+      if (!latitude || !longitude) return false;
+      const distance = getDistanceFromLatLonInKm(asseslatitude, asseslongitude, latitude, longitude);
+      return distance <= 50;
+    });
 
-    if (!latitude || !longitude) return false;
-
-    const distance = getDistanceFromLatLonInKm(
-      asseslatitude,
-      asseslongitude,
-      latitude,
-      longitude
-    );
-    return distance <= 50;
-  });
-
-  return nearbyClaims;
+    return nearbyClaims;
+  }, 300);
 };
 const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
   const R = 6371; // Radius of the Earth in kilometers
@@ -186,6 +186,8 @@ const placeBid = async (claimId, assessorId, amount, description, timeline, req)
 
   const start = Date.now();
   await claim.save();
+  await cache.del(`cache:assessor:bids:${assessorId}`);
+  await cache.delPattern('cache:claims:*');
 
   await writeAuditLog(req, {
     action: 'CREATE',
@@ -214,27 +216,29 @@ const placeBid = async (claimId, assessorId, amount, description, timeline, req)
 
 
 const getAssessorBids = async (assessorId) => {
-  const claims = await Claim.find({ "bids.assessorId": assessorId });
+  return cache.wrap(`cache:assessor:bids:${assessorId}`, async () => {
+    const claims = await Claim.find({ "bids.assessorId": assessorId });
 
-  const assessorBids = [];
-  for (const claim of claims) {
-    const relevantBids = claim.bids.filter((bid) => bid.assessorId?.toString() === assessorId);
-    relevantBids.forEach((bid) => {
-      assessorBids.push({
-        claimId: claim._id,
-        bidId: bid._id,
-        amount: bid.amount,
-        status: bid.status,
-        bidDate: bid.bidDate,
-        claimStatus: claim.status,
-        vehicleType: claim.vehiclesInvolved?.[0] || 'Unknown',
-        selfRepair: claim.selfRepair?.opted ? { status: claim.selfRepair.status, opted: claim.selfRepair.opted } : null,
+    const assessorBids = [];
+    for (const claim of claims) {
+      const relevantBids = claim.bids.filter((bid) => bid.assessorId?.toString() === assessorId);
+      relevantBids.forEach((bid) => {
+        assessorBids.push({
+          claimId: claim._id,
+          bidId: bid._id,
+          amount: bid.amount,
+          status: bid.status,
+          bidDate: bid.bidDate,
+          claimStatus: claim.status,
+          vehicleType: claim.vehiclesInvolved?.[0] || 'Unknown',
+          selfRepair: claim.selfRepair?.opted ? { status: claim.selfRepair.status, opted: claim.selfRepair.opted } : null,
+        });
       });
-    });
-  }
+    }
 
-  if (assessorBids.length === 0) throw new ApiError(404, 'No bids found for this assessor');
-  return assessorBids;
+    if (assessorBids.length === 0) throw new ApiError(404, 'No bids found for this assessor');
+    return assessorBids;
+  }, 600);
 };
 
 const submitAssessmentReport = async (claimId, assessmentReport, req) => {
@@ -250,6 +254,8 @@ const submitAssessmentReport = async (claimId, assessmentReport, req) => {
   claim.assessmentReport = assessmentReport;
   claim.status = 'Assessed';
   await claim.save();
+  await cache.delPattern('cache:claims:*');
+  await cache.del(`cache:claim:${claimId}`);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -362,6 +368,8 @@ Admin Team`
   }
 
   await claim.save();
+  await cache.delPattern('cache:claims:*');
+  await cache.del(`cache:claim:${claimId}`);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -390,6 +398,8 @@ const completeRepair = async (claimId, req) => {
   claim.status = 'Completed';
   claim.repairDate = new Date();
   await claim.save();
+  await cache.delPattern('cache:claims:*');
+  await cache.del(`cache:claim:${claimId}`);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -458,6 +468,8 @@ const rejectRepair = async (claimId, rejectionReason, req) => {
 
   claim.rejectionReason = rejectionReason;
   await claim.save();
+  await cache.delPattern('cache:claims:*');
+  await cache.del(`cache:claim:${claimId}`);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -475,19 +487,16 @@ const rejectRepair = async (claimId, rejectionReason, req) => {
 };
 // Assessor statistics for the admin dashboard
 const getAssessorStatistics = async () => {
-  const totalAssessors = await Assessor.countDocuments();
-  const busyAssessors = await Assessor.countDocuments({ "ratings.totalRatings": { $gt: 0 } });
-  const freeAssessors = totalAssessors - busyAssessors;
-
-  return {
-    totalAssessors,
-    busyAssessors,
-    freeAssessors
-  };
+  return cache.wrap('cache:stats:assessors', async () => {
+    const totalAssessors = await Assessor.countDocuments();
+    const busyAssessors = await Assessor.countDocuments({ "ratings.totalRatings": { $gt: 0 } });
+    const freeAssessors = totalAssessors - busyAssessors;
+    return { totalAssessors, busyAssessors, freeAssessors };
+  }, 1800);
 };
 
 const getTopAssessors = async () => {
-  const topAssessors = await Assessor.aggregate([
+  return cache.wrap('cache:assessors:top', () => Assessor.aggregate([
     {
       $lookup: {
         from: 'claims',
@@ -505,8 +514,7 @@ const getTopAssessors = async () => {
     },
     { $sort: { totalClaimsAssessed: -1 } },
     { $limit: 10 },
-  ]);
-  return topAssessors;
+  ]), 3600);
 }
 
   
