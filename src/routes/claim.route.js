@@ -42,7 +42,7 @@ router.patch('/self-repair/pay-deposit/:id', claimController.payInitialDeposit);
 router.patch('/self-repair/pay-settlement/:id', claimController.payFinalSettlement);
 
 // Re-assessment completion (admin)
-router.patch('/complete-reassessment/:id', claimController.completeReAssessment);
+router.patch('/complete-claim/:id', claimController.completeReAssessment);
 
 // Glass / motor glass claim routes — before wildcard /:id
 router.get('/glass', claimController.getGlassClaims);
