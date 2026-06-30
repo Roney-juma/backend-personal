@@ -4,6 +4,7 @@ const bcrypt = require('bcrypt');
 const Claim = require('../models/claim.model');
 const ApiError = require('../utils/ApiError');
 const emailService = require("../service/email.service");
+const whatsappService = require('./whatsapp.service');
 const { writeAuditLog } = require('../utils/auditHelper');
 
 
@@ -318,19 +319,26 @@ const completeRepair = async (claimId, req) => {
   
   
 
+  const crVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   if (claim.claimant && claim.claimant.email) {
     await emailService.sendEmailNotification(
       claim.claimant.email,
       'Repair Completed - Verification Pending',
       `Dear ${claim.claimant.name},
 
-We are pleased to inform you that the repair for your claim with ID: ${claim.vehiclesInvolved[0].licensePlate} has been completed.
+We are pleased to inform you that the repair for your claim with ID: ${crVehicle} has been completed.
 Please verify that the vehicle has been fully repaired.
 If you are satisfied with the repair, please reply to this email to confirm.
 Thank you for your patience during this process.
 
 Best Regards,
 Admin Team`
+    );
+  }
+  if (claim.claimant && claim.claimant.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      claim.claimant.whatsappNumber,
+      `Hi ${claim.claimant.name}, the repair for your vehicle (${crVehicle}) has been *completed*. Please verify and confirm you're satisfied. — Ave Insurance`
     );
   }
   return claim;
@@ -342,16 +350,21 @@ const rejectRepair = async (claimId, rejectionReason, req) => {
 
   const start = Date.now();
   claim.status = 'Repair';
+  const rrVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   const garage = await Garage.findById(claim.awardedGarage.garageId);
-  await emailService.sendEmailNotification(
-    garage.email,
-    'Repair Rejected ',
-    `Dear ${garage.name},
-    Your repair for claim with ID: ${claim.vehiclesInvolved[0].licensePlate} has been rejected due to ${rejectionReason}. Please contact the Assessor to discuss further.
-    Thank you for your cooperation.
-    Best Regards,
-    Admin Team`
+  if (garage && garage.email) {
+    await emailService.sendEmailNotification(
+      garage.email,
+      'Repair Rejected',
+      `Dear ${garage.name},\n    Your repair for claim with ID: ${rrVehicle} has been rejected due to ${rejectionReason}. Please contact the Assessor to discuss further.\n    Thank you for your cooperation.\n    Best Regards,\n    Admin Team`
     );
+  }
+  if (garage && garage.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      garage.whatsappNumber,
+      `Hi ${garage.name}, the repair for claim ${rrVehicle} has been *rejected*.\nReason: ${rejectionReason}\n\nPlease contact the assessor to discuss. — Ave Insurance`
+    );
+  }
 
   claim.rejectionReason = rejectionReason;
   await claim.save();

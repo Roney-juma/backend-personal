@@ -4,6 +4,7 @@ const Investigation = require('../models/investigation.model');
 const Claim = require('../models/claim.model');
 const ApiError = require('../utils/ApiError');
 const emailService = require('./email.service');
+const whatsappService = require('./whatsapp.service');
 const notificationService = require('./notification.service');
 const { writeAuditLog } = require('../utils/auditHelper');
 
@@ -23,6 +24,12 @@ const createInvestigator = async (data, req) => {
     'Welcome to AVE Insurance — Investigator Account',
     `Dear ${investigator.name},\n\nYour investigator profile has been registered on the AVE Insurance platform.\n\nWhen you are assigned to a claim, you will receive a secure link via email to access the claim details and submit your investigation report. No login is required.\n\nRegards,\nThe AVE Insurance Team`
   );
+  if (investigator.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      investigator.whatsappNumber,
+      `Hi ${investigator.name}, your investigator profile has been registered on AVE Insurance. You'll receive claim assignments with a secure link via email. — Ave Insurance`
+    );
+  }
 
   await writeAuditLog(req, {
     action: 'CREATE',
@@ -158,7 +165,7 @@ const flagClaimAsFraud = async (claimId, reason, flaggedBy, flaggedByType, req) 
     });
   }
 
-  // Email customer
+  // Email + WhatsApp customer
   if (claim.claimant && claim.claimant.email) {
     await emailService.sendEmailNotification(
       claim.claimant.email,
@@ -178,6 +185,12 @@ If you have any questions, please contact your insurance provider directly.
 
 Regards,
 The AVE Insurance Team`
+    );
+  }
+  if (claim.claimant && claim.claimant.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      claim.claimant.whatsappNumber,
+      `Hi ${claim.claimant.name || 'Valued Customer'}, your claim (Vehicle: ${claim.vehiclesInvolved?.[0]?.licensePlate || claimId}) has been flagged for investigation. No action is needed from you now — we'll keep you updated. — Ave Insurance`
     );
   }
 
@@ -229,6 +242,8 @@ const appointInvestigator = async (investigationId, investigatorId, req) => {
 
   const claimant = claim.claimant || {};
 
+  const invVehicle = claim.vehiclesInvolved?.[0]?.licensePlate || 'N/A';
+
   // Email investigator with secure link + customer contact details
   await emailService.sendEmailNotification(
     investigator.email,
@@ -238,7 +253,7 @@ const appointInvestigator = async (investigationId, investigatorId, req) => {
 You have been appointed to investigate the following insurance claim.
 
 Claim ID:   ${claim._id}
-Vehicle:    ${claim.vehiclesInvolved?.[0]?.licensePlate || 'N/A'} — ${claim.vehiclesInvolved?.[0]?.make || ''} ${claim.vehiclesInvolved?.[0]?.model || ''}
+Vehicle:    ${invVehicle} — ${claim.vehiclesInvolved?.[0]?.make || ''} ${claim.vehiclesInvolved?.[0]?.model || ''}
 Reason:     ${investigation.reason}
 
 ── Customer Contact Details ──────────────────────
@@ -259,15 +274,21 @@ This link is unique to this investigation and can only be used once. Please do n
 Regards,
 The AVE Insurance Team`
   );
+  if (investigator.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      investigator.whatsappNumber,
+      `Hi ${investigator.name}, you've been *appointed* to investigate claim ${invVehicle}.\n\nCustomer: ${claimant.name || 'N/A'} | ${claimant.phone || 'N/A'}\n\nYour secure report link has been sent to your email. — Ave Insurance`
+    );
+  }
 
-  // Email customer with investigator details
+  // Email + WhatsApp customer with investigator details
   if (claimant.email) {
     await emailService.sendEmailNotification(
       claimant.email,
       'Investigator Appointed to Your Claim',
       `Dear ${claimant.name || 'Valued Customer'},
 
-An investigator has been appointed to review your insurance claim (Vehicle: ${claim.vehiclesInvolved?.[0]?.licensePlate || claim._id}).
+An investigator has been appointed to review your insurance claim (Vehicle: ${invVehicle}).
 
 ── Appointed Investigator ────────────────────────
 Name:       ${investigator.name}
@@ -282,6 +303,12 @@ If you have not been contacted within 3 business days, please contact your insur
 
 Regards,
 The AVE Insurance Team`
+    );
+  }
+  if (claimant.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      claimant.whatsappNumber,
+      `Hi ${claimant.name || 'Valued Customer'}, an investigator has been appointed to your claim (${invVehicle}).\n\nInvestigator: ${investigator.name}\nPhone: ${investigator.contactNumber}\nEmail: ${investigator.email}\n\nThey will contact you within 3 business days. — Ave Insurance`
     );
   }
 
@@ -485,6 +512,14 @@ The AVE Insurance Team`;
 
   if (claim?.claimant?.email) {
     await emailService.sendEmailNotification(claim.claimant.email, emailSubject, emailBody);
+  }
+  if (claim?.claimant?.whatsappNumber) {
+    const waDecision = decision === 'reject'
+      ? `Hi ${customerName}, your claim (${vehicle}) has been *rejected* following a fraud investigation. Reason: ${reviewNotes || 'Fraudulent activity identified'}. Contact your insurer to appeal within 30 days.`
+      : decision === 'clear'
+      ? `Hi ${customerName}, great news! Your claim (${vehicle}) has been *cleared* after investigation and will continue through the normal process. — Ave Insurance`
+      : `Hi ${customerName}, your claim (${vehicle}) requires further review. Your insurer will be in touch shortly. — Ave Insurance`;
+    await whatsappService.sendWhatsAppMessage(claim.claimant.whatsappNumber, waDecision);
   }
 
   await writeAuditLog(req, {

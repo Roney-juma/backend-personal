@@ -7,6 +7,7 @@ const SupplyBid = require('../models/supplyBids.model');
 const Supplier = require('../models/supplier.model');
 const notificationService = require('./notification.service');
 const emailService = require('./email.service');
+const whatsappService = require('./whatsapp.service');
 const ClaimToken = require('../models/claimToken.model');
 const crypto = require('crypto');
 const logger = require('../middlewheres/logger');
@@ -62,11 +63,14 @@ const generateClaimLink = async (email) => {
     await claimToken.save();
 
     const claimLink = `https://avics.aveafrica.com/file-claim/${token}`;
-    await emailService.sendEmailNotification(
-      email,
-      'File a claim here',
-      `Dear ${customer.firstName},\n\nClick this link to file a claim: ${claimLink}\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
-    );
+    const claimLinkMessage = `Dear ${customer.firstName},\n\nClick this link to file a claim: ${claimLink}\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`;
+    await emailService.sendEmailNotification(email, 'File a claim here', claimLinkMessage);
+    if (customer.whatsappNumber) {
+      await whatsappService.sendWhatsAppMessage(
+        customer.whatsappNumber,
+        `Hi ${customer.firstName}, your claim link is ready:\n${claimLink}\n\nThis link is for one-time use. — Ave Insurance`
+      );
+    }
     return claimLink;
   } catch (error) {
     logger.error('Failed to generate claim link: %s', error.message);
@@ -100,7 +104,8 @@ const fileClaimService = async (token, claimDetails, req) => {
         name: `${customer.firstName} ${customer.lastName}`,
         address: customer.address || 'Not Provided',
         phone: customer.phone,
-        email: customer.email
+        email: customer.email,
+        whatsappNumber: customer.whatsappNumber || null,
       },
       ...claimDetails,
     });
@@ -118,11 +123,14 @@ const fileClaimService = async (token, claimDetails, req) => {
       responseTimeMs: Date.now() - start,
       changes: { old: null, new: { customerId: customer._id, claimant: newClaim.claimant } },
     });
+    const submissionMsg = `Dear ${newClaim.claimant.name},\n\nYour claim has been successfully submitted and is now being processed. Our team will review your claim and get back to you shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`;
     if (newClaim.claimant.email) {
-      await emailService.sendEmailNotification(
-        newClaim.claimant.email,
-        'Claim Submission Confirmation',
-        `Dear ${newClaim.claimant.name},\n\nYour claim has been successfully submitted and is now being processed. Our team will review your claim and get back to you shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+      await emailService.sendEmailNotification(newClaim.claimant.email, 'Claim Submission Confirmation', submissionMsg);
+    }
+    if (newClaim.claimant.whatsappNumber) {
+      await whatsappService.sendWhatsAppMessage(
+        newClaim.claimant.whatsappNumber,
+        `Hi ${newClaim.claimant.name}, your claim has been submitted and is under review. We'll keep you updated. — Ave Insurance`
       );
     }
 
@@ -149,16 +157,20 @@ const createClaim = async (data, req) => {
       address: claimant.address,
       phone: claimant.phone,
       email: claimant.email,
+      whatsappNumber: claimant.whatsappNumber || null,
     };
     const start = Date.now();
     const claim = new Claim(data);
     await claim.save();
 
+    const createConfirmMsg = `Dear ${claimant.name},\n\nYour claim has been successfully submitted and is now being processed. Our team will review your claim and get back to you shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`;
     if (claimant.email) {
-      await emailService.sendEmailNotification(
-        claimant.email,
-        'Claim Submission Confirmation',
-        `Dear ${claimant.name},\n\nYour claim has been successfully submitted and is now being processed. Our team will review your claim and get back to you shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+      await emailService.sendEmailNotification(claimant.email, 'Claim Submission Confirmation', createConfirmMsg);
+    }
+    if (claimant.whatsappNumber) {
+      await whatsappService.sendWhatsAppMessage(
+        claimant.whatsappNumber,
+        `Hi ${claimant.name}, your claim has been submitted successfully and is under review. We'll update you at each step. — Ave Insurance`
       );
     }
 
@@ -261,12 +273,18 @@ const approveClaim = async (id, req) => {
     changes: { old: { status: 'Pending' }, new: { status: 'Approved' } },
   });
   const claimant = claim.claimant;
+  const vehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   if (claimant && claimant.email) {
     await emailService.sendEmailNotification(
       claimant.email,
       'Claim Approval Notification',
-      `Dear ${claimant.name},\n\nWe acknowledge receipt of your claim regarding vehicle registration number ${claim.vehiclesInvolved[0]?.licensePlate || claim._id}.\n\nTo facilitate the claims process, an assessor will be appointed shortly to inspect and assess the vehicle. The assessment findings will enable us to determine the next steps and process your claim accordingly.\n\nOur team will keep you informed throughout the process and will contact you should any additional information be required.\n\nThank you for choosing Ave Insurance.\n\nKind regards,\n\nClaims Department\nAve Insurance`
-      
+      `Dear ${claimant.name},\n\nWe acknowledge receipt of your claim regarding vehicle registration number ${vehicle}.\n\nTo facilitate the claims process, an assessor will be appointed shortly to inspect and assess the vehicle. The assessment findings will enable us to determine the next steps and process your claim accordingly.\n\nOur team will keep you informed throughout the process and will contact you should any additional information be required.\n\nThank you for choosing Ave Insurance.\n\nKind regards,\n\nClaims Department\nAve Insurance`
+    );
+  }
+  if (claimant && claimant.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      claimant.whatsappNumber,
+      `Hi ${claimant.name}, your claim (${vehicle}) has been *approved*. An assessor will be appointed shortly. — Ave Insurance`
     );
   }
   if (claim.customerId) {
@@ -275,8 +293,9 @@ const approveClaim = async (id, req) => {
       recipientType: 'customer',
       type: 'claim_approved',
       title: 'Claim Approved',
-      content: `Your claim (${claim.vehiclesInvolved[0]?.licensePlate || claim._id}) has been approved.`,
+      content: `Your claim (${vehicle}) has been approved.`,
       claimId: claim._id,
+      whatsappNumber: claimant?.whatsappNumber,
     });
   }
   return claim;
@@ -342,11 +361,18 @@ const rejectClaim = async (id, rejectionReason, req) => {
   });
 
   const claimant = claim.claimant;
+  const vehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   if (claimant && claimant.email) {
     await emailService.sendEmailNotification(
       claimant.email,
       'Claim Rejection Notification',
-      `Dear ${claimant.name},\n\nWe regret to inform you that your claim (Reference: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id}) has been rejected.\n\nReason for rejection: ${rejectionReason.trim()}\n\nIf you believe this decision is incorrect or would like to discuss further, please contact our support team.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+      `Dear ${claimant.name},\n\nWe regret to inform you that your claim (Reference: ${vehicle}) has been rejected.\n\nReason for rejection: ${rejectionReason.trim()}\n\nIf you believe this decision is incorrect or would like to discuss further, please contact our support team.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+    );
+  }
+  if (claimant && claimant.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      claimant.whatsappNumber,
+      `Hi ${claimant.name}, your claim (${vehicle}) has been *rejected*.\nReason: ${rejectionReason.trim()}\n\nContact support to discuss. — Ave Insurance`
     );
   }
   if (claim.customerId) {
@@ -355,8 +381,9 @@ const rejectClaim = async (id, rejectionReason, req) => {
       recipientType: 'customer',
       type: 'claim_rejected',
       title: 'Claim Rejected',
-      content: `Your claim (${claim.vehiclesInvolved[0]?.licensePlate || claim._id}) has been rejected. Reason: ${rejectionReason.trim()}`,
+      content: `Your claim (${vehicle}) has been rejected. Reason: ${rejectionReason.trim()}`,
       claimId: claim._id,
+      whatsappNumber: claimant?.whatsappNumber,
     });
   }
 
@@ -436,22 +463,32 @@ const awardClaim = async (id, bidId, req) => {
 
   // Fetch the awarded assessor's details
   const assessor = await Assessor.findById(bid.assessorId);
+  const vehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   if (assessor && assessor.email) {
-    // Send email notification to the awarded assessor
     await emailService.sendEmailNotification(
       assessor.email,
       'Claim Award Notification',
-      `Dear ${assessor.name},\n\nCongratulations! You have been awarded the claim with ID: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id}. You are required to submit a report within 3 days.\n\nPlease ensure that the report is submitted on time to facilitate the next steps in the claims process.\n\nBest Regards,\nAdmin Team`
+      `Dear ${assessor.name},\n\nCongratulations! You have been awarded the claim with ID: ${vehicle}. You are required to submit a report within 3 days.\n\nPlease ensure that the report is submitted on time to facilitate the next steps in the claims process.\n\nBest Regards,\nAdmin Team`
     );
-
-    // Send email notification to the claimant
-    if (claim.claimant && claim.claimant.email) {
-      await emailService.sendEmailNotification(
-        claim.claimant.email,
-        'Assessor Visit Notification',
-        `Dear ${claim.claimant.name},\n\nWe are pleased to inform you that your claim with ID: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been awarded to an assessor. The assessor, ${assessor.name}, will be visiting to assess the state of your vehicle.\n\nHere are the assessor's contact details:\n- Phone: ${assessor.phone}\n- Email: ${assessor.email}\n\nPlease feel free to reach out to the assessor to coordinate the visit.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+    if (assessor.whatsappNumber) {
+      await whatsappService.sendWhatsAppMessage(
+        assessor.whatsappNumber,
+        `Hi ${assessor.name}, you have been *awarded* claim ${vehicle}. Please submit your assessment report within 3 days. — Ave Insurance`
       );
     }
+  }
+  if (claim.claimant && claim.claimant.email) {
+    await emailService.sendEmailNotification(
+      claim.claimant.email,
+      'Assessor Visit Notification',
+      `Dear ${claim.claimant.name},\n\nWe are pleased to inform you that your claim with ID: ${vehicle} has been awarded to an assessor. The assessor, ${assessor?.name}, will be visiting to assess the state of your vehicle.\n\nHere are the assessor's contact details:\n- Phone: ${assessor?.phone}\n- Email: ${assessor?.email}\n\nPlease feel free to reach out to the assessor to coordinate the visit.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+    );
+  }
+  if (claim.claimant && claim.claimant.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      claim.claimant.whatsappNumber,
+      `Hi ${claim.claimant.name}, an assessor has been assigned to your claim (${vehicle}).\n\nAssessor: ${assessor?.name}\nPhone: ${assessor?.phone}\nEmail: ${assessor?.email}\n\nThey will contact you to arrange a visit. — Ave Insurance`
+    );
   }
 
   return claim;
@@ -517,30 +554,33 @@ const awardBidToGarage = async (id, bidId, req) => {
     changes: { old: { status: 'Assessed' }, new: { status: 'Repair', awardedGarage: claim.awardedGarage } },
   });
 
-  // Email to Garage
+  const gVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
+
   if (garage.email) {
     await emailService.sendEmailNotification(
       garage.email,
       'Bid Award Notification',
-      `Dear ${garage.name},\n\nCongratulations! Your bid for the claim with ID: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been awarded. You are requested to proceed with the repair of the vehicle as soon as possible.\n\nPlease ensure that all necessary repairs are completed in a timely and professional manner.\n\nThank you for your cooperation.\n\nBest Regards,\nAdmin Team`
+      `Dear ${garage.name},\n\nCongratulations! Your bid for the claim with ID: ${gVehicle} has been awarded. You are requested to proceed with the repair of the vehicle as soon as possible.\n\nPlease ensure that all necessary repairs are completed in a timely and professional manner.\n\nThank you for your cooperation.\n\nBest Regards,\nAdmin Team`
+    );
+  }
+  if (garage.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      garage.whatsappNumber,
+      `Hi ${garage.name}, your bid for claim ${gVehicle} has been *awarded*. Please proceed with the repair as soon as possible. — Ave Insurance`
     );
   }
 
-  // Email to Customer
-  // Assuming claim has `customerId` populated
   if (claim.claimant?.email) {
     await emailService.sendEmailNotification(
-      claim.claimant?.email,
+      claim.claimant.email,
       'Repair Details for Your Vehicle',
-      `Dear ${claim.claimant?.name},\n
-      \nWe are pleased to inform you that your claim for (ID: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id}) has been processed, and your vehicle will be repaired at the following garage:\n
-      \nGarage Details:
-      \n- Name: ${garage.name}
-      \n- Location: ${garage.location.name},
-      \n- Timeline: ${bid.garageDetails?.timeline || 'No timeline available'}
-      \n- Ratings: ${garage.ratings.averageRating || 'No ratings available'}
-      \n- Description: ${garage.description || 'No description available'}\n
-      \nThe garage will contact you shortly to proceed with the repairs. If you have any questions, please feel free to reach out.\n\nThank you for choosing our services.\n\nBest Regards,\nAdmin Team`
+      `Dear ${claim.claimant.name},\n\nWe are pleased to inform you that your claim for (ID: ${gVehicle}) has been processed, and your vehicle will be repaired at the following garage:\n\nGarage Details:\n- Name: ${garage.name}\n- Location: ${garage.location.name}\n- Timeline: ${bid.garageDetails?.timeline || 'No timeline available'}\n- Ratings: ${garage.ratings.averageRating || 'No ratings available'}\n- Description: ${garage.description || 'No description available'}\n\nThe garage will contact you shortly to proceed with the repairs. If you have any questions, please feel free to reach out.\n\nThank you for choosing our services.\n\nBest Regards,\nAdmin Team`
+    );
+  }
+  if (claim.claimant?.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      claim.claimant.whatsappNumber,
+      `Hi ${claim.claimant.name}, your vehicle (${gVehicle}) has been assigned to *${garage.name}* for repair.\n📍 ${garage.location.name}\n⭐ Rating: ${garage.ratings.averageRating || 'N/A'}\n\nThe garage will contact you shortly. — Ave Insurance`
     );
   }
 
@@ -613,11 +653,18 @@ const rejectAssessorBid = async (id, bidId, req) => {
   });
 
   const assessor = await Assessor.findById(bid.assessorId);
+  const raVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   if (assessor && assessor.email) {
     await emailService.sendEmailNotification(
       assessor.email,
       'Bid Rejection Notification',
-      `Dear ${assessor.name},\n\nWe regret to inform you that your bid for claim ID: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has not been successful.\n\nThank you for your participation.\n\nBest Regards,\nAdmin Team`
+      `Dear ${assessor.name},\n\nWe regret to inform you that your bid for claim ID: ${raVehicle} has not been successful.\n\nThank you for your participation.\n\nBest Regards,\nAdmin Team`
+    );
+  }
+  if (assessor && assessor.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      assessor.whatsappNumber,
+      `Hi ${assessor.name}, your bid for claim ${raVehicle} was not successful this time. Thank you for participating. — Ave Insurance`
     );
   }
 
@@ -660,11 +707,18 @@ const rejectGarageBid = async (id, bidId, req) => {
   });
 
   const garage = await Garage.findById(bid.garageId);
+  const rgVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   if (garage && garage.email) {
     await emailService.sendEmailNotification(
       garage.email,
       'Bid Rejection Notification',
-      `Dear ${garage.name},\n\nWe regret to inform you that your bid for claim ID: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has not been successful.\n\nThank you for your participation.\n\nBest Regards,\nAdmin Team`
+      `Dear ${garage.name},\n\nWe regret to inform you that your bid for claim ID: ${rgVehicle} has not been successful.\n\nThank you for your participation.\n\nBest Regards,\nAdmin Team`
+    );
+  }
+  if (garage && garage.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      garage.whatsappNumber,
+      `Hi ${garage.name}, your bid for claim ${rgVehicle} was not successful this time. Thank you for participating. — Ave Insurance`
     );
   }
 
@@ -815,6 +869,12 @@ const awardSupplierBid = async (claimId, bidId, req) => {
       `Dear ${supplier.name},\n\nCongratulations! Your parts bid for claim ID: ${claimId} has been awarded. Please proceed with delivering the parts as soon as possible.\n\nBest Regards,\nAdmin Team`
     );
   }
+  if (supplier && supplier.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      supplier.whatsappNumber,
+      `Hi ${supplier.name}, your parts bid for claim ${claimId} has been *awarded*. Please proceed with delivering the parts. — Ave Insurance`
+    );
+  }
 
   return supplyBid;
 };
@@ -856,6 +916,12 @@ const rejectSupplierBid = async (claimId, bidId, req) => {
       supplier.email,
       'Bid Rejection Notification',
       `Dear ${supplier.name},\n\nWe regret to inform you that your parts bid for claim ID: ${claimId} has not been successful.\n\nThank you for your participation.\n\nBest Regards,\nAdmin Team`
+    );
+  }
+  if (supplier && supplier.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      supplier.whatsappNumber,
+      `Hi ${supplier.name}, your parts bid for claim ${claimId} was not successful this time. Thank you for participating. — Ave Insurance`
     );
   }
 
@@ -995,22 +1061,29 @@ const optInSelfRepair = async (claimId, estimate, req) => {
     changes: { old: { status: 'Assessed' }, new: { status: 'SelfRepair' } },
   });
 
+  const srVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   if (claim.claimant && claim.claimant.email) {
     await emailService.sendEmailNotification(
       claim.claimant.email,
       'Self-Repair Opt-In Confirmation',
-      `Dear ${claim.claimant.name},\n\nYou have opted to repair your vehicle yourself for claim reference: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id}.\n\nPlease submit your repair receipts and the total amount spent so we can process your reimbursement.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+      `Dear ${claim.claimant.name},\n\nYou have opted to repair your vehicle yourself for claim reference: ${srVehicle}.\n\nPlease submit your repair receipts and the total amount spent so we can process your reimbursement.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
-
+  if (claim.claimant && claim.claimant.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      claim.claimant.whatsappNumber,
+      `Hi ${claim.claimant.name}, you've opted for *self-repair* on claim ${srVehicle}. Please submit your receipts and total cost to receive reimbursement. — Ave Insurance`
+    );
+  }
   if (claim.customerId) {
     await notificationService.createAndEmit({
       recipientId: claim.customerId,
       recipientType: 'customer',
       type: 'self_repair_opted',
       title: 'Self-Repair Opt-In Confirmed',
-      content: `You have opted in for self-repair on claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id}. Please submit your receipts.`,
+      content: `You have opted in for self-repair on claim ${srVehicle}. Please submit your receipts.`,
       claimId: claim._id,
+      whatsappNumber: claim.claimant?.whatsappNumber,
     });
   }
 
@@ -1056,43 +1129,57 @@ const submitSelfRepair = async (claimId, { bankingDetails }, req) => {
     changes: { old: { status: 'SelfRepair', selfRepairStatus: 'Submitted' }, new: { status: 'Re-Assessment' } },
   });
 
+  const ssrVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   if (claim.claimant && claim.claimant.email) {
     await emailService.sendEmailNotification(
       claim.claimant.email,
       'Self-Repair Submission Received',
-      `Dear ${claim.claimant.name},\n\nWe have received your self-repair submission for claim reference: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id}.\n\nAmount requested: ${Number(amountRequested)}\n\nOur team will review your submission and notify you of the outcome shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+      `Dear ${claim.claimant.name},\n\nWe have received your self-repair submission for claim reference: ${ssrVehicle}.\n\nAmount requested: ${Number(amountRequested)}\n\nOur team will review your submission and notify you of the outcome shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
-
+  if (claim.claimant && claim.claimant.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      claim.claimant.whatsappNumber,
+      `Hi ${claim.claimant.name}, we've received your self-repair submission for claim ${ssrVehicle}.\nAmount requested: R${Number(amountRequested)}\n\nWe'll review and update you shortly. — Ave Insurance`
+    );
+  }
   if (claim.customerId) {
     await notificationService.createAndEmit({
       recipientId: claim.customerId,
       recipientType: 'customer',
       type: 'self_repair_submitted',
       title: 'Self-Repair Submitted',
-      content: `Your self-repair submission for claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} is under review.`,
+      content: `Your self-repair submission for claim ${ssrVehicle} is under review.`,
       claimId: claim._id,
+      whatsappNumber: claim.claimant?.whatsappNumber,
     });
   }
 
   // Notify the assessor who originally assessed the claim
   const assessorId = claim.awardedAssessor?.assessorId;
   if (assessorId) {
+    const assessor = await Assessor.findById(assessorId);
     await notificationService.createAndEmit({
       recipientId: assessorId,
       recipientType: 'assessor',
       type: 'self_repair_submitted',
       title: 'Re-Assessment Required',
-      content: `The customer has submitted a self-repair claim for ${claim.vehiclesInvolved[0]?.licensePlate || claim._id}. Please review and re-assess.`,
+      content: `The customer has submitted a self-repair claim for ${ssrVehicle}. Please review and re-assess.`,
       claimId: claim._id,
+      whatsappNumber: assessor?.whatsappNumber,
     });
 
-    const assessor = await Assessor.findById(assessorId);
     if (assessor && assessor.email) {
       await emailService.sendEmailNotification(
         assessor.email,
         'Re-Assessment Required',
-        `Dear ${assessor.name},\n\nThe customer has completed a self-repair for claim reference: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} and has submitted their repair costs for review.\n\nAmount requested: ${Number(amountRequested)}\n\nPlease log in to review the submission and provide your re-assessment.\n\nBest Regards,\nAdmin Team`
+        `Dear ${assessor.name},\n\nThe customer has completed a self-repair for claim reference: ${ssrVehicle} and has submitted their repair costs for review.\n\nAmount requested: ${Number(amountRequested)}\n\nPlease log in to review the submission and provide your re-assessment.\n\nBest Regards,\nAdmin Team`
+      );
+    }
+    if (assessor && assessor.whatsappNumber) {
+      await whatsappService.sendWhatsAppMessage(
+        assessor.whatsappNumber,
+        `Hi ${assessor.name}, re-assessment required for claim ${ssrVehicle}. The customer has submitted self-repair costs of R${Number(amountRequested)}. Please log in to review. — Ave Insurance`
       );
     }
   }
@@ -1125,22 +1212,29 @@ const approveSelfRepair = async (claimId, { amountApproved }, req) => {
     changes: { old: { selfRepairStatus: 'Submitted' }, new: { selfRepairStatus: 'Approved', amountApproved } },
   });
 
+  const aprVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   if (claim.claimant && claim.claimant.email) {
     await emailService.sendEmailNotification(
       claim.claimant.email,
       'Self-Repair Reimbursement Approved',
-      `Dear ${claim.claimant.name},\n\nGreat news! Your self-repair reimbursement for claim reference: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been approved.\n\nApproved reimbursement amount: R${amountApproved}\n\nPayment will be processed to your provided banking details shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+      `Dear ${claim.claimant.name},\n\nGreat news! Your self-repair reimbursement for claim reference: ${aprVehicle} has been approved.\n\nApproved reimbursement amount: R${amountApproved}\n\nPayment will be processed to your provided banking details shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
-
+  if (claim.claimant && claim.claimant.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      claim.claimant.whatsappNumber,
+      `Hi ${claim.claimant.name}, your self-repair reimbursement for claim ${aprVehicle} has been *approved*! ✅\nAmount: R${amountApproved}\n\nPayment will be processed to your banking details shortly. — Ave Insurance`
+    );
+  }
   if (claim.customerId) {
     await notificationService.createAndEmit({
       recipientId: claim.customerId,
       recipientType: 'customer',
       type: 'self_repair_approved',
       title: 'Self-Repair Reimbursement Approved',
-      content: `Your self-repair reimbursement of R${amountApproved} for claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been approved.`,
+      content: `Your self-repair reimbursement of R${amountApproved} for claim ${aprVehicle} has been approved.`,
       claimId: claim._id,
+      whatsappNumber: claim.claimant?.whatsappNumber,
     });
   }
 
@@ -1172,22 +1266,29 @@ const rejectSelfRepair = async (claimId, { rejectionReason }, req) => {
     changes: { old: { selfRepairStatus: 'Submitted' }, new: { selfRepairStatus: 'Rejected', rejectionReason } },
   });
 
+  const rjVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   if (claim.claimant && claim.claimant.email) {
     await emailService.sendEmailNotification(
       claim.claimant.email,
       'Self-Repair Reimbursement Not Approved',
-      `Dear ${claim.claimant.name},\n\nWe regret to inform you that your self-repair reimbursement for claim reference: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has not been approved.\n\nReason: ${rejectionReason.trim()}\n\nIf you believe this decision is incorrect, please contact our support team.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+      `Dear ${claim.claimant.name},\n\nWe regret to inform you that your self-repair reimbursement for claim reference: ${rjVehicle} has not been approved.\n\nReason: ${rejectionReason.trim()}\n\nIf you believe this decision is incorrect, please contact our support team.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
-
+  if (claim.claimant && claim.claimant.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      claim.claimant.whatsappNumber,
+      `Hi ${claim.claimant.name}, your self-repair reimbursement for claim ${rjVehicle} was not approved.\nReason: ${rejectionReason.trim()}\n\nPlease contact support to discuss. — Ave Insurance`
+    );
+  }
   if (claim.customerId) {
     await notificationService.createAndEmit({
       recipientId: claim.customerId,
       recipientType: 'customer',
       type: 'self_repair_rejected',
       title: 'Self-Repair Reimbursement Rejected',
-      content: `Your self-repair reimbursement for claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} was not approved. Reason: ${rejectionReason.trim()}`,
+      content: `Your self-repair reimbursement for claim ${rjVehicle} was not approved. Reason: ${rejectionReason.trim()}`,
       claimId: claim._id,
+      whatsappNumber: claim.claimant?.whatsappNumber,
     });
   }
 
@@ -1218,22 +1319,29 @@ const markSelfRepairPaid = async (claimId, req) => {
     changes: { old: { status: 'SelfRepair', selfRepairStatus: 'Approved' }, new: { status: 'Completed', selfRepairStatus: 'Paid' } },
   });
 
+  const paidVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   if (claim.claimant && claim.claimant.email) {
     await emailService.sendEmailNotification(
       claim.claimant.email,
       'Self-Repair Reimbursement Paid',
-      `Dear ${claim.claimant.name},\n\nYour self-repair reimbursement of R${claim.selfRepair.amountApproved} for claim reference: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been paid to your provided banking details.\n\nYour claim is now closed.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+      `Dear ${claim.claimant.name},\n\nYour self-repair reimbursement of R${claim.selfRepair.amountApproved} for claim reference: ${paidVehicle} has been paid to your provided banking details.\n\nYour claim is now closed.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
-
+  if (claim.claimant && claim.claimant.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      claim.claimant.whatsappNumber,
+      `Hi ${claim.claimant.name}, your reimbursement of R${claim.selfRepair.amountApproved} for claim ${paidVehicle} has been *paid* to your banking details. Your claim is now closed. 🎉 — Ave Insurance`
+    );
+  }
   if (claim.customerId) {
     await notificationService.createAndEmit({
       recipientId: claim.customerId,
       recipientType: 'customer',
       type: 'self_repair_paid',
       title: 'Reimbursement Paid',
-      content: `Your self-repair reimbursement of KES${claim.selfRepair.amountApproved} for claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been paid. Claim closed.`,
+      content: `Your self-repair reimbursement of R${claim.selfRepair.amountApproved} for claim ${paidVehicle} has been paid. Claim closed.`,
       claimId: claim._id,
+      whatsappNumber: claim.claimant?.whatsappNumber,
     });
   }
 
@@ -1271,22 +1379,29 @@ const reAssessSelfRepair = async (claimId, { notes, recommendedAmount }, req) =>
     changes: { old: { status: 'Re-Assessment', selfRepairStatus: 'Submitted' }, new: { status: 'Assessed', selfRepairStatus: 'In-Review' } },
   });
 
+  const raVeh = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   if (claim.claimant && claim.claimant.email) {
     await emailService.sendEmailNotification(
       claim.claimant.email,
       'Self-Repair Re-Assessment Complete',
-      `Dear ${claim.claimant.name},\n\nYour self-repair submission for claim reference: ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been re-assessed.\n\nRecommended reimbursement amount: ${Number(recommendedAmount)}\n\nOur team will now review the assessor's report and finalise your reimbursement. You will be notified of the outcome shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+      `Dear ${claim.claimant.name},\n\nYour self-repair submission for claim reference: ${raVeh} has been re-assessed.\n\nRecommended reimbursement amount: R${Number(recommendedAmount)}\n\nOur team will now review the assessor's report and finalise your reimbursement. You will be notified of the outcome shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
-
+  if (claim.claimant && claim.claimant.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      claim.claimant.whatsappNumber,
+      `Hi ${claim.claimant.name}, your self-repair claim ${raVeh} has been re-assessed.\nRecommended reimbursement: R${Number(recommendedAmount)}\n\nWe'll finalise and notify you of the outcome. — Ave Insurance`
+    );
+  }
   if (claim.customerId) {
     await notificationService.createAndEmit({
       recipientId: claim.customerId,
       recipientType: 'customer',
       type: 'self_repair_submitted',
       title: 'Re-Assessment Complete',
-      content: `Your self-repair claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been re-assessed. Recommended amount: ${Number(recommendedAmount)}.`,
+      content: `Your self-repair claim ${raVeh} has been re-assessed. Recommended amount: R${Number(recommendedAmount)}.`,
       claimId: claim._id,
+      whatsappNumber: claim.claimant?.whatsappNumber,
     });
   }
 

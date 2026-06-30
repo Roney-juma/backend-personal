@@ -51,6 +51,7 @@ const customerSchema = new mongoose.Schema(
       default: null,
     },
     fcmToken: { type: String },
+    whatsappNumber: { type: String, default: null },
   },
   {
     timestamps: true,

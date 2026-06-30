@@ -82,7 +82,8 @@ const claimSchema = new Schema({
     name: { type: String },
     address: { type: String },
     phone: { type: String },
-    email: { type: String }
+    email: { type: String },
+    whatsappNumber: { type: String, default: null },
   },
   incidentDetails: {
     date: { type: Date, required: true },
