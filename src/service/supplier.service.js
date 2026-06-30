@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const Supplier = require('../models/supplier.model');
 const SupplyBid = require('../models/supplyBids.model');
 const Claim = require('../models/claim.model');
+const cache = require('../cache');
 
 const loginUserWithEmailAndPassword = async (email, password) => {
   const user = await getUserByEmail(email);
@@ -43,29 +44,35 @@ const createSupplier = async (supplierData) => {
 
 
 
-  return newSupplier.save();
+  const saved = await newSupplier.save();
+  await cache.del('cache:suppliers:all');
+  return saved;
 };
 
 const getAllSuppliers = async () => {
-    return Supplier.find();
+  return cache.wrap('cache:suppliers:all', () => Supplier.find(), 1800);
 };
 
 const getSupplierById = async (supplierId) => {
-    return Supplier.findById(supplierId);
+  return cache.wrap(`cache:supplier:${supplierId}`, () => Supplier.findById(supplierId), 1800);
 };
 
 const updateSupplier = async (supplierId, supplierData) => {
-    return Supplier.findByIdAndUpdate(supplierId, supplierData, { new: true });
+  const result = await Supplier.findByIdAndUpdate(supplierId, supplierData, { new: true });
+  await cache.del('cache:suppliers:all', `cache:supplier:${supplierId}`);
+  return result;
 };
 
 const deleteSupplier = async (supplierId) => {
-    return Supplier.findByIdAndDelete(supplierId);
+  const result = await Supplier.findByIdAndDelete(supplierId);
+  await cache.del('cache:suppliers:all', `cache:supplier:${supplierId}`);
+  return result;
 };
 
 const getSupplierBids = async (supplierId) => {
-    return SupplyBid.find({ supplierId })
-        .populate('claimId')
-        .populate('supplierId');
+  return cache.wrap(`cache:supplier:bids:${supplierId}`, () =>
+    SupplyBid.find({ supplierId }).populate('claimId').populate('supplierId'),
+  600);
 };
 
 const submitBidForSupply = async (claimId, supplierId, parts) => {
@@ -100,18 +107,17 @@ const submitBidForSupply = async (claimId, supplierId, parts) => {
   await supplyBid.save();
   claim.supplierBids.push(supplyBid);
   await claim.save();
+  await cache.del(`cache:supplier:bids:${supplierId}`, 'cache:claims:in-garage');
+  await cache.delPattern('cache:claims:*');
 
   return supplyBid;
 };
 
 
 const getClaimsInGarage = async () => {
-    return Claim.find({
-        status: 'Assessed',
-        'supplierBids': {
-            $not: { $elemMatch: { status: 'Accepted' } }
-        }
-    });
+  return cache.wrap('cache:claims:in-garage', () =>
+    Claim.find({ status: 'Assessed', supplierBids: { $not: { $elemMatch: { status: 'Accepted' } } } }),
+  300);
 };
 
 const repairPartsDelivered = async (claimId) => {
@@ -137,6 +143,8 @@ const repairPartsDelivered = async (claimId) => {
     claim.status = 'Garage';
     claim.repairDate = new Date();
     await claim.save();
+    await cache.del('cache:claims:in-garage');
+    await cache.delPattern('cache:claims:*');
 
     return claim;
 };

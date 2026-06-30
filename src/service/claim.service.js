@@ -11,6 +11,13 @@ const whatsappService = require('./whatsapp.service');
 const ClaimToken = require('../models/claimToken.model');
 const crypto = require('crypto');
 const logger = require('../middlewheres/logger');
+const cache = require('../cache');
+
+const invalidateClaimCache = async (claimId) => {
+  const ops = [cache.delPattern('cache:claims:*')];
+  if (claimId) ops.push(cache.del(`cache:claim:${claimId}`));
+  await Promise.all(ops);
+};
 
 const getGarageBidRankingData = (bid) => {
   const rating = bid?.garageDetails?.ratings?.averageRating ?? bid?.ratings ?? 0;
@@ -150,6 +157,7 @@ const fileClaimService = async (token, claimDetails, req) => {
     });
     const start = Date.now();
     await newClaim.save();
+    await invalidateClaimCache(newClaim._id);
 
     // Consume the token only after the claim is safely persisted, so a failed
     // save doesn't burn the customer's only link.
@@ -205,6 +213,7 @@ const createClaim = async (data, req) => {
     const start = Date.now();
     const claim = new Claim(data);
     await claim.save();
+    await invalidateClaimCache(claim._id);
 
     const createConfirmMsg = `Dear ${claimant.name},\n\nYour claim has been successfully submitted and is now being processed. Our team will review your claim and get back to you shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`;
     if (claimant.email) {
@@ -293,19 +302,20 @@ const getClaims = async () => {
 
 // Get claims by customer ID
 const getClaimsByCustomer = async (customerId) => {
-  return await Claim.find({ customerId: customerId })
-    .populate('customerId')
-    .populate({ path: 'garageRepairReport.garageId', select: 'name email contactNumber _id' })
-    .populate({ path: 'reAssessmentReport.assessorId', select: 'name email _id' });
+  return cache.wrap(`cache:claims:customer:${customerId}`, () =>
+    Claim.find({ customerId })
+      .populate('customerId')
+      .populate({ path: 'garageRepairReport.garageId', select: 'name email contactNumber _id' })
+      .populate({ path: 'reAssessmentReport.assessorId', select: 'name email _id' }),
+  600);
 };
 
 // Approve a claim
 const approveClaim = async (id, req) => {
   const start = Date.now();
   const claim = await Claim.findByIdAndUpdate(id, { status: 'Approved' }, { new: true });
-  if (!claim) {
-    throw new Error('Claim not found');
-  }
+  if (!claim) throw new Error('Claim not found');
+  await invalidateClaimCache(id);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -358,6 +368,7 @@ const deleteClaim = async (id, req) => {
     const start = Date.now();
     const snapshot = claim.toObject();
     await claim.deleteOne();
+    await invalidateClaimCache(id);
 
     await writeAuditLog(req, {
       action: 'DELETE',
@@ -390,9 +401,8 @@ const rejectClaim = async (id, rejectionReason, req) => {
     { status: 'Rejected', rejectionReason: rejectionReason.trim() },
     { new: true }
   );
-  if (!claim) {
-    throw new Error('Claim not found');
-  }
+  if (!claim) throw new Error('Claim not found');
+  await invalidateClaimCache(id);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -438,16 +448,15 @@ const rejectClaim = async (id, rejectionReason, req) => {
 
 // Get a specific claim by ID
 const getClaimById = async (id) => {
-  const claim = await Claim.findById(id)
-    .populate({ path: 'bids.assessorId', select: 'name email phone _id' })
-    .populate({ path: 'bids.garageId', select: 'name email phone _id' })
-    .populate({ path: 'garageRepairReport.garageId', select: 'name email contactNumber _id' })
-    .populate({ path: 'reAssessmentReport.assessorId', select: 'name email _id' });
-
-  if (!claim) {
-    throw new Error('Claim not found');
-  }
-  return claim;
+  return cache.wrap(`cache:claim:${id}`, async () => {
+    const claim = await Claim.findById(id)
+      .populate({ path: 'bids.assessorId', select: 'name email phone _id' })
+      .populate({ path: 'bids.garageId', select: 'name email phone _id' })
+      .populate({ path: 'garageRepairReport.garageId', select: 'name email contactNumber _id' })
+      .populate({ path: 'reAssessmentReport.assessorId', select: 'name email _id' });
+    if (!claim) throw new Error('Claim not found');
+    return claim;
+  }, 900);
 };
 
 // Award Bid to Assessor
@@ -495,6 +504,7 @@ const awardClaim = async (id, bidId, req) => {
   });
   const start = Date.now();
   await claim.save();
+  await invalidateClaimCache(id);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -588,6 +598,7 @@ const awardBidToGarage = async (id, bidId, req) => {
   });
   const start = Date.now();
   await claim.save();
+  await invalidateClaimCache(id);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -657,6 +668,7 @@ const awardClaimToGarage = async (claimId, garageId) => {
   garage.pendingWork = (garage.pendingWork || 0) + 1;
   await garage.save();
   await claim.save();
+  await invalidateClaimCache(claimId);
   return claim;
 };
 
@@ -686,6 +698,7 @@ const rejectAssessorBid = async (id, bidId, req) => {
 
   const start = Date.now();
   await claim.save();
+  await invalidateClaimCache(id);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -740,6 +753,7 @@ const rejectGarageBid = async (id, bidId, req) => {
 
   const start = Date.now();
   await claim.save();
+  await invalidateClaimCache(id);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -774,7 +788,7 @@ const rejectGarageBid = async (id, bidId, req) => {
 
 // Get awarded claims
 const getAwardedClaims = async () => {
-  return await Claim.find({ awardedAssessor: { $exists: true } });
+  return cache.wrap('cache:claims:awarded', () => Claim.find({ awardedAssessor: { $exists: true } }), 300);
 };
 const updateClaim = async (id, updateData) => {
   updateData.status = 'Repair';
@@ -787,51 +801,59 @@ const updateClaim = async (id, updateData) => {
 
   garage.pendingWork = (garage.pendingWork || 0) + 1;
   await garage.save();
-  return await Claim.findByIdAndUpdate(id, updateData, { new: true });
+  const updatedClaim = await Claim.findByIdAndUpdate(id, updateData, { new: true });
+  await invalidateClaimCache(id);
+  return updatedClaim;
 };
 
 // Get bids by claim
 const getBidsByClaim = async (id) => {
-  const claim = await Claim.findById(id);
-  if (!claim) throw new Error('Claim not found');
-  return {
-    bids: claim.bids.filter(bid => bid.bidderType === 'assessor'),
-    selfRepair: {
-      opted: claim.selfRepair?.opted ?? false,
-      status: claim.selfRepair?.status ?? null,
-    },
-  };
+  return cache.wrap(`cache:claims:bids:${id}`, async () => {
+    const claim = await Claim.findById(id);
+    if (!claim) throw new Error('Claim not found');
+    return {
+      bids: claim.bids.filter(bid => bid.bidderType === 'assessor'),
+      selfRepair: { opted: claim.selfRepair?.opted ?? false, status: claim.selfRepair?.status ?? null },
+    };
+  }, 300);
 };
 
 // Get garage bids by claim
 const getGarageBidsByClaim = async (id) => {
-  const claim = await Claim.findById(id);
-  if (!claim) throw new Error('Claim not found');
-  return claim.bids.filter(bid => bid.bidderType === 'garage');
+  return cache.wrap(`cache:claims:garage-bids:${id}`, async () => {
+    const claim = await Claim.findById(id);
+    if (!claim) throw new Error('Claim not found');
+    return claim.bids.filter(bid => bid.bidderType === 'garage');
+  }, 300);
 };
 
 // Garage finds assessed claims for repair
 const garageFindsAssessedClaimsForRepair = async () => {
-  return await Claim.find({ status: 'Assessed' });
+  return cache.wrap('cache:claims:assessed', () => Claim.find({ status: 'Assessed' }), 300);
 };
 
 // Get assessed claim by ID
 const getAssessedClaimById = async (id) => {
-  const claim = await Claim.findById(id);
-  if (!claim) throw new Error('Claim not found');
-  return claim;
+  return cache.wrap(`cache:claims:assessed:${id}`, async () => {
+    const claim = await Claim.findById(id);
+    if (!claim) throw new Error('Claim not found');
+    return claim;
+  }, 900);
 };
 
 // Get assessed claims by garage
 const getAssessedClaimsByGarage = async (garageId) => {
-  return await Claim.find({ garage: garageId, status: 'Assessed' });
+  return cache.wrap(`cache:claims:assessed:garage:${garageId}`, () =>
+    Claim.find({ garage: garageId, status: 'Assessed' }), 600);
 };
 
 // Get all supplier bids for a claim
 const getSupplierBidsForClaim = async (claimId) => {
-  const claim = await Claim.findById(claimId).populate('supplierBids');
-  if (!claim) throw new Error('Claim not found');
-  return claim.supplierBids;
+  return cache.wrap(`cache:claims:supplier-bids:${claimId}`, async () => {
+    const claim = await Claim.findById(claimId).populate('supplierBids');
+    if (!claim) throw new Error('Claim not found');
+    return claim.supplierBids;
+  }, 300);
 };
 
 // Accept a supplier bid
@@ -851,6 +873,7 @@ const acceptSupplierBid = async (claimId, bidId, req) => {
   const claim = await Claim.findById(claimId);
   claim.status = 'Garage';
   await claim.save();
+  await invalidateClaimCache(claimId);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -886,6 +909,7 @@ const awardSupplierBid = async (claimId, bidId, req) => {
   if (!claim) throw new Error('Claim not found');
   claim.status = 'Garage';
   await claim.save();
+  await invalidateClaimCache(claimId);
 
   await notificationService.createAndEmit({
     recipientId: supplyBid.supplierId,
@@ -976,32 +1000,16 @@ const rejectSupplierBid = async (claimId, bidId, req) => {
 };
 
 const countClaimsByStatus = async () => {
-  const allStatuses = ['Pending', 'Approved', 'Rejected', 'Assessment', 'Assessed', 'Repair', 'Garage', 'Re-Assessment', 'Completed'];
-
-  // Fetch counts from the database
-  const counts = await Claim.aggregate([
-    {
-      $group: {
-        _id: '$status',
-        count: { $sum: 1 }
-      }
-    }
-  ]);
-
-  // Create a map for quick lookup of counts by status
-  const countsMap = new Map(counts.map(count => [count._id, count.count]));
-
-  // Ensure all statuses are represented in the result
-  const result = allStatuses.map(status => ({
-    _id: status,
-    count: countsMap.get(status) || 0
-  }));
-  return result.reduce((acc, curr) => {
-    acc[curr._id] = curr.count;
-    return acc;
-  }, {});
+  return cache.wrap('cache:stats:claims:status', async () => {
+    const allStatuses = ['Pending', 'Approved', 'Rejected', 'Assessment', 'Assessed', 'Repair', 'Garage', 'Re-Assessment', 'Completed'];
+    const counts = await Claim.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]);
+    const countsMap = new Map(counts.map(count => [count._id, count.count]));
+    const result = allStatuses.map(status => ({ _id: status, count: countsMap.get(status) || 0 }));
+    return result.reduce((acc, curr) => { acc[curr._id] = curr.count; return acc; }, {});
+  }, 600);
 };
 const getPaymentTotals = async () => {
+  return cache.wrap('cache:stats:claims:cost', async () => {
   const result = await Claim.aggregate([
     // Unwind the bids array to process each bid
     { $unwind: { path: '$bids', preserveNullAndEmptyArrays: true } },
@@ -1073,6 +1081,7 @@ const getPaymentTotals = async () => {
     },
   ]);
   return result.length > 0 ? result[0] : {};
+  }, 600);
 };
 
 
@@ -1095,6 +1104,7 @@ const optInSelfRepair = async (claimId, estimate, req) => {
     estimate: { parts, other: Number(other) || 0, description },
   };
   await claim.save();
+  await invalidateClaimCache(claimId);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -1163,6 +1173,7 @@ const submitSelfRepair = async (claimId, { bankingDetails }, req) => {
   claim.selfRepair.submittedAt = new Date();
   claim.status = 'Re-Assessment';
   await claim.save();
+  await invalidateClaimCache(claimId);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -1256,6 +1267,7 @@ const approveSelfRepair = async (claimId, { totalAwardedAmount, depositPercentag
   claim.selfRepair.status = 'Approved';
   claim.selfRepair.approvedAt = new Date();
   await claim.save();
+  await invalidateClaimCache(claimId);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -1323,6 +1335,7 @@ const rejectSelfRepair = async (claimId, { rejectionReason }, req) => {
   claim.selfRepair.rejectionReason = rejectionReason.trim();
   claim.status = 'Assessed';
   await claim.save();
+  await invalidateClaimCache(claimId);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -1375,6 +1388,7 @@ const payInitialDeposit = async (claimId, req) => {
   claim.selfRepair.status = 'DepositPaid';
   claim.selfRepair.depositPaidAt = new Date();
   await claim.save();
+  await invalidateClaimCache(claimId);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -1439,6 +1453,7 @@ const payFinalSettlement = async (claimId, req) => {
   claim.selfRepair.paidAt = new Date();
   claim.status = 'Completed';
   await claim.save();
+  await invalidateClaimCache(claimId);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -1511,6 +1526,7 @@ const reAssessSelfRepair = async (claimId, { notes, recommendedAmount }, req) =>
   claim.selfRepair.status = 'In-Review';
   // claim.status left as-is — final settlement payment closes the claim
   await claim.save();
+  await invalidateClaimCache(claimId);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -1555,7 +1571,8 @@ const reAssessSelfRepair = async (claimId, { notes, recommendedAmount }, req) =>
 
 // Get all claims that are in self-repair workflow
 const getSelfRepairClaims = async () => {
-  return await Claim.find({ 'selfRepair.opted': true }).sort({ createdAt: -1 });
+  return cache.wrap('cache:claims:self-repair', () =>
+    Claim.find({ 'selfRepair.opted': true }).sort({ createdAt: -1 }), 600);
 };
 
 const MOTOR_GLASS_TYPE_ID = '6a43d317ea0c6f0a546da885';
@@ -1573,6 +1590,7 @@ const approveGlassClaim = async (claimId, req) => {
   const start = Date.now();
   claim.status = 'GlassApproved';
   await claim.save();
+  await invalidateClaimCache(claimId);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -1633,6 +1651,7 @@ const assignGlassSupplier = async (claimId, { supplierId, appointmentDate, notes
   };
   claim.status = 'GlassRepair';
   await claim.save();
+  await invalidateClaimCache(claimId);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -1699,6 +1718,7 @@ const completeGlassRepair = async (claimId, req) => {
   claim.glassRepair.completedAt = new Date();
   claim.status = 'Completed';
   await claim.save();
+  await invalidateClaimCache(claimId);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -1742,7 +1762,8 @@ const completeGlassRepair = async (claimId, req) => {
 
 // Get all glass/motor glass claims
 const getGlassClaims = async () => {
-  return await Claim.find({ claimTypeId: MOTOR_GLASS_TYPE_ID }).sort({ createdAt: -1 });
+  return cache.wrap('cache:claims:glass', () =>
+    Claim.find({ claimTypeId: MOTOR_GLASS_TYPE_ID }).sort({ createdAt: -1 }), 600);
 };
 
 // Customer resubmits a rejected claim with updated details
@@ -1767,6 +1788,7 @@ const resubmitRejectedClaim = async (id, updateData, req) => {
 
   const start = Date.now();
   await claim.save();
+  await invalidateClaimCache(id);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
