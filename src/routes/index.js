@@ -17,6 +17,7 @@ const demoRequest = require("./demoRequest.route")
 const companySupport = require("./companySupport.route")
 const notifications = require("./notification.route")
 const investigators = require("./investigator.route")
+const ai = require("./ai.route")
 const claimTypes = require("./claimType.route")
 
 
@@ -40,6 +41,7 @@ router.use("/demo-requests", demoRequest)
 router.use("/support", companySupport)
 router.use("/notifications", notifications)
 router.use("/investigators", investigators)
+router.use("/ai", ai)
 router.use("/claim-types", claimTypes)
 
 

@@ -55,9 +55,11 @@ const generateClaimLink = async (email) => {
     const customerId = customer._id;
 
 
+    const ttlHours = Number(process.env.CLAIM_LINK_TTL_HOURS || 72);
     const claimToken = new ClaimToken({
       customerId,
       token,
+      expiresAt: new Date(Date.now() + ttlHours * 3600 * 1000),
     });
 
     await claimToken.save();
@@ -91,8 +93,9 @@ const fileClaimService = async (token, claimDetails, req) => {
     if (claimToken.used) {
       throw new Error('This link has already been used');
     }
-    claimToken.used = true;
-    await claimToken.save();
+    if (claimToken.expiresAt && claimToken.expiresAt.getTime() < Date.now()) {
+      throw new Error('This link has expired');
+    }
     const customer = await Customer.findById(claimToken.customerId);
 
     if (!customer) {
@@ -110,6 +113,11 @@ const fileClaimService = async (token, claimDetails, req) => {
     });
     const start = Date.now();
     await newClaim.save();
+
+    // Consume the token only after the claim is safely persisted, so a failed
+    // save doesn't burn the customer's only link.
+    claimToken.used = true;
+    await claimToken.save();
 
     await writeAuditLog(req, {
       action: 'CREATE',

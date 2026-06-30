@@ -37,6 +37,7 @@ next-env.d.ts
 
 # Local docs
 SYSTEM_DOCUMENTATION.md
+docs/
 
 
 # These are some examples of commonly ignored file patterns.
