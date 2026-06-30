@@ -1413,6 +1413,193 @@ const getSelfRepairClaims = async () => {
   return await Claim.find({ 'selfRepair.opted': true }).sort({ createdAt: -1 });
 };
 
+const MOTOR_GLASS_TYPE_ID = '6a43d317ea0c6f0a546da885';
+
+const isGlassClaim = (claim) =>
+  claim.claimTypeId && claim.claimTypeId.toString() === MOTOR_GLASS_TYPE_ID;
+
+// Approve a glass claim — sets status to GlassApproved
+const approveGlassClaim = async (claimId, req) => {
+  const claim = await Claim.findById(claimId);
+  if (!claim) throw new Error('Claim not found');
+  if (!isGlassClaim(claim)) throw new Error('This claim is not a motor glass claim');
+  if (claim.status !== 'Pending' && claim.status !== 'Resubmitted') throw new Error('Only pending or resubmitted glass claims can be approved');
+
+  const start = Date.now();
+  claim.status = 'GlassApproved';
+  await claim.save();
+
+  await writeAuditLog(req, {
+    action: 'UPDATE',
+    module: 'Claim',
+    actionDescription: `Approved glass claim ${claimId}`,
+    resourceType: 'Claim',
+    resourceId: claim._id,
+    statusCode: 200,
+    success: true,
+    responseTimeMs: Date.now() - start,
+    changes: { old: { status: 'Pending' }, new: { status: 'GlassApproved' } },
+  });
+
+  const vehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
+  if (claim.claimant?.email) {
+    await emailService.sendEmailNotification(
+      claim.claimant.email,
+      'Glass Claim Approved',
+      `Dear ${claim.claimant.name},\n\nYour glass/windscreen claim (Reference: ${vehicle}) has been approved. A service provider will be assigned shortly to carry out the replacement.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+    );
+  }
+  if (claim.claimant?.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      claim.claimant.whatsappNumber,
+      `Hi ${claim.claimant.name}, your glass/windscreen claim (${vehicle}) has been *approved*. A service provider will be assigned shortly. — Ave Insurance`
+    );
+  }
+  if (claim.customerId) {
+    await notificationService.createAndEmit({
+      recipientId: claim.customerId,
+      recipientType: 'customer',
+      type: 'claim_approved',
+      title: 'Glass Claim Approved',
+      content: `Your glass/windscreen claim (${vehicle}) has been approved.`,
+      claimId: claim._id,
+    });
+  }
+
+  return claim;
+};
+
+// Admin assigns a supplier (service provider) to a glass claim
+const assignGlassSupplier = async (claimId, { supplierId, appointmentDate, notes }, req) => {
+  const claim = await Claim.findById(claimId);
+  if (!claim) throw new Error('Claim not found');
+  if (!isGlassClaim(claim)) throw new Error('This claim is not a motor glass claim');
+  if (claim.status !== 'GlassApproved') throw new Error('Claim must be in GlassApproved status before assigning a supplier');
+
+  const supplier = await Supplier.findById(supplierId);
+  if (!supplier) throw new Error('Supplier not found');
+
+  const start = Date.now();
+  claim.glassRepair = {
+    supplierId: supplier._id,
+    appointmentDate: appointmentDate ? new Date(appointmentDate) : undefined,
+    notes: notes || '',
+    status: 'Assigned',
+  };
+  claim.status = 'GlassRepair';
+  await claim.save();
+
+  await writeAuditLog(req, {
+    action: 'UPDATE',
+    module: 'Claim',
+    actionDescription: `Assigned supplier ${supplierId} to glass claim ${claimId}`,
+    resourceType: 'Claim',
+    resourceId: claim._id,
+    statusCode: 200,
+    success: true,
+    responseTimeMs: Date.now() - start,
+    changes: { old: { status: 'GlassApproved' }, new: { status: 'GlassRepair', supplierId } },
+  });
+
+  const vehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
+  if (supplier.email) {
+    await emailService.sendEmailNotification(
+      supplier.email,
+      'Glass Replacement Assignment',
+      `Dear ${supplier.name},\n\nYou have been assigned to replace the windscreen/glass for claim ID: ${vehicle}.\n\n${appointmentDate ? `Appointment date: ${new Date(appointmentDate).toDateString()}\n\n` : ''}${notes ? `Notes: ${notes}\n\n` : ''}Please contact the customer to confirm the appointment.\n\nCustomer: ${claim.claimant?.name}\nPhone: ${claim.claimant?.phone}\nEmail: ${claim.claimant?.email}\n\nBest Regards,\nAdmin Team`
+    );
+  }
+  if (supplier.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      supplier.whatsappNumber,
+      `Hi ${supplier.name}, you have been assigned to a glass replacement for claim ${vehicle}.\nCustomer: ${claim.claimant?.name} | ${claim.claimant?.phone}${appointmentDate ? `\nAppointment: ${new Date(appointmentDate).toDateString()}` : ''}\n\nPlease contact the customer to confirm. — Ave Insurance`
+    );
+  }
+  if (claim.claimant?.email) {
+    await emailService.sendEmailNotification(
+      claim.claimant.email,
+      'Service Provider Assigned for Glass Replacement',
+      `Dear ${claim.claimant.name},\n\nA service provider has been assigned to replace your windscreen/glass for claim (Reference: ${vehicle}).\n\nService Provider: ${supplier.name}\nPhone: ${supplier.phone}\nEmail: ${supplier.email}\n\nThey will contact you shortly to arrange the replacement.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+    );
+  }
+  if (claim.claimant?.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      claim.claimant.whatsappNumber,
+      `Hi ${claim.claimant.name}, a service provider has been assigned for your glass replacement (${vehicle}).\n\n🔧 ${supplier.name}\n📞 ${supplier.phone}\n\nThey will contact you to arrange the replacement. — Ave Insurance`
+    );
+  }
+  if (claim.customerId) {
+    await notificationService.createAndEmit({
+      recipientId: claim.customerId,
+      recipientType: 'customer',
+      type: 'glass_supplier_assigned',
+      title: 'Service Provider Assigned',
+      content: `${supplier.name} has been assigned to replace your glass/windscreen for claim ${vehicle}.`,
+      claimId: claim._id,
+    });
+  }
+
+  return claim;
+};
+
+// Supplier marks the glass replacement as complete — closes the claim
+const completeGlassRepair = async (claimId, req) => {
+  const claim = await Claim.findById(claimId);
+  if (!claim) throw new Error('Claim not found');
+  if (!isGlassClaim(claim)) throw new Error('This claim is not a motor glass claim');
+  if (claim.status !== 'GlassRepair') throw new Error('Claim must be in GlassRepair status to be completed');
+
+  const start = Date.now();
+  claim.glassRepair.status = 'Completed';
+  claim.glassRepair.completedAt = new Date();
+  claim.status = 'Completed';
+  await claim.save();
+
+  await writeAuditLog(req, {
+    action: 'UPDATE',
+    module: 'Claim',
+    actionDescription: `Glass repair completed for claim ${claimId}`,
+    resourceType: 'Claim',
+    resourceId: claim._id,
+    statusCode: 200,
+    success: true,
+    responseTimeMs: Date.now() - start,
+    changes: { old: { status: 'GlassRepair' }, new: { status: 'Completed' } },
+  });
+
+  const vehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
+  if (claim.claimant?.email) {
+    await emailService.sendEmailNotification(
+      claim.claimant.email,
+      'Glass Replacement Completed',
+      `Dear ${claim.claimant.name},\n\nYour windscreen/glass replacement for claim (Reference: ${vehicle}) has been completed. Your claim is now closed.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+    );
+  }
+  if (claim.claimant?.whatsappNumber) {
+    await whatsappService.sendWhatsAppMessage(
+      claim.claimant.whatsappNumber,
+      `Hi ${claim.claimant.name}, your glass/windscreen replacement for claim ${vehicle} has been *completed*. Your claim is now closed. ✅ — Ave Insurance`
+    );
+  }
+  if (claim.customerId) {
+    await notificationService.createAndEmit({
+      recipientId: claim.customerId,
+      recipientType: 'customer',
+      type: 'claim_completed',
+      title: 'Glass Replacement Completed',
+      content: `Your glass/windscreen replacement for claim ${vehicle} is complete. Claim closed.`,
+      claimId: claim._id,
+    });
+  }
+
+  return claim;
+};
+
+// Get all glass/motor glass claims
+const getGlassClaims = async () => {
+  return await Claim.find({ claimTypeId: MOTOR_GLASS_TYPE_ID }).sort({ createdAt: -1 });
+};
+
 // Customer resubmits a rejected claim with updated details
 const resubmitRejectedClaim = async (id, updateData, req) => {
   const claim = await Claim.findById(id);
@@ -1487,4 +1674,8 @@ module.exports = {
   markSelfRepairPaid,
   getSelfRepairClaims,
   resubmitRejectedClaim,
+  approveGlassClaim,
+  assignGlassSupplier,
+  completeGlassRepair,
+  getGlassClaims,
 };

@@ -40,6 +40,12 @@ router.patch('/self-repair/approve/:id', claimController.approveSelfRepair);
 router.patch('/self-repair/reject/:id', claimController.rejectSelfRepair);
 router.patch('/self-repair/pay/:id', claimController.markSelfRepairPaid);
 
+// Glass / motor glass claim routes — before wildcard /:id
+router.get('/glass', claimController.getGlassClaims);
+router.patch('/glass/approve/:id', claimController.approveGlassClaim);
+router.post('/glass/assign-supplier/:id', claimController.assignGlassSupplier);
+router.patch('/glass/complete/:id', claimController.completeGlassRepair);
+
 // Wildcard param routes last — must come after all static-segment routes
 router.get('/:id', claimController.getClaimById)
 router.post('/awardClaim/:id', claimController.awardClaim)
