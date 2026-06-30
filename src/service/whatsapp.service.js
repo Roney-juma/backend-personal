@@ -2,12 +2,12 @@ const https = require('https');
 const logger = require('../middlewheres/logger');
 require('dotenv').config();
 
-// Normalise to E.164 — handles SA local format (0XX → +27XX) and already-formatted numbers
+// Normalise to E.164 — handles Kenyan local format (0XX → +254XX) and already-formatted numbers
 const toE164 = (number) => {
   if (!number) return null;
   const stripped = number.replace(/[\s\-().]/g, '');
   if (stripped.startsWith('+')) return stripped;
-  if (stripped.startsWith('0')) return `+27${stripped.slice(1)}`;
+  if (stripped.startsWith('0')) return `+254${stripped.slice(1)}`;
   return `+${stripped}`;
 };
 
@@ -50,16 +50,16 @@ const sendWhatsAppMessage = async (to, message) => {
       res.on('data', (chunk) => { body += chunk; });
       res.on('end', () => {
         if (res.statusCode >= 200 && res.statusCode < 300) {
-          logger.info('WhatsApp sent | to=%s', recipient);
+          logger.info(`WhatsApp sent | to=${recipient}`);
         } else {
-          logger.error('WhatsApp API error | to=%s | status=%d | body=%s', recipient, res.statusCode, body);
+          logger.error(`WhatsApp API error | to=${recipient} | status=${res.statusCode} | body=${body}`);
         }
         resolve();
       });
     });
 
     req.on('error', (err) => {
-      logger.error('WhatsApp request failed | to=%s | %s', recipient, err.message);
+      logger.error(`WhatsApp request failed | to=${recipient} | ${err.message}`);
       resolve();
     });
 
