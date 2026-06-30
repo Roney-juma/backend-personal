@@ -117,12 +117,16 @@ const resetPassword = async (req, res) => {
   }
 };
 
-const completeReAssessment = async (req, res) => {
+const submitReAssessmentReport = async (req, res) => {
   try {
-    const claim = await assessorService.completeRepair(req.params.id, req);
+    const { notes, photos, outcome } = req.body;
+    if (!notes) return res.status(400).json({ message: 'notes is required' });
+    if (!outcome) return res.status(400).json({ message: 'outcome is required (Passed or Failed)' });
+    const assessorId = req.user?.id || req.user?._id || null;
+    const claim = await assessorService.submitReAssessmentReport(req.params.id, { notes, photos, outcome, assessorId }, req);
     res.status(200).json(claim);
   } catch (error) {
-    logger.error('Error completing re-assessment: %s', error.message);
+    logger.error('Error submitting re-assessment report: %s', error.message);
     res.status(500).json({ message: error.message });
   }
 };
@@ -180,7 +184,7 @@ module.exports = {
   getAssessorBids,
   submitAssessmentReport,
   resetPassword,
-  completeReAssessment,
+  submitReAssessmentReport,
   rejectReAssessment,
   getAssessorStatistics,
   getTopAssessors,

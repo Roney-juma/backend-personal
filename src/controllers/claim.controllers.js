@@ -1,4 +1,6 @@
 const claimService = require('../service/claim.service');
+const assessorService = require('../service/assessor.service');
+const logger = require('../middlewheres/logger');
 
 const generateClaimLinkController = async (req, res) => {
   const { email } = req.body;
@@ -365,6 +367,16 @@ const payFinalSettlement = async (req, res) => {
   }
 };
 
+const completeReAssessment = async (req, res) => {
+  try {
+    const claim = await assessorService.completeRepair(req.params.id, req);
+    res.status(200).json(claim);
+  } catch (error) {
+    logger.error(`Error completing re-assessment: ${error.message}`);
+    res.status(500).json({ message: error.message });
+  }
+};
+
 const getSelfRepairClaims = async (req, res) => {
   try {
     const claims = await claimService.getSelfRepairClaims();
@@ -456,6 +468,7 @@ module.exports = {
   rejectSelfRepair,
   payInitialDeposit,
   payFinalSettlement,
+  completeReAssessment,
   getSelfRepairClaims,
   resubmitRejectedClaim,
   approveGlassClaim,

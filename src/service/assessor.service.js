@@ -289,10 +289,43 @@ const resetPassword = async (email, newPassword, req) => {
   return { message: 'Password has been reset successfully' };
 };
 
+const submitReAssessmentReport = async (claimId, { notes, photos, outcome, assessorId }, req) => {
+  const claim = await Claim.findById(claimId);
+  if (!claim) throw new Error('Claim not found');
+  if (claim.status !== 'Re-Assessment') throw new Error('Claim must be under Re-Assessment to submit a report');
+  if (!notes || !notes.trim()) throw new Error('Notes are required');
+  if (!outcome || !['Passed', 'Failed'].includes(outcome)) throw new Error('outcome must be Passed or Failed');
+
+  const start = Date.now();
+  claim.reAssessmentReport = {
+    notes: notes.trim(),
+    photos: Array.isArray(photos) ? photos : [],
+    outcome,
+    assessorId: assessorId || null,
+    submittedAt: new Date(),
+  };
+  claim.status = 'ReAssessed';
+  await claim.save();
+
+  await writeAuditLog(req, {
+    action: 'UPDATE',
+    module: 'Claim',
+    actionDescription: `Assessor submitted re-assessment report for claim ${claimId} — outcome: ${outcome}`,
+    resourceType: 'Claim',
+    resourceId: claim._id,
+    statusCode: 200,
+    success: true,
+    responseTimeMs: Date.now() - start,
+    changes: { old: { status: 'Re-Assessment' }, new: { status: 'ReAssessed', outcome } },
+  });
+
+  return claim;
+};
+
 const completeRepair = async (claimId, req) => {
   const claim = await Claim.findById(claimId);
   if (!claim) throw new Error('Claim not found');
-  if (claim.status !== 'Re-Assessment') throw new Error('Claim must be under Re-Assessment to mark it as Completed');
+  if (claim.status !== 'ReAssessed') throw new Error('Re-assessment report must be submitted by the assessor before completing');
 
   const start = Date.now();
   claim.status = 'Completed';
@@ -438,6 +471,7 @@ module.exports = {
   placeBid,
   getAssessorBids,
   submitAssessmentReport,
+  submitReAssessmentReport,
   resetPassword,
   completeRepair,
   rejectRepair,
