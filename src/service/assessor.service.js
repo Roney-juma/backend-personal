@@ -297,6 +297,8 @@ const submitReAssessmentReport = async (claimId, { notes, photos, outcome, asses
   if (!outcome || !['Passed', 'Failed'].includes(outcome)) throw new Error('outcome must be Passed or Failed');
 
   const start = Date.now();
+  const vehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
+
   claim.reAssessmentReport = {
     notes: notes.trim(),
     photos: Array.isArray(photos) ? photos : [],
@@ -304,7 +306,61 @@ const submitReAssessmentReport = async (claimId, { notes, photos, outcome, asses
     assessorId: assessorId || null,
     submittedAt: new Date(),
   };
-  claim.status = 'ReAssessed';
+
+  if (outcome === 'Passed') {
+    claim.status = 'ReAssessed';
+  } else {
+    // Failed — return directly to Repair and notify garage
+    claim.status = 'Repair';
+
+    if (claim.awardedGarage?.garageId) {
+      const garage = await Garage.findById(claim.awardedGarage.garageId);
+      if (garage?.email) {
+        await emailService.sendEmailNotification(
+          garage.email,
+          'Re-Assessment Failed — Further Repair Required',
+          `Dear ${garage.name},
+
+The re-assessment for vehicle (${vehicle}) has been marked as Failed.
+
+Assessor notes: ${notes.trim()}
+
+Please review the issues and complete the outstanding repair work. Once done, resubmit for re-assessment.
+
+Best Regards,
+Admin Team`
+        );
+      }
+      if (garage?.contactNumber) {
+        await whatsappService.sendWhatsAppMessage(
+          garage.contactNumber,
+          `Hi ${garage.name}, the re-assessment for vehicle (${vehicle}) has *failed*.\n\nNotes: ${notes.trim()}\n\nPlease fix the outstanding issues and resubmit for re-assessment. — Ave Insurance`
+        );
+      }
+    }
+
+    if (claim.claimant?.email) {
+      await emailService.sendEmailNotification(
+        claim.claimant.email,
+        'Repair Re-Assessment — Further Work Required',
+        `Dear ${claim.claimant.name},
+
+Following the re-assessment of your vehicle (${vehicle}), our assessor has identified outstanding issues that require further attention from the garage.
+
+We have notified the garage and they will be in contact to arrange the additional work. We apologise for the inconvenience.
+
+Best Regards,
+Admin Team`
+      );
+    }
+    if (claim.claimant?.phone) {
+      await whatsappService.sendWhatsAppMessage(
+        claim.claimant.phone,
+        `Hi ${claim.claimant.name}, the re-assessment of your vehicle (${vehicle}) found outstanding issues. The garage has been notified to complete the remaining work. We'll keep you updated. — Ave Insurance`
+      );
+    }
+  }
+
   await claim.save();
 
   await writeAuditLog(req, {
@@ -316,7 +372,7 @@ const submitReAssessmentReport = async (claimId, { notes, photos, outcome, asses
     statusCode: 200,
     success: true,
     responseTimeMs: Date.now() - start,
-    changes: { old: { status: 'Re-Assessment' }, new: { status: 'ReAssessed', outcome } },
+    changes: { old: { status: 'Re-Assessment' }, new: { status: claim.status, outcome } },
   });
 
   return claim;
@@ -325,9 +381,12 @@ const submitReAssessmentReport = async (claimId, { notes, photos, outcome, asses
 const completeRepair = async (claimId, req) => {
   const claim = await Claim.findById(claimId);
   if (!claim) throw new Error('Claim not found');
-  if (claim.status !== 'ReAssessed') throw new Error('Re-assessment report must be submitted by the assessor before completing');
+  if (claim.status !== 'ReAssessed') throw new Error('Re-assessment must be submitted and passed before completing');
+  if (claim.reAssessmentReport?.outcome !== 'Passed') throw new Error('Re-assessment outcome is not Passed — cannot complete');
 
+  const vehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   const start = Date.now();
+
   claim.status = 'Completed';
   claim.repairDate = new Date();
   await claim.save();
@@ -335,45 +394,43 @@ const completeRepair = async (claimId, req) => {
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'Claim',
-    actionDescription: `Marked repair as completed for claim ${claimId}`,
+    actionDescription: `Admin completed claim ${claimId} following passed re-assessment`,
     resourceType: 'Claim',
     resourceId: claim._id,
     statusCode: 200,
     success: true,
     responseTimeMs: Date.now() - start,
-    changes: { old: { status: 'Re-Assessment' }, new: { status: 'Completed', repairDate: claim.repairDate } },
+    changes: { old: { status: 'ReAssessed' }, new: { status: 'Completed' } },
   });
 
-  if (!claim.selfRepair.opted && claim.awardedGarage && claim.awardedGarage.garageId) {
+  if (!claim.selfRepair?.opted && claim.awardedGarage?.garageId) {
     const garage = await Garage.findById(claim.awardedGarage.garageId);
-    garage.pendingWork -= 1;
-    await garage.save();
+    if (garage) { garage.pendingWork = Math.max(0, (garage.pendingWork || 1) - 1); await garage.save(); }
   }
-  
-  
 
-  const crVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
-  if (claim.claimant && claim.claimant.email) {
+  if (claim.claimant?.email) {
     await emailService.sendEmailNotification(
       claim.claimant.email,
-      'Repair Completed - Verification Pending',
+      'Repair Verified & Claim Closed',
       `Dear ${claim.claimant.name},
 
-We are pleased to inform you that the repair for your claim with ID: ${crVehicle} has been completed.
-Please verify that the vehicle has been fully repaired.
-If you are satisfied with the repair, please reply to this email to confirm.
-Thank you for your patience during this process.
+We are pleased to inform you that the repair of your vehicle (${vehicle}) has been independently verified by our assessor and confirmed as satisfactory.
+
+Your claim is now closed.
+
+Thank you for choosing Ave Insurance.
 
 Best Regards,
 Admin Team`
     );
   }
-  if (claim.claimant && claim.claimant.phone) {
+  if (claim.claimant?.phone) {
     await whatsappService.sendWhatsAppMessage(
       claim.claimant.phone,
-      `Hi ${claim.claimant.name}, the repair for your vehicle (${crVehicle}) has been *completed*. Please verify and confirm you're satisfied. — Ave Insurance`
+      `Hi ${claim.claimant.name}, great news! The repair of your vehicle (${vehicle}) has been verified and your claim is now *closed*. Thank you for choosing Ave Insurance.`
     );
   }
+
   return claim;
 };
 const rejectRepair = async (claimId, rejectionReason, req) => {
