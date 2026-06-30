@@ -1,6 +1,7 @@
 const nodemailer = require('nodemailer');
 const logger = require('../middlewheres/logger');
-require("dotenv").config();
+const { getQueue } = require('../queue/queues');
+require('dotenv').config();
 
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST,
@@ -12,20 +13,29 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-const logEmailError = (label, to, error) => {
-  logger.error('%s | to=%s | message=%s | code=%s | responseCode=%s | response=%s',
-    label, to, error.message, error.code || 'N/A', error.responseCode || 'N/A', error.response || 'N/A');
+const logEmailError = (to, error) => {
+  logger.error(`Email failed | to=${to} | ${error.message} | code=${error.code || 'N/A'} | response=${error.response || 'N/A'}`);
 };
 
-const sendEmailNotification = (to, subject, text) => {
+// Direct send — called by the worker (and as fallback when Redis is unavailable)
+const sendEmailDirect = (to, subject, text) => {
   const mailOptions = { from: process.env.EMAIL_HOST_USER, to, subject, text };
-  return transporter.sendMail(mailOptions).then((info) => {
-    logger.info('Email sent to %s: %s', to, info.response);
-  }).catch((error) => {
-    logEmailError('Error sending email', to, error);
-  });
+  return transporter.sendMail(mailOptions)
+    .then((info) => logger.info(`Email sent | to=${to} | ${info.response}`))
+    .catch((error) => logEmailError(to, error));
 };
 
+// Enqueued send — all services call this; falls back to direct if Redis not available
+const sendEmailNotification = async (to, subject, text) => {
+  const queue = getQueue();
+  if (queue) {
+    await queue.add('email', { to, subject, text });
+  } else {
+    await sendEmailDirect(to, subject, text);
+  }
+};
+
+// Invoice email always sent directly — attachment serialisation overhead not worth it
 const sendInvoiceEmail = (to, subject, text, pdfBuffer, filename) => {
   const mailOptions = {
     from: process.env.EMAIL_HOST_USER,
@@ -34,11 +44,9 @@ const sendInvoiceEmail = (to, subject, text, pdfBuffer, filename) => {
     text,
     attachments: [{ filename, content: pdfBuffer, contentType: 'application/pdf' }],
   };
-  return transporter.sendMail(mailOptions).then((info) => {
-    logger.info('Invoice email sent to %s: %s', to, info.response);
-  }).catch((error) => {
-    logEmailError('Error sending invoice email', to, error);
-  });
+  return transporter.sendMail(mailOptions)
+    .then((info) => logger.info(`Invoice email sent | to=${to} | ${info.response}`))
+    .catch((error) => logEmailError(to, error));
 };
 
-module.exports = { sendEmailNotification, sendInvoiceEmail };
+module.exports = { sendEmailNotification, sendEmailDirect, sendInvoiceEmail };
