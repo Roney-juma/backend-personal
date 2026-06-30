@@ -1,8 +1,8 @@
 const https = require('https');
 const logger = require('../middlewheres/logger');
+const { getQueue } = require('../queue/queues');
 require('dotenv').config();
 
-// Normalise to E.164 — handles Kenyan local format (0XX → +254XX) and already-formatted numbers
 const toE164 = (number) => {
   if (!number) return null;
   const stripped = number.replace(/[\s\-().]/g, '');
@@ -11,7 +11,8 @@ const toE164 = (number) => {
   return `+${stripped}`;
 };
 
-const sendWhatsAppMessage = async (to, message) => {
+// Direct send — called by the worker (and as fallback when Redis is unavailable)
+const sendWhatsAppDirect = async (to, message) => {
   const token = process.env.WHATSAPP_ACCESS_TOKEN;
   const baseUrl = process.env.WHATSAPP_API_URL;
 
@@ -68,4 +69,14 @@ const sendWhatsAppMessage = async (to, message) => {
   });
 };
 
-module.exports = { sendWhatsAppMessage };
+// Enqueued send — all services call this; falls back to direct if Redis not available
+const sendWhatsAppMessage = async (to, message) => {
+  const queue = getQueue();
+  if (queue) {
+    await queue.add('whatsapp', { to, message });
+  } else {
+    await sendWhatsAppDirect(to, message);
+  }
+};
+
+module.exports = { sendWhatsAppMessage, sendWhatsAppDirect };
