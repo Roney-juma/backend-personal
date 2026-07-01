@@ -32,13 +32,24 @@ const claimIntakePage = (req, res) => {
  */
 const claimIntake = async (req, res) => {
   try {
-    const { messages = [], userMessage, images = [] } = req.body || {};
+    const { messages = [], userMessage, images = [], coordinates } = req.body || {};
     if (!userMessage || typeof userMessage !== 'string') {
       return res.status(400).json({ message: 'userMessage is required' });
     }
 
     const priorMessages = Array.isArray(messages) ? messages : [];
     const photoUrls = (Array.isArray(images) ? images : []).filter((u) => typeof u === 'string' && u);
+
+    // Best-effort device location from the browser. Only accepted as a finite
+    // lat/long pair; the assistant OFFERS it as the incident location and must
+    // confirm with the claimant before saving it (see claimIntake.agent).
+    const coords =
+      coordinates &&
+      typeof coordinates === 'object' &&
+      Number.isFinite(coordinates.latitude) &&
+      Number.isFinite(coordinates.longitude)
+        ? { latitude: coordinates.latitude, longitude: coordinates.longitude }
+        : null;
 
     // Server-side photo gate: reject the turn if any attached photo is not a
     // vehicle, damage, accident scene, or supporting document.
@@ -64,6 +75,7 @@ const claimIntake = async (req, res) => {
       messages: priorMessages,
       userMessage,
       images: photoUrls,
+      coordinates: coords,
       req,
     });
 

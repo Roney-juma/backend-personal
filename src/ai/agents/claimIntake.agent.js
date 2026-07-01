@@ -32,7 +32,26 @@ function dateContext(now = moment.tz(CLAIM_TZ)) {
   ];
 }
 
-function buildSystem(customer, now = moment.tz(CLAIM_TZ)) {
+/**
+ * Optional device-location block. Browser geolocation reports where the
+ * claimant is filing FROM, which may not be the accident scene — so the model
+ * is told to OFFER it and confirm, never to assume it as the incident location.
+ */
+function locationContext(coordinates) {
+  if (!coordinates || !Number.isFinite(coordinates.latitude) || !Number.isFinite(coordinates.longitude)) {
+    return [];
+  }
+  return [
+    `DEVICE LOCATION (reported by the claimant's browser this session)`,
+    `- Current coordinates: latitude ${coordinates.latitude}, longitude ${coordinates.longitude}.`,
+    `- These are where the claimant is RIGHT NOW — which may or may not be where the accident happened.`,
+    `- If they are filing from the accident scene, OFFER to use these as the incident location and record them via set_claim_details incidentDetails.latitude/longitude once they confirm.`,
+    `- If they are not at the scene, ask them to describe the incident location instead. NEVER save these coordinates unless the claimant confirms they match where the accident happened.`,
+    ``,
+  ];
+}
+
+function buildSystem(customer, now = moment.tz(CLAIM_TZ), coordinates = null) {
   const name = `${customer.firstName || ''} ${customer.lastName || ''}`.trim() || 'the claimant';
   return [
     `You are AVE Insurance's claim-intake assistant. You help a known policyholder file a motor-insurance claim through a friendly, step-by-step chat.`,
@@ -43,6 +62,7 @@ function buildSystem(customer, now = moment.tz(CLAIM_TZ)) {
     `- Email: ${customer.email || 'on file'}`,
     `- Policy number: ${customer.policyNumber || 'on file'}`,
     ``,
+    ...locationContext(coordinates),
     ...dateContext(now),
     `YOUR JOB`,
     `- Greet ${name} by name on the first turn and explain you'll help report the incident.`,
@@ -103,11 +123,14 @@ const textOf = (content) =>
  * @param {string} params.userMessage New user text for this turn.
  * @param {Array}  [params.images]    S3 URLs of photos attached this turn; passed
  *                                    to the model as vision image blocks.
+ * @param {Object} [params.coordinates] Optional { latitude, longitude } from the
+ *                                    browser; offered to the claimant as the
+ *                                    incident location (never assumed).
  * @param {Object} params.req         Express req (for fileClaimService audit log).
  * @returns {Object} { messages, reply, status, claimId }
  */
-async function runClaimIntake({ customer, token, messages = [], userMessage, images = [], req }) {
-  const system = buildSystem(customer);
+async function runClaimIntake({ customer, token, messages = [], userMessage, images = [], coordinates = null, req }) {
+  const system = buildSystem(customer, moment.tz(CLAIM_TZ), coordinates);
   const working = [...messages, { role: 'user', content: buildUserTurn(userMessage, images) }];
   const cost = new CostTracker('claim-intake');
 

@@ -149,6 +149,11 @@ function missingRequired(draft) {
   ['date', 'time', 'location', 'description'].forEach((f) => {
     if (!inc[f]) missing.push(`incident ${f}`);
   });
+  // Coordinates are required by the claim schema. They come from the browser and
+  // are confirmed by the claimant during the chat — block filing without them.
+  if (inc.latitude == null || inc.longitude == null) {
+    missing.push('incident location coordinates (latitude & longitude)');
+  }
 
   const vehicles = draft.vehiclesInvolved || [];
   if (vehicles.length === 0) missing.push('at least one vehicle (make, model, year, licence plate)');
