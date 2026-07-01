@@ -116,7 +116,10 @@ const submitBidForSupply = async (claimId, supplierId, parts) => {
 
 const getClaimsInGarage = async () => {
   return cache.wrap('cache:claims:in-garage', () =>
-    Claim.find({ status: 'Assessed', supplierBids: { $not: { $elemMatch: { status: 'Accepted' } } } }),
+    Claim.find({
+      status: { $in: ['Assessed', 'GlassApproved'] },
+      supplierBids: { $not: { $elemMatch: { status: 'Accepted' } } },
+    }),
   300);
 };
 

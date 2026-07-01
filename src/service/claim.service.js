@@ -19,6 +19,10 @@ const invalidateClaimCache = async (claimId) => {
   await Promise.all(ops);
 };
 
+const MOTOR_GLASS_TYPE_ID = '6a43d317ea0c6f0a546da885';
+const isGlassClaim = (claim) =>
+  claim.claimTypeId && claim.claimTypeId.toString() === MOTOR_GLASS_TYPE_ID;
+
 const getGarageBidRankingData = (bid) => {
   const rating = bid?.garageDetails?.ratings?.averageRating ?? bid?.ratings ?? 0;
   const pendingWork = bid?.garageDetails?.pendingWork ?? Number.MAX_SAFE_INTEGER;
@@ -310,50 +314,84 @@ const getClaimsByCustomer = async (customerId) => {
   600);
 };
 
-// Approve a claim
+// Approve a claim — auto-detects glass claims and sets GlassApproved status
 const approveClaim = async (id, req) => {
+  const existing = await Claim.findById(id);
+  if (!existing) throw new Error('Claim not found');
+
+  const glass = isGlassClaim(existing);
+  const newStatus = glass ? 'GlassApproved' : 'Approved';
+
   const start = Date.now();
-  const claim = await Claim.findByIdAndUpdate(id, { status: 'Approved' }, { new: true });
-  if (!claim) throw new Error('Claim not found');
+  const claim = await Claim.findByIdAndUpdate(id, { status: newStatus }, { new: true });
   await invalidateClaimCache(id);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'Claim',
-    actionDescription: `Approved claim ${id}`,
+    actionDescription: `Approved ${glass ? 'glass ' : ''}claim ${id}`,
     resourceType: 'Claim',
     resourceId: claim._id,
     statusCode: 200,
     success: true,
     responseTimeMs: Date.now() - start,
-    changes: { old: { status: 'Pending' }, new: { status: 'Approved' } },
+    changes: { old: { status: existing.status }, new: { status: newStatus } },
   });
+
   const claimant = claim.claimant;
   const vehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
-  if (claimant && claimant.email) {
-    await emailService.sendEmailNotification(
-      claimant.email,
-      'Claim Approval Notification',
-      `Dear ${claimant.name},\n\nWe acknowledge receipt of your claim regarding vehicle registration number ${vehicle}.\n\nTo facilitate the claims process, an assessor will be appointed shortly to inspect and assess the vehicle. The assessment findings will enable us to determine the next steps and process your claim accordingly.\n\nOur team will keep you informed throughout the process and will contact you should any additional information be required.\n\nThank you for choosing Ave Insurance.\n\nKind regards,\n\nClaims Department\nAve Insurance`
-    );
+
+  if (glass) {
+    if (claimant?.email) {
+      await emailService.sendEmailNotification(
+        claimant.email,
+        'Glass Claim Approved',
+        `Dear ${claimant.name},\n\nYour glass/windscreen claim (Reference: ${vehicle}) has been approved. A service provider will be assigned shortly to carry out the replacement.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+      );
+    }
+    if (claimant?.phone) {
+      await whatsappService.sendWhatsAppMessage(
+        claimant.phone,
+        `Hi ${claimant.name}, your glass/windscreen claim (${vehicle}) has been *approved*. A service provider will be assigned shortly. — Ave Insurance`
+      );
+    }
+    if (claim.customerId) {
+      await notificationService.createAndEmit({
+        recipientId: claim.customerId,
+        recipientType: 'customer',
+        type: 'claim_approved',
+        title: 'Glass Claim Approved',
+        content: `Your glass/windscreen claim (${vehicle}) has been approved. A service provider will be assigned shortly.`,
+        claimId: claim._id,
+      });
+    }
+  } else {
+    if (claimant?.email) {
+      await emailService.sendEmailNotification(
+        claimant.email,
+        'Claim Approval Notification',
+        `Dear ${claimant.name},\n\nWe acknowledge receipt of your claim regarding vehicle registration number ${vehicle}.\n\nTo facilitate the claims process, an assessor will be appointed shortly to inspect and assess the vehicle. The assessment findings will enable us to determine the next steps and process your claim accordingly.\n\nOur team will keep you informed throughout the process and will contact you should any additional information be required.\n\nThank you for choosing Ave Insurance.\n\nKind regards,\n\nClaims Department\nAve Insurance`
+      );
+    }
+    if (claimant?.phone) {
+      await whatsappService.sendWhatsAppMessage(
+        claimant.phone,
+        `Hi ${claimant.name}, your claim (${vehicle}) has been *approved*. An assessor will be appointed shortly. — Ave Insurance`
+      );
+    }
+    if (claim.customerId) {
+      await notificationService.createAndEmit({
+        recipientId: claim.customerId,
+        recipientType: 'customer',
+        type: 'claim_approved',
+        title: 'Claim Approved',
+        content: `Your claim (${vehicle}) has been approved.`,
+        claimId: claim._id,
+        whatsappNumber: claimant?.phone,
+      });
+    }
   }
-  if (claimant && claimant.phone) {
-    await whatsappService.sendWhatsAppMessage(
-      claimant.phone,
-      `Hi ${claimant.name}, your claim (${vehicle}) has been *approved*. An assessor will be appointed shortly. — Ave Insurance`
-    );
-  }
-  if (claim.customerId) {
-    await notificationService.createAndEmit({
-      recipientId: claim.customerId,
-      recipientType: 'customer',
-      type: 'claim_approved',
-      title: 'Claim Approved',
-      content: `Your claim (${vehicle}) has been approved.`,
-      claimId: claim._id,
-      whatsappNumber: claimant?.phone,
-    });
-  }
+
   return claim;
 };
 
@@ -907,7 +945,17 @@ const awardSupplierBid = async (claimId, bidId, req) => {
 
   const claim = await Claim.findById(claimId);
   if (!claim) throw new Error('Claim not found');
-  claim.status = 'Garage';
+
+  const glass = isGlassClaim(claim);
+  if (glass) {
+    claim.status = 'GlassRepair';
+    claim.glassRepair = {
+      supplierId: supplyBid.supplierId,
+      status: 'Assigned',
+    };
+  } else {
+    claim.status = 'Garage';
+  }
   await claim.save();
   await invalidateClaimCache(claimId);
 
@@ -916,7 +964,7 @@ const awardSupplierBid = async (claimId, bidId, req) => {
     recipientType: 'supplier',
     type: 'bid_awarded',
     title: 'Bid Awarded',
-    content: `Your parts bid for claim ${claimId} has been awarded.`,
+    content: `Your ${glass ? 'glass replacement' : 'parts'} bid for claim ${claimId} has been awarded.`,
     claimId,
   });
 
@@ -934,17 +982,16 @@ const awardSupplierBid = async (claimId, bidId, req) => {
 
   const supplier = await Supplier.findById(supplyBid.supplierId);
   if (supplier && supplier.email) {
-    await emailService.sendEmailNotification(
-      supplier.email,
-      'Bid Award Notification',
-      `Dear ${supplier.name},\n\nCongratulations! Your parts bid for claim ID: ${claimId} has been awarded. Please proceed with delivering the parts as soon as possible.\n\nBest Regards,\nAdmin Team`
-    );
+    const emailBody = glass
+      ? `Dear ${supplier.name},\n\nCongratulations! Your glass replacement bid for claim ID: ${claimId} has been awarded. Please contact the customer to arrange the replacement.\n\nCustomer: ${claim.claimant?.name}\nPhone: ${claim.claimant?.phone}\nEmail: ${claim.claimant?.email}\n\nBest Regards,\nAdmin Team`
+      : `Dear ${supplier.name},\n\nCongratulations! Your parts bid for claim ID: ${claimId} has been awarded. Please proceed with delivering the parts as soon as possible.\n\nBest Regards,\nAdmin Team`;
+    await emailService.sendEmailNotification(supplier.email, 'Bid Award Notification', emailBody);
   }
   if (supplier && supplier.phone) {
-    await whatsappService.sendWhatsAppMessage(
-      supplier.phone,
-      `Hi ${supplier.name}, your parts bid for claim ${claimId} has been *awarded*. Please proceed with delivering the parts. — Ave Insurance`
-    );
+    const waMsg = glass
+      ? `Hi ${supplier.name}, your glass replacement bid for claim ${claimId} has been *awarded*. Please contact the customer (${claim.claimant?.name} | ${claim.claimant?.phone}) to arrange. — Ave Insurance`
+      : `Hi ${supplier.name}, your parts bid for claim ${claimId} has been *awarded*. Please proceed with delivering the parts. — Ave Insurance`;
+    await whatsappService.sendWhatsAppMessage(supplier.phone, waMsg);
   }
 
   return supplyBid;
@@ -1091,7 +1138,7 @@ const getPaymentTotals = async () => {
 const optInSelfRepair = async (claimId, estimate, req) => {
   const claim = await Claim.findById(claimId);
   if (!claim) throw new Error('Claim not found');
-  if (claim.status !== 'Assessed') throw new Error('Self-repair is only available for assessed claims');
+  if (claim.status !== 'Assessed' && claim.status !== 'GlassApproved') throw new Error('Self-repair / cash in lieu is only available for assessed or approved glass claims');
   if (claim.selfRepair && claim.selfRepair.opted) throw new Error('Self-repair already opted in for this claim');
 
   const { parts = [], other = 0, description = '' } = estimate || {};
@@ -1574,11 +1621,6 @@ const getSelfRepairClaims = async () => {
   return cache.wrap('cache:claims:self-repair', () =>
     Claim.find({ 'selfRepair.opted': true }).sort({ createdAt: -1 }), 600);
 };
-
-const MOTOR_GLASS_TYPE_ID = '6a43d317ea0c6f0a546da885';
-
-const isGlassClaim = (claim) =>
-  claim.claimTypeId && claim.claimTypeId.toString() === MOTOR_GLASS_TYPE_ID;
 
 // Approve a glass claim — sets status to GlassApproved
 const approveGlassClaim = async (claimId, req) => {

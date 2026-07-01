@@ -7,6 +7,7 @@ const partSchema = new Schema({
   cost: { type: Number, required: false },
 });
 
+
 const bidSchema = new Schema({
   bidderType: {
     type: String,
