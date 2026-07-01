@@ -12,6 +12,7 @@ const ClaimToken = require('../models/claimToken.model');
 const crypto = require('crypto');
 const logger = require('../middlewheres/logger');
 const cache = require('../cache');
+const { analyseClaimFraud, applyFraudAnalysis, notifyAdminFraudAlert, RISK_THRESHOLD_MEDIUM } = require('./fraud.service');
 
 const invalidateClaimCache = async (claimId) => {
   const ops = [cache.delPattern('cache:claims:*')];
@@ -161,6 +162,16 @@ const fileClaimService = async (token, claimDetails, req) => {
     });
     const start = Date.now();
     await newClaim.save();
+
+    // Run fraud detection asynchronously — never block claim creation on it
+    analyseClaimFraud(newClaim).then(async (analysis) => {
+      applyFraudAnalysis(newClaim, analysis);
+      await newClaim.save();
+      if (analysis.riskLevel !== 'low') {
+        await notifyAdminFraudAlert(newClaim, analysis);
+      }
+    }).catch(err => logger.warn(`Fraud analysis failed for claim ${newClaim._id}: ${err.message}`));
+
     await invalidateClaimCache(newClaim._id);
 
     // Consume the token only after the claim is safely persisted, so a failed
@@ -217,6 +228,15 @@ const createClaim = async (data, req) => {
     const start = Date.now();
     const claim = new Claim(data);
     await claim.save();
+
+    analyseClaimFraud(claim).then(async (analysis) => {
+      applyFraudAnalysis(claim, analysis);
+      await claim.save();
+      if (analysis.riskLevel !== 'low') {
+        await notifyAdminFraudAlert(claim, analysis);
+      }
+    }).catch(err => logger.warn(`Fraud analysis failed for claim ${claim._id}: ${err.message}`));
+
     await invalidateClaimCache(claim._id);
 
     const createConfirmMsg = `Dear ${claimant.name},\n\nYour claim has been successfully submitted and is now being processed. Our team will review your claim and get back to you shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`;

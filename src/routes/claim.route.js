@@ -51,6 +51,9 @@ router.patch('/glass/approve/:id', claimController.approveGlassClaim);
 router.post('/glass/assign-supplier/:id', claimController.assignGlassSupplier);
 router.patch('/glass/complete/:id', claimController.completeGlassRepair);
 
+// Fraud detection — admin can manually re-run the automated check on any claim
+router.post('/fraud-check/:id', claimController.runFraudCheck);
+
 // Wildcard param routes last — must come after all static-segment routes
 router.get('/:id', claimController.getClaimById)
 router.post('/awardClaim/:id', claimController.awardClaim)

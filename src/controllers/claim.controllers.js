@@ -1,6 +1,8 @@
 const claimService = require('../service/claim.service');
 const assessorService = require('../service/assessor.service');
 const logger = require('../middlewheres/logger');
+const { analyseClaimFraud, applyFraudAnalysis, notifyAdminFraudAlert } = require('../service/fraud.service');
+const Claim = require('../models/claim.model');
 
 const generateClaimLinkController = async (req, res) => {
   const { email } = req.body;
@@ -445,6 +447,26 @@ const getGlassClaims = async (req, res) => {
   }
 };
 
+const runFraudCheck = async (req, res) => {
+  try {
+    const claim = await Claim.findById(req.params.id);
+    if (!claim) return res.status(404).json({ message: 'Claim not found' });
+
+    const analysis = await analyseClaimFraud(claim);
+    applyFraudAnalysis(claim, analysis);
+    await claim.save();
+
+    if (analysis.riskLevel !== 'low') {
+      await notifyAdminFraudAlert(claim, analysis);
+    }
+
+    res.status(200).json({ riskScore: analysis.score, riskLevel: analysis.riskLevel, flags: analysis.flags });
+  } catch (error) {
+    logger.error(`Error running fraud check: ${error.message}`);
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   generateClaimLinkController,
   generateAiClaimLinkController,
@@ -488,4 +510,5 @@ module.exports = {
   assignGlassSupplier,
   completeGlassRepair,
   getGlassClaims,
+  runFraudCheck,
 };

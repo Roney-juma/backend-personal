@@ -7,6 +7,7 @@ const emailService = require("../service/email.service");
 const whatsappService = require('./whatsapp.service');
 const { writeAuditLog } = require('../utils/auditHelper');
 const cache = require('../cache');
+const { analyseClaimFraud, applyFraudAnalysis, notifyAdminFraudAlert, RISK_THRESHOLD_HIGH } = require('./fraud.service');
 
 
 
@@ -268,6 +269,25 @@ const submitAssessmentReport = async (claimId, assessmentReport, req) => {
     responseTimeMs: Date.now() - start,
     changes: { old: { status: 'Assessment' }, new: { status: 'Assessed', assessmentReport } },
   });
+
+  // Re-run fraud detection now that the claim is Assessed — auto-flag if high risk
+  analyseClaimFraud(claim).then(async (analysis) => {
+    applyFraudAnalysis(claim, analysis);
+    await claim.save();
+    if (analysis.score >= RISK_THRESHOLD_HIGH) {
+      try {
+        const { flagClaimAsFraud } = require('./investigator.service');
+        const flagReason = `Automated fraud detection: score ${analysis.score}. Rules triggered: ${analysis.flags.map(f => f.ruleId).join(', ')}`;
+        const syntheticReq = { user: { _id: null, id: 'system' }, method: 'SYSTEM', path: '/fraud-detection', ip: '127.0.0.1' };
+        await flagClaimAsFraud(claimId, flagReason, null, 'system', syntheticReq);
+      } catch (err) {
+        require('../middlewheres/logger').warn(`Auto-flag failed for claim ${claimId}: ${err.message}`);
+      }
+    }
+    if (analysis.riskLevel !== 'low') {
+      await notifyAdminFraudAlert(claim, analysis);
+    }
+  }).catch(err => require('../middlewheres/logger').warn(`Fraud analysis failed for claim ${claimId}: ${err.message}`));
 
   return claim;
 };
