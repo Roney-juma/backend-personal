@@ -5,6 +5,14 @@ const { sendEmailDirect } = require('./service/email.service');
 const { sendWhatsAppDirect } = require('./service/whatsapp.service');
 const logger = require('./middlewheres/logger');
 
+// Mongoose must be connected for the pipeline's DB queries
+const mongoose = require('mongoose');
+if (mongoose.connection.readyState === 0) {
+  mongoose.connect(process.env.MONGO_URI || process.env.DATABASE_URL).catch(err =>
+    logger.error(`Worker MongoDB connect failed: ${err.message}`)
+  );
+}
+
 const connection = getRedisClient();
 
 if (!connection) {
@@ -12,7 +20,9 @@ if (!connection) {
   process.exit(1);
 }
 
-const processor = async (job) => {
+// ── Notification worker ───────────────────────────────────────────────────────
+
+const notificationProcessor = async (job) => {
   switch (job.name) {
     case 'email': {
       const { to, subject, text } = job.data;
@@ -27,35 +37,56 @@ const processor = async (job) => {
       break;
     }
     default:
-      logger.warn(`Unknown job type: ${job.name}`);
+      logger.warn(`Unknown notification job type: ${job.name}`);
   }
 };
 
-const worker = new Worker('ave-notifications', processor, {
+const worker = new Worker('ave-notifications', notificationProcessor, {
   connection,
   concurrency: 10,
-  limiter: {
-    max: 50,
-    duration: 1000,
-  },
+  limiter: { max: 50, duration: 1000 },
 });
+
+// ── Fraud analysis worker ─────────────────────────────────────────────────────
+
+const pipeline = require('./ai/pipeline');
+
+const analyzeWorker = new Worker('claim-analyze', async (job) => {
+  const { claimId } = job.data;
+  if (!claimId) throw new Error(`Invalid claim-analyze job: missing claimId`);
+  logger.info(`[pipeline] starting analysis for claim ${claimId}`);
+  await pipeline.run(claimId);
+}, {
+  connection,
+  concurrency: 5, // analysis is heavier than notifications
+});
+
+// ── Event listeners ───────────────────────────────────────────────────────────
 
 worker.on('completed', (job) => {
-  logger.info(`Job completed | id=${job.id} | type=${job.name}`);
+  logger.info(`Job completed | queue=notifications | id=${job.id} | type=${job.name}`);
 });
-
 worker.on('failed', (job, err) => {
-  logger.error(`Job failed | id=${job?.id} | type=${job?.name} | attempt=${job?.attemptsMade} | error=${err.message}`);
+  logger.error(`Job failed | queue=notifications | id=${job?.id} | type=${job?.name} | attempt=${job?.attemptsMade} | error=${err.message}`);
 });
-
 worker.on('error', (err) => {
-  logger.error(`Worker error: ${err.message}`);
+  logger.error(`Notification worker error: ${err.message}`);
 });
 
-logger.info('Notification worker started — listening on ave-notifications queue');
+analyzeWorker.on('completed', (job) => {
+  logger.info(`Job completed | queue=claim-analyze | id=${job.id} | claimId=${job.data?.claimId}`);
+});
+analyzeWorker.on('failed', (job, err) => {
+  logger.error(`Job failed | queue=claim-analyze | id=${job?.id} | claimId=${job?.data?.claimId} | attempt=${job?.attemptsMade} | error=${err.message}`);
+});
+analyzeWorker.on('error', (err) => {
+  logger.error(`Analyze worker error: ${err.message}`);
+});
+
+logger.info('Workers started — ave-notifications + claim-analyze');
 
 process.on('SIGTERM', async () => {
-  await worker.close();
-  logger.info('Worker shut down gracefully');
+  await Promise.all([worker.close(), analyzeWorker.close()]);
+  logger.info('Workers shut down gracefully');
   process.exit(0);
 });

@@ -12,7 +12,8 @@ const ClaimToken = require('../models/claimToken.model');
 const crypto = require('crypto');
 const logger = require('../middlewheres/logger');
 const cache = require('../cache');
-const { analyseClaimFraud, applyFraudAnalysis, notifyAdminFraudAlert, RISK_THRESHOLD_MEDIUM } = require('./fraud.service');
+const { getAnalyzeQueue } = require('../queue/queues');
+const FraudOutcome = require('../models/fraudOutcome.model');
 
 const invalidateClaimCache = async (claimId) => {
   const ops = [cache.delPattern('cache:claims:*')];
@@ -163,14 +164,13 @@ const fileClaimService = async (token, claimDetails, req) => {
     const start = Date.now();
     await newClaim.save();
 
-    // Run fraud detection asynchronously — never block claim creation on it
-    analyseClaimFraud(newClaim).then(async (analysis) => {
-      applyFraudAnalysis(newClaim, analysis);
-      await newClaim.save();
-      if (analysis.riskLevel !== 'low') {
-        await notifyAdminFraudAlert(newClaim, analysis);
-      }
-    }).catch(err => logger.warn(`Fraud analysis failed for claim ${newClaim._id}: ${err.message}`));
+    // Enqueue async fraud analysis — never blocks the HTTP response
+    const analyzeQueue = getAnalyzeQueue();
+    if (analyzeQueue) {
+      await analyzeQueue.add('analyze', { claimId: newClaim._id.toString() }).catch(err =>
+        logger.warn(`Failed to enqueue claim analysis for ${newClaim._id}: ${err.message}`)
+      );
+    }
 
     await invalidateClaimCache(newClaim._id);
 
@@ -229,13 +229,12 @@ const createClaim = async (data, req) => {
     const claim = new Claim(data);
     await claim.save();
 
-    analyseClaimFraud(claim).then(async (analysis) => {
-      applyFraudAnalysis(claim, analysis);
-      await claim.save();
-      if (analysis.riskLevel !== 'low') {
-        await notifyAdminFraudAlert(claim, analysis);
-      }
-    }).catch(err => logger.warn(`Fraud analysis failed for claim ${claim._id}: ${err.message}`));
+    const analyzeQueue = getAnalyzeQueue();
+    if (analyzeQueue) {
+      await analyzeQueue.add('analyze', { claimId: claim._id.toString() }).catch(err =>
+        logger.warn(`Failed to enqueue claim analysis for ${claim._id}: ${err.message}`)
+      );
+    }
 
     await invalidateClaimCache(claim._id);
 
@@ -412,6 +411,16 @@ const approveClaim = async (id, req) => {
     }
   }
 
+  // Capture outcome for ML training (§9 — cleared on approval)
+  FraudOutcome.create({
+    claimId: claim._id,
+    analysisId: claim.ai?.analysisId,
+    predictedBand: claim.ai?.riskBand,
+    actualOutcome: 'cleared',
+    decidedBy: req?.user?._id || req?.user?.id,
+    decidedAt: new Date(),
+  }).catch(err => logger.warn(`FraudOutcome capture failed for claim ${claim._id}: ${err.message}`));
+
   return claim;
 };
 
@@ -500,6 +509,17 @@ const rejectClaim = async (id, rejectionReason, req) => {
       whatsappNumber: claimant?.phone,
     });
   }
+
+  // Capture outcome for ML training (§9 — confirmed_fraud on rejection)
+  FraudOutcome.create({
+    claimId: claim._id,
+    analysisId: claim.ai?.analysisId,
+    predictedBand: claim.ai?.riskBand,
+    actualOutcome: 'confirmed_fraud',
+    decidedBy: req?.user?._id || req?.user?.id,
+    decidedAt: new Date(),
+    notes: rejectionReason.trim(),
+  }).catch(err => logger.warn(`FraudOutcome capture failed for claim ${claim._id}: ${err.message}`));
 
   return claim;
 };
