@@ -77,14 +77,24 @@ const run = async (claim) => {
   const signals = [];
   const checksRun = [];
 
-  const photos = claim.supportingDocuments?.photos || [];
-  if (!photos.length) return { signals, checksRun };
+  // Collect photos from all sources present on the claim at analysis time
+  const claimantPhotos = (claim.supportingDocuments?.photos || []).map(url => ({ url, source: 'claimant' }));
+  const assessmentPhotos = (() => {
+    const report = claim.assessmentReport;
+    if (!report) return [];
+    const urls = report.photos || report.damagePhotos || report.images || [];
+    return (Array.isArray(urls) ? urls : []).map(url => ({ url, source: 'assessor' }));
+  })();
+  const reAssessmentPhotos = (claim.reAssessmentReport?.photos || []).map(url => ({ url, source: 're_assessor' }));
+
+  const allPhotos = [...claimantPhotos, ...assessmentPhotos, ...reAssessmentPhotos];
+  if (!allPhotos.length) return { signals, checksRun };
 
   const incidentLat = claim.incidentDetails?.latitude;
   const incidentLon = claim.incidentDetails?.longitude;
   const incidentDate = claim.incidentDetails?.date ? new Date(claim.incidentDetails.date) : null;
 
-  for (const url of photos) {
+  for (const { url, source: photoSource } of allPhotos) {
     let buf = null;
     try {
       buf = await fetchBuffer(url);
@@ -102,7 +112,7 @@ const run = async (claim) => {
         type: 'exif_stripped',
         severity: 'low',
         evidence: url,
-        explanation: 'Photo has no EXIF metadata — may indicate image editing or re-upload.',
+        explanation: `${photoSource} photo has no EXIF metadata — may indicate image editing or re-upload.`,
         source: 'image_forensics',
       });
     }
@@ -120,7 +130,7 @@ const run = async (claim) => {
             severity: distKm > 50 ? 'high' : 'medium',
             value: Math.round(distKm),
             evidence: url,
-            explanation: `Photo GPS is ${Math.round(distKm)} km from the reported incident location.`,
+            explanation: `${photoSource} photo GPS is ${Math.round(distKm)} km from the reported incident location.`,
             source: 'image_forensics',
           });
         }
@@ -137,10 +147,10 @@ const run = async (claim) => {
         if (diffH > TIMESTAMP_TOLERANCE_H) {
           signals.push({
             type: 'timestamp_mismatch',
-            severity: diffH > 168 ? 'high' : 'medium', // >7 days = high
+            severity: diffH > 168 ? 'high' : 'medium',
             value: Math.round(diffH),
             evidence: url,
-            explanation: `Photo was taken ${Math.round(diffH)} hours ${photoDate < incidentDate ? 'before' : 'after'} the reported incident date.`,
+            explanation: `${photoSource} photo was taken ${Math.round(diffH)} hours ${photoDate < incidentDate ? 'before' : 'after'} the reported incident date.`,
             source: 'image_forensics',
           });
         }
@@ -151,10 +161,8 @@ const run = async (claim) => {
     const phash = await computePhash(buf);
     if (phash) {
       checksRun.push('duplicate_image');
-      // Store this photo's hash
       await ClaimPhotoHash.create({ claimId: claim._id, url, phash }).catch(() => {});
 
-      // Compare against other claims' photo hashes (not this claim's own photos)
       const existing = await ClaimPhotoHash.find({
         claimId: { $ne: claim._id },
       }).select('phash claimId url').lean().limit(5000);
@@ -165,7 +173,7 @@ const run = async (claim) => {
           type: 'duplicate_image',
           severity: 'high',
           evidence: url,
-          explanation: `This photo is visually identical or near-identical to one used in claim ${match.claimId}.`,
+          explanation: `${photoSource} photo is visually identical or near-identical to one used in claim ${match.claimId}.`,
           source: 'image_forensics',
         });
       }

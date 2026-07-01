@@ -7,6 +7,8 @@ const emailService = require("../service/email.service");
 const whatsappService = require('./whatsapp.service');
 const { writeAuditLog } = require('../utils/auditHelper');
 const cache = require('../cache');
+const { getAnalyzeQueue } = require('../queue/queues');
+const logger = require('../middlewheres/logger');
 
 
 
@@ -256,6 +258,14 @@ const submitAssessmentReport = async (claimId, assessmentReport, req) => {
   await claim.save();
   await cache.delPattern('cache:claims:*');
   await cache.del(`cache:claim:${claimId}`);
+
+  // Re-run fraud pipeline now that assessor photos are available
+  const analyzeQueue = getAnalyzeQueue();
+  if (analyzeQueue) {
+    analyzeQueue.add('analyze', { claimId: claim._id.toString() }).catch(err =>
+      logger.warn(`Failed to re-enqueue analysis after assessment for ${claim._id}: ${err.message}`)
+    );
+  }
 
   await writeAuditLog(req, {
     action: 'UPDATE',
