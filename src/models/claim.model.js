@@ -283,6 +283,13 @@ const claimSchema = new Schema({
       default: 'Pending',
     },
   },
+  ai: {
+    status: { type: String, enum: ['pending', 'analyzing', 'analyzed', 'error'], default: 'pending' },
+    riskScore: { type: Number },
+    riskBand: { type: String, enum: ['low', 'medium', 'high'] },
+    analysisId: { type: mongoose.Schema.Types.ObjectId, ref: 'AiAnalysis' },
+    analyzedAt: { type: Date },
+  },
 }, { timestamps: true });
 
 const Claim = mongoose.model('Claim', claimSchema);
