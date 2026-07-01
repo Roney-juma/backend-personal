@@ -4,10 +4,20 @@
 module.exports = {
   weights: {
     // Image forensics
-    duplicate_image:      40,
-    gps_mismatch:         25,
-    timestamp_mismatch:   15,
-    exif_stripped:        10,
+    duplicate_image:        40,
+    gps_mismatch:           25,
+    timestamp_mismatch:     15,
+    photo_too_old:          30, // capture date > 7 days before filing
+    photo_age_unverifiable: 10, // no capture date — age couldn't be checked
+    exif_stripped:          10,
+
+    // Vehicle continuity (cross-stage identity)
+    vin_mismatch:               45,
+    plate_mismatch:             45,
+    vehicle_mismatch_assessment: 35,
+    vehicle_mismatch_garage:     35,
+    vehicle_mismatch_reassessment: 35,
+    identity_unverifiable:       5,
 
     // Data/DB forensics
     duplicate_police_report: 40,

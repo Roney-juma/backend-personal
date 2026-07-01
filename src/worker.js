@@ -50,10 +50,17 @@ const worker = new Worker('ave-notifications', notificationProcessor, {
 // ── Fraud analysis worker ─────────────────────────────────────────────────────
 
 const pipeline = require('./ai/pipeline');
+const continuityPipeline = require('./ai/continuityPipeline');
 
 const analyzeWorker = new Worker('claim-analyze', async (job) => {
-  const { claimId } = job.data;
+  const { claimId, stage } = job.data;
   if (!claimId) throw new Error(`Invalid claim-analyze job: missing claimId`);
+  if (stage) {
+    // Cross-stage vehicle-continuity check (assessment / garage / re-assessment).
+    logger.info(`[continuity] starting ${stage} check for claim ${claimId}`);
+    await continuityPipeline.runStageCheck(claimId, stage);
+    return;
+  }
   logger.info(`[pipeline] starting analysis for claim ${claimId}`);
   await pipeline.run(claimId);
 }, {

@@ -67,12 +67,15 @@ function buildSystem(customer, now = moment.tz(CLAIM_TZ), coordinates = null) {
     `YOUR JOB`,
     `- Greet ${name} by name on the first turn and explain you'll help report the incident.`,
     `- Collect the required details conversationally, a few at a time. Record everything via the set_claim_details tool as you learn it.`,
-    `- REQUIRED before filing: incident date, time, location and description; for each vehicle make, model, year and licence plate; for each driver name, phone, email and licence number.`,
-    `- Optional (ask briefly, don't insist): other-vehicle/property damage, injuries, witnesses, police report, photos.`,
-    `- Proactively invite helpful photos: the damaged vehicle from a few angles, the driving licence, the insurance sticker/disc, and the wider scene of the accident. Explain these speed up assessment.`,
+    `- REQUIRED before filing: incident date, time, location and description; for each vehicle make, model, year and licence plate; for each driver name, phone, email and licence number; and at least TWO clear photos.`,
+    `- BE THOROUGH: ask plenty of follow-up questions to build a complete picture — how the accident happened step by step, direction and rough speed of travel, the point of impact, visible damage to each vehicle, any third parties or pedestrians, road/weather/lighting conditions, whether the vehicle is still driveable, and where it is now. Ask a few at a time so it feels like a friendly conversation, not an interrogation, but keep digging for detail the assessor would want.`,
+    `- Optional (offer warmly, don't insist): other-vehicle/property damage, injuries, witnesses, police report, towing, and videos.`,
+    `- PHOTOS: politely ask for as MANY photos as possible — the wider accident scene, every angle of the damage, close-ups of the damaged parts, the other vehicle(s), number plates, and any skid marks, debris or road signs. Explain that more photos mean a faster, more accurate assessment. Keep gently encouraging more ("any other angles you can add?") until they say that's everything. At least two photos are required to file.`,
+    `- VIDEOS: politely ask whether they have a video from the accident or scene, or can record a short walk-around video of the damage now. Explain that a video helps the assessor understand the damage faster, which speeds up the claim's resolution. Videos are optional — encourage them, but never block filing on them.`,
     ``,
-    `PHOTOS & DOCUMENTS (you can SEE the images the claimant uploads)`,
+    `PHOTOS, VIDEOS & DOCUMENTS (you can SEE the images the claimant uploads, but NOT videos)`,
     `- When a photo is attached, an "(attached photo URL: ...)" line accompanies it. ALWAYS record that exact URL in supportingDocuments.photos via set_claim_details (send the complete list).`,
+    `- When a VIDEO is attached, an "(attached video URL: ...)" line accompanies it — you cannot watch it. Record that exact URL in supportingDocuments.videos via set_claim_details (send the complete list), thank them, and mention it will help the assessor.`,
     `- Look at each image and briefly acknowledge what you see (e.g. "I can see the dented rear bumper").`,
     `- QUALITY CHECK: if an image is blurry, too dark, cropped, or the detail is unreadable, say so plainly and ask for a clearer retake before moving on.`,
     `- OCR CONFIRMATION: if the image is a DRIVING LICENCE, read the licence number (and holder name) and confirm it back — e.g. "I read the licence number as DL-12345 — is that correct?". Only save it to the matching driver's driverLicenseNumber AFTER the claimant confirms. If you cannot read it confidently, ask them to type it.`,
@@ -83,7 +86,7 @@ function buildSystem(customer, now = moment.tz(CLAIM_TZ), coordinates = null) {
     `- Never invent or assume details. If unsure, ask. Never state an OCR reading as fact until the claimant confirms it.`,
     `- Do not ask for the claimant's name, phone, email, or address — you already have them.`,
     `- Only ask for what is still missing (the set_claim_details tool tells you what's outstanding — both missingRequired and missingOptional).`,
-    `- Before filing, once the required fields are complete, go through the still-empty OPTIONAL items (from missingOptional: other-vehicle/property damage, injuries, witnesses, police report, towing) and OFFER to add them — e.g. "Would you like to add any injuries or witnesses? You can also skip." Do not force them; if the claimant declines, move on.`,
+    `- Before filing, once the required fields are complete, go through the still-empty OPTIONAL items (from missingOptional: other-vehicle/property damage, injuries, witnesses, police report, towing, videos) and OFFER to add them — e.g. "Would you like to add any injuries, witnesses, or a video of the damage? You can also skip." Do not force them; if the claimant declines, move on.`,
     `- When nothing required is missing, show a clear plain-language SUMMARY of the claim and ask the claimant to confirm before filing.`,
     `- Only call submit_claim AFTER the claimant explicitly confirms, with confirmed=true. Never file without confirmation.`,
     `- Keep replies concise and warm. Respond with your message to the claimant only — no internal notes.`,
@@ -95,14 +98,21 @@ function buildSystem(customer, now = moment.tz(CLAIM_TZ), coordinates = null) {
  * With images we send a text block plus one vision image block per URL, and echo
  * each URL in the text so the model can record it in supportingDocuments.photos.
  */
-function buildUserTurn(userMessage, images = []) {
-  const urls = (Array.isArray(images) ? images : []).filter((u) => typeof u === 'string' && u);
-  if (urls.length === 0) return userMessage;
+function buildUserTurn(userMessage, images = [], videos = []) {
+  const imgUrls = (Array.isArray(images) ? images : []).filter((u) => typeof u === 'string' && u);
+  const vidUrls = (Array.isArray(videos) ? videos : []).filter((u) => typeof u === 'string' && u);
+  if (imgUrls.length === 0 && vidUrls.length === 0) return userMessage;
 
-  const text = [userMessage, ...urls.map((u) => `(attached photo URL: ${u})`)].join('\n');
+  // Photos are echoed as vision blocks (the model can see them). Videos are only
+  // echoed as a URL line — the model can't watch them, but records the link.
+  const text = [
+    userMessage,
+    ...imgUrls.map((u) => `(attached photo URL: ${u})`),
+    ...vidUrls.map((u) => `(attached video URL: ${u})`),
+  ].join('\n');
   return [
     { type: 'text', text },
-    ...urls.map((url) => ({ type: 'image', source: { type: 'url', url } })),
+    ...imgUrls.map((url) => ({ type: 'image', source: { type: 'url', url } })),
   ];
 }
 
@@ -129,9 +139,9 @@ const textOf = (content) =>
  * @param {Object} params.req         Express req (for fileClaimService audit log).
  * @returns {Object} { messages, reply, status, claimId }
  */
-async function runClaimIntake({ customer, token, messages = [], userMessage, images = [], coordinates = null, req }) {
+async function runClaimIntake({ customer, token, messages = [], userMessage, images = [], videos = [], coordinates = null, req }) {
   const system = buildSystem(customer, moment.tz(CLAIM_TZ), coordinates);
-  const working = [...messages, { role: 'user', content: buildUserTurn(userMessage, images) }];
+  const working = [...messages, { role: 'user', content: buildUserTurn(userMessage, images, videos) }];
   const cost = new CostTracker('claim-intake');
 
   let status = 'collecting';

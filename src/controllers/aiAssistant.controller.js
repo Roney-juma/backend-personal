@@ -32,13 +32,16 @@ const claimIntakePage = (req, res) => {
  */
 const claimIntake = async (req, res) => {
   try {
-    const { messages = [], userMessage, images = [], coordinates } = req.body || {};
+    const { messages = [], userMessage, images = [], videos = [], coordinates } = req.body || {};
     if (!userMessage || typeof userMessage !== 'string') {
       return res.status(400).json({ message: 'userMessage is required' });
     }
 
     const priorMessages = Array.isArray(messages) ? messages : [];
     const photoUrls = (Array.isArray(images) ? images : []).filter((u) => typeof u === 'string' && u);
+    // Videos aren't run through the vision gate (they can't be classified) — they
+    // are forwarded straight to the agent, which records them as evidence links.
+    const videoUrls = (Array.isArray(videos) ? videos : []).filter((u) => typeof u === 'string' && u);
 
     // Best-effort device location from the browser. Only accepted as a finite
     // lat/long pair; the assistant OFFERS it as the incident location and must
@@ -75,6 +78,7 @@ const claimIntake = async (req, res) => {
       messages: priorMessages,
       userMessage,
       images: photoUrls,
+      videos: videoUrls,
       coordinates: coords,
       req,
     });

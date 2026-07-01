@@ -26,7 +26,7 @@ const TOOLS = [
       'claimant gives new incident, vehicle, or driver information. Send only the ' +
       'fields you have; you may call it multiple times as the conversation goes. ' +
       'For list fields (vehiclesInvolved, drivers, passengers, injuries, witnesses, ' +
-      'supportingDocuments.photos) always send the COMPLETE current list, not a delta. ' +
+      'supportingDocuments.photos, supportingDocuments.videos) always send the COMPLETE current list, not a delta. ' +
       'Do NOT include claimant name/phone/email/address — those are already known.',
     input_schema: {
       type: 'object',
@@ -89,7 +89,10 @@ const TOOLS = [
         policeReport: { type: 'object' },
         supportingDocuments: {
           type: 'object',
-          properties: { photos: { type: 'array', items: { type: 'string' } } },
+          properties: {
+            photos: { type: 'array', items: { type: 'string' } },
+            videos: { type: 'array', items: { type: 'string' } },
+          },
         },
         additionalInfo: { type: 'object' },
       },
@@ -172,10 +175,10 @@ function missingRequired(draft) {
     if (!d.driverLicenseNumber) missing.push(`driver ${i + 1} licence number`);
   });
 
-  // The claim schema requires at least one supporting photo, so treat it as
-  // required here too — otherwise submit_claim fails DB validation.
+  // Require at least TWO supporting photos so the assessor has more than a single
+  // angle to work from. (The DB schema still only enforces one.)
   const photos = (draft.supportingDocuments && draft.supportingDocuments.photos) || [];
-  if (photos.length === 0) missing.push('at least one supporting photo');
+  if (photos.length < 2) missing.push(`at least two supporting photos (${photos.length} attached so far)`);
 
   return missing;
 }
@@ -218,6 +221,8 @@ function missingOptional(draft) {
   if (!pr.reportNumber) optional.push('police report details');
   const towing = (draft.additionalInfo || {}).towingDetails || {};
   if (!towing.company && !towing.location) optional.push('towing details');
+  const videos = (draft.supportingDocuments || {}).videos || [];
+  if (videos.length === 0) optional.push('a video of the accident or damage');
   return optional;
 }
 
