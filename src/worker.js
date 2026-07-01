@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 const { Worker } = require('bullmq');
 const { getRedisClient } = require('./queue/connection');
 const { sendEmailDirect } = require('./service/email.service');

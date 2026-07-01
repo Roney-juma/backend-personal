@@ -3,6 +3,7 @@ module.exports = {
     {
       name: 'app',
       script: 'src/app.js',
+      cwd: __dirname,
       instances: 1,
       autorestart: true,
       watch: false,
@@ -11,6 +12,7 @@ module.exports = {
     {
       name: 'worker',
       script: 'src/worker.js',
+      cwd: __dirname,
       instances: 1,
       autorestart: true,
       watch: false,
