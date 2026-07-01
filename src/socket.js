@@ -6,7 +6,7 @@ let io;
 const init = (httpServer) => {
   io = socketIo(httpServer, {
     cors: {
-      origin: ['*', 'https://avics.aveafrica.com/'],
+      origin: '*',
       methods: ['GET', 'POST', 'PUT', 'DELETE'],
       allowedHeaders: ['Content-Type', 'Authorization'],
     },
