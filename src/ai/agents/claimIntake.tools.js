@@ -162,7 +162,29 @@ function missingRequired(draft) {
     if (!d.driverLicenseNumber) missing.push(`driver ${i + 1} licence number`);
   });
 
+  // The claim schema requires at least one supporting photo, so treat it as
+  // required here too — otherwise submit_claim fails DB validation.
+  const photos = (draft.supportingDocuments && draft.supportingDocuments.photos) || [];
+  if (photos.length === 0) missing.push('at least one supporting photo');
+
   return missing;
+}
+
+/**
+ * Optional fields that are still empty. The agent uses this to OFFER to add
+ * them before filing, rather than skipping them silently. Never blocks submit.
+ */
+function missingOptional(draft) {
+  const optional = [];
+  const dmg = draft.damage || {};
+  if (!dmg.otherVehicles && !dmg.property) optional.push('damage to other vehicles or property');
+  if ((draft.injuries || []).length === 0) optional.push('injuries');
+  if ((draft.witnesses || []).length === 0) optional.push('witnesses');
+  const pr = draft.policeReport || {};
+  if (!pr.reportNumber) optional.push('police report details');
+  const towing = (draft.additionalInfo || {}).towingDetails || {};
+  if (!towing.company && !towing.location) optional.push('towing details');
+  return optional;
 }
 
 // ---- tool executors --------------------------------------------------------
@@ -182,6 +204,7 @@ async function executeTool(block, ctx) {
       content: JSON.stringify({
         accepted: true,
         missingRequired: missing,
+        missingOptional: missingOptional(draft),
         complete: missing.length === 0,
       }),
     };
@@ -214,4 +237,4 @@ async function executeTool(block, ctx) {
   return { content: JSON.stringify({ error: `Unknown tool: ${block.name}` }), isError: true };
 }
 
-module.exports = { TOOLS, executeTool, reconstructDraft, missingRequired };
+module.exports = { TOOLS, executeTool, reconstructDraft, missingRequired, missingOptional };

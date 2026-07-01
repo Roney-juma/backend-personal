@@ -20,11 +20,12 @@ const AGENT_MODEL = process.env.ANTHROPIC_MODEL_AGENT || 'claude-opus-4-8';
  * @param {string}   opts.system     Stable system prompt (cached as a prefix).
  * @param {Array}    opts.messages   Anthropic-format message array.
  * @param {Array}    [opts.tools]    Tool definitions.
+ * @param {Object}   [opts.toolChoice] Anthropic tool_choice (e.g. force a tool).
  * @param {string}   [opts.model]    Override the model id.
  * @param {number}   [opts.maxTokens]
  * @returns the raw Anthropic message response.
  */
-const complete = async ({ system, messages, tools, model, maxTokens = 1024 }) => {
+const complete = async ({ system, messages, tools, toolChoice, model, maxTokens = 1024 }) => {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error('ANTHROPIC_API_KEY is not configured');
   }
@@ -41,6 +42,7 @@ const complete = async ({ system, messages, tools, model, maxTokens = 1024 }) =>
     ...(systemBlocks ? { system: systemBlocks } : {}),
     messages,
     ...(tools ? { tools } : {}),
+    ...(toolChoice ? { tool_choice: toolChoice } : {}),
   });
 
   if (response.usage) {

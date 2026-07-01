@@ -83,7 +83,7 @@ async function send(userMessage, opts = {}) {
   try {
     const res = await fetch('/ai/claim-intake/' + TOKEN, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages, userMessage })
+      body: JSON.stringify({ messages, userMessage, images: opts.images || [] })
     });
     const data = await res.json();
     showTyping(false);
@@ -103,13 +103,30 @@ input.addEventListener('input', () => { input.style.height='auto'; input.style.h
 document.getElementById('attach').onclick = () => fileInput.click();
 fileInput.onchange = async () => {
   const f = fileInput.files[0]; if (!f) return;
-  const fd = new FormData(); fd.append('image', f);
-  banner('typing', 'uploading photo…');
+  if (busy || done) { fileInput.value=''; return; }
+  // 1) Validate the photo BEFORE uploading — reject anything that isn't a
+  //    vehicle, damage, accident scene, or supporting document.
+  banner('typing', 'checking photo…');
   try {
+    const vfd = new FormData(); vfd.append('image', f);
+    const vr = await fetch('/ai/claim-intake/' + TOKEN + '/validate-photo', { method:'POST', body: vfd });
+    const v = await vr.json();
+    if (!vr.ok) { banner('err', v.message || 'Could not check the photo.'); fileInput.value=''; return; }
+    if (!v.valid) {
+      banner('err', (v.reason || "That photo doesn't look claim-related.") + ' Please upload a photo of the vehicle, the damage, the accident scene, or a document.');
+      fileInput.value=''; return;
+    }
+    // 2) Upload the accepted photo to storage.
+    banner('typing', 'uploading photo…');
+    const fd = new FormData(); fd.append('image', f);
     const r = await fetch('/images/upload', { method:'POST', body: fd });
     const d = await r.json();
-    if (d.url) { addBubble('me', 'I have attached a photo of the damage.', d.url); persist(); send('Here is a photo of the damage: ' + d.url, { hidden: true }); }
-    else banner('err', 'Photo upload failed.');
+    if (d.url) {
+      addBubble('me', 'I have attached a photo.', d.url);
+      persist();
+      // 3) Send the URL as a real image so the assistant can SEE it.
+      send('I have attached a photo.', { hidden: true, images: [d.url] });
+    } else banner('err', 'Photo upload failed.');
   } catch(e){ banner('err','Photo upload failed.'); }
   fileInput.value='';
 };

@@ -29,16 +29,41 @@ function buildSystem(customer) {
     `- Collect the required details conversationally, a few at a time. Record everything via the set_claim_details tool as you learn it.`,
     `- REQUIRED before filing: incident date, time, location and description; for each vehicle make, model, year and licence plate; for each driver name, phone, email and licence number.`,
     `- Optional (ask briefly, don't insist): other-vehicle/property damage, injuries, witnesses, police report, photos.`,
-    `- If the claimant uploaded photos, their URLs will appear in the chat; record them in supportingDocuments.photos.`,
+    `- Proactively invite helpful photos: the damaged vehicle from a few angles, the driving licence, the insurance sticker/disc, and the wider scene of the accident. Explain these speed up assessment.`,
+    ``,
+    `PHOTOS & DOCUMENTS (you can SEE the images the claimant uploads)`,
+    `- When a photo is attached, an "(attached photo URL: ...)" line accompanies it. ALWAYS record that exact URL in supportingDocuments.photos via set_claim_details (send the complete list).`,
+    `- Look at each image and briefly acknowledge what you see (e.g. "I can see the dented rear bumper").`,
+    `- QUALITY CHECK: if an image is blurry, too dark, cropped, or the detail is unreadable, say so plainly and ask for a clearer retake before moving on.`,
+    `- OCR CONFIRMATION: if the image is a DRIVING LICENCE, read the licence number (and holder name) and confirm it back — e.g. "I read the licence number as DL-12345 — is that correct?". Only save it to the matching driver's driverLicenseNumber AFTER the claimant confirms. If you cannot read it confidently, ask them to type it.`,
+    `- If the image is an INSURANCE STICKER/DISC, read the policy/certificate number and expiry and confirm them back the same way; record confirmed values in additionalInfo.`,
+    `- For damage or scene photos, note what they show in the incident description if it adds detail. Never guess at text you cannot actually read.`,
     ``,
     `RULES`,
-    `- Never invent or assume details. If unsure, ask.`,
+    `- Never invent or assume details. If unsure, ask. Never state an OCR reading as fact until the claimant confirms it.`,
     `- Do not ask for the claimant's name, phone, email, or address — you already have them.`,
-    `- Only ask for what is still missing (the set_claim_details tool tells you what's outstanding).`,
+    `- Only ask for what is still missing (the set_claim_details tool tells you what's outstanding — both missingRequired and missingOptional).`,
+    `- Before filing, once the required fields are complete, go through the still-empty OPTIONAL items (from missingOptional: other-vehicle/property damage, injuries, witnesses, police report, towing) and OFFER to add them — e.g. "Would you like to add any injuries or witnesses? You can also skip." Do not force them; if the claimant declines, move on.`,
     `- When nothing required is missing, show a clear plain-language SUMMARY of the claim and ask the claimant to confirm before filing.`,
     `- Only call submit_claim AFTER the claimant explicitly confirms, with confirmed=true. Never file without confirmation.`,
     `- Keep replies concise and warm. Respond with your message to the claimant only — no internal notes.`,
   ].join('\n');
+}
+
+/**
+ * Build the user turn content. With no images it stays a plain string (cheapest).
+ * With images we send a text block plus one vision image block per URL, and echo
+ * each URL in the text so the model can record it in supportingDocuments.photos.
+ */
+function buildUserTurn(userMessage, images = []) {
+  const urls = (Array.isArray(images) ? images : []).filter((u) => typeof u === 'string' && u);
+  if (urls.length === 0) return userMessage;
+
+  const text = [userMessage, ...urls.map((u) => `(attached photo URL: ${u})`)].join('\n');
+  return [
+    { type: 'text', text },
+    ...urls.map((url) => ({ type: 'image', source: { type: 'url', url } })),
+  ];
 }
 
 const textOf = (content) =>
@@ -56,12 +81,14 @@ const textOf = (content) =>
  * @param {string} params.token       Claim token (credential for filing).
  * @param {Array}  params.messages    Prior Anthropic-format history (may be []).
  * @param {string} params.userMessage New user text for this turn.
+ * @param {Array}  [params.images]    S3 URLs of photos attached this turn; passed
+ *                                    to the model as vision image blocks.
  * @param {Object} params.req         Express req (for fileClaimService audit log).
  * @returns {Object} { messages, reply, status, claimId }
  */
-async function runClaimIntake({ customer, token, messages = [], userMessage, req }) {
+async function runClaimIntake({ customer, token, messages = [], userMessage, images = [], req }) {
   const system = buildSystem(customer);
-  const working = [...messages, { role: 'user', content: userMessage }];
+  const working = [...messages, { role: 'user', content: buildUserTurn(userMessage, images) }];
   const cost = new CostTracker('claim-intake');
 
   let status = 'collecting';
