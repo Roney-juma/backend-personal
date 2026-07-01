@@ -1,6 +1,6 @@
 const { runClaimIntake } = require('../ai/agents/claimIntake.agent');
 const { runStaffAssistant } = require('../ai/agents/staffAssistant.agent');
-const { validatePhoto } = require('../ai/agents/photoValidator');
+const { validatePhoto, validatePhotoUrl } = require('../ai/agents/photoValidator');
 const { renderIntakePage } = require('../ai/intakePage');
 const logger = require('../middlewheres/logger');
 
@@ -17,10 +17,16 @@ const claimIntakePage = (req, res) => {
 /**
  * POST /ai/claim-intake/:token   (token-authenticated via verifyClaimToken)
  *
- * Body: { messages?: AnthropicMessage[], userMessage: string }
+ * Body: { messages?: AnthropicMessage[], userMessage: string, images?: string[] }
  *  - `messages`     : prior conversation returned by the previous response (opaque
  *                     to the client; empty/absent on the first turn).
  *  - `userMessage`  : the claimant's new message this turn.
+ *  - `images`       : URLs of photos attached this turn.
+ *
+ * Every attached photo is validated SERVER-SIDE here (not just in the browser),
+ * so irrelevant images can't reach the claim regardless of which frontend or
+ * upload path was used. If any photo is irrelevant, the turn is rejected and
+ * nothing is recorded.
  *
  * Returns: { messages, reply, status: 'collecting'|'submitted', claimId? }
  */
@@ -31,12 +37,33 @@ const claimIntake = async (req, res) => {
       return res.status(400).json({ message: 'userMessage is required' });
     }
 
+    const priorMessages = Array.isArray(messages) ? messages : [];
+    const photoUrls = (Array.isArray(images) ? images : []).filter((u) => typeof u === 'string' && u);
+
+    // Server-side photo gate: reject the turn if any attached photo is not a
+    // vehicle, damage, accident scene, or supporting document.
+    if (photoUrls.length > 0) {
+      const checks = await Promise.all(photoUrls.map((url) => validatePhotoUrl(url)));
+      const rejected = checks.filter((c) => !c.valid);
+      if (rejected.length > 0) {
+        const reason = rejected[0].reason || "that photo doesn't look claim-related";
+        return res.status(200).json({
+          messages: priorMessages, // don't record the rejected photo
+          reply:
+            `I couldn't use ${rejected.length > 1 ? 'those photos' : 'that photo'} — ${reason} ` +
+            'Please send a clear photo of the vehicle, the damage, the accident scene, or a document ' +
+            '(driving licence, insurance sticker).',
+          status: 'collecting',
+        });
+      }
+    }
+
     const result = await runClaimIntake({
       customer: req.customer,
       token: req.claimToken.token,
-      messages: Array.isArray(messages) ? messages : [],
+      messages: priorMessages,
       userMessage,
-      images: Array.isArray(images) ? images : [],
+      images: photoUrls,
       req,
     });
 
