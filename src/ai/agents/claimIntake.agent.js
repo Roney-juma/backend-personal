@@ -6,14 +6,33 @@
  * Stateless — the caller passes the full message history each turn and gets
  * the updated history back to persist client-side.
  */
+const moment = require('moment-timezone');
 const { complete } = require('../llm/claude');
 const { CostTracker } = require('../llm/cost');
-const { TOOLS, executeTool } = require('./claimIntake.tools');
+const { TOOLS, executeTool, CLAIM_TZ } = require('./claimIntake.tools');
 const logger = require('../../middlewheres/logger');
 
 const MAX_TOOL_ROUNDS = 6; // bound the loop per turn
 
-function buildSystem(customer) {
+/**
+ * Human-readable "now" block injected into the system prompt so the model can
+ * resolve relative dates ("yesterday", "last week thursday") itself. Computed in
+ * the claim timezone (default Africa/Nairobi), not server UTC.
+ */
+function dateContext(now = moment.tz(CLAIM_TZ)) {
+  return [
+    `DATE CONTEXT (use this to resolve any relative date the claimant gives)`,
+    `- Today is ${now.format('dddd, D MMMM YYYY')} (timezone ${CLAIM_TZ}).`,
+    `- The current time is ${now.format('HH:mm')}.`,
+    `- Resolve natural-language dates yourself against today: e.g. "yesterday", "the day before yesterday", "last week Thursday", "3 days ago", "last Friday". Work out the concrete calendar date.`,
+    `- Record incidentDetails.date as an ISO date (YYYY-MM-DD). Record time separately if given.`,
+    `- ALWAYS restate the resolved date in words for confirmation before saving it — e.g. "so that's Monday, 29 June 2026 — is that right?".`,
+    `- An incident CANNOT be in the future. If the resolved date is after today, tell the claimant an accident date can't be in the future and ask them to clarify. Never file a claim with a future incident date.`,
+    ``,
+  ];
+}
+
+function buildSystem(customer, now = moment.tz(CLAIM_TZ)) {
   const name = `${customer.firstName || ''} ${customer.lastName || ''}`.trim() || 'the claimant';
   return [
     `You are AVE Insurance's claim-intake assistant. You help a known policyholder file a motor-insurance claim through a friendly, step-by-step chat.`,
@@ -24,6 +43,7 @@ function buildSystem(customer) {
     `- Email: ${customer.email || 'on file'}`,
     `- Policy number: ${customer.policyNumber || 'on file'}`,
     ``,
+    ...dateContext(now),
     `YOUR JOB`,
     `- Greet ${name} by name on the first turn and explain you'll help report the incident.`,
     `- Collect the required details conversationally, a few at a time. Record everything via the set_claim_details tool as you learn it.`,

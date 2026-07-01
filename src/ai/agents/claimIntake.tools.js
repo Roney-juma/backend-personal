@@ -9,7 +9,12 @@
  * - `submit_claim` is the only write. It re-validates required fields and
  *   requires explicit confirmation before calling the existing fileClaimService.
  */
+const moment = require('moment-timezone');
 const claimService = require('../../service/claim.service');
+
+// Timezone the claim's dates are interpreted in (default Kenya). "Today" and the
+// future-date check are computed here, not in server UTC.
+const CLAIM_TZ = process.env.CLAIM_TIMEZONE || 'Africa/Nairobi';
 
 // ---- tool schemas (sent to the model) -------------------------------------
 
@@ -171,6 +176,30 @@ function missingRequired(draft) {
 }
 
 /**
+ * Deterministic validation of the incident date: it must be a real date and it
+ * MUST NOT be in the future. Returns human-readable issues (empty = fine). This
+ * backs up the model's own resolution so a bad date can never be filed.
+ */
+function dateIssues(draft) {
+  const issues = [];
+  const raw = draft.incidentDetails && draft.incidentDetails.date;
+  if (!raw) return issues; // absence is handled by missingRequired
+
+  // Strict parse against the formats the model is told to use (ISO date first).
+  const FORMATS = ['YYYY-MM-DD', moment.ISO_8601, 'YYYY-MM-DDTHH:mm:ss', 'YYYY-MM-DD HH:mm'];
+  const d = moment.tz(raw, FORMATS, true, CLAIM_TZ);
+  if (!d.isValid()) {
+    issues.push(`incident date "${raw}" is not a valid date`);
+    return issues;
+  }
+  const today = moment.tz(CLAIM_TZ).startOf('day');
+  if (d.startOf('day').isAfter(today)) {
+    issues.push('incident date cannot be in the future');
+  }
+  return issues;
+}
+
+/**
  * Optional fields that are still empty. The agent uses this to OFFER to add
  * them before filing, rather than skipping them silently. Never blocks submit.
  */
@@ -200,12 +229,14 @@ async function executeTool(block, ctx) {
     // Merge the prior draft with THIS partial (this block isn't in `messages` yet).
     const draft = deepMerge(reconstructDraft(messages), block.input || {});
     const missing = missingRequired(draft);
+    const dateProblems = dateIssues(draft);
     return {
       content: JSON.stringify({
         accepted: true,
         missingRequired: missing,
         missingOptional: missingOptional(draft),
-        complete: missing.length === 0,
+        dateIssues: dateProblems,
+        complete: missing.length === 0 && dateProblems.length === 0,
       }),
     };
   }
@@ -219,6 +250,13 @@ async function executeTool(block, ctx) {
     if (missing.length > 0) {
       return {
         content: JSON.stringify({ error: 'Not submitted: missing required fields.', missingRequired: missing }),
+        isError: true,
+      };
+    }
+    const dateProblems = dateIssues(draft);
+    if (dateProblems.length > 0) {
+      return {
+        content: JSON.stringify({ error: 'Not submitted: invalid incident date.', dateIssues: dateProblems }),
         isError: true,
       };
     }
@@ -237,4 +275,4 @@ async function executeTool(block, ctx) {
   return { content: JSON.stringify({ error: `Unknown tool: ${block.name}` }), isError: true };
 }
 
-module.exports = { TOOLS, executeTool, reconstructDraft, missingRequired, missingOptional };
+module.exports = { TOOLS, executeTool, reconstructDraft, missingRequired, missingOptional, dateIssues, CLAIM_TZ };

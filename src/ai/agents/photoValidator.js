@@ -63,19 +63,8 @@ const SYSTEM = [
  * @param {string} mimetype   e.g. 'image/jpeg'.
  * @returns {Object} { valid, category, quality, reason }
  */
-async function validatePhoto(buffer, mimetype) {
-  if (!buffer || !buffer.length) {
-    return { valid: false, category: 'irrelevant', quality: 'poor', reason: 'No image data received.' };
-  }
-  if (!ALLOWED_MEDIA.includes(mimetype)) {
-    return {
-      valid: false,
-      category: 'irrelevant',
-      quality: 'poor',
-      reason: 'Unsupported image type — please upload a JPG, PNG or WebP photo.',
-    };
-  }
-
+/** Run the classification against a prepared Anthropic image source block. */
+async function classify(imageSource) {
   const cost = new CostTracker('photo-validate');
   try {
     const response = await complete({
@@ -88,7 +77,7 @@ async function validatePhoto(buffer, mimetype) {
         {
           role: 'user',
           content: [
-            { type: 'image', source: { type: 'base64', media_type: mimetype, data: buffer.toString('base64') } },
+            { type: 'image', source: imageSource },
             { type: 'text', text: 'Is this photo relevant to a motor-insurance claim?' },
           ],
         },
@@ -114,4 +103,94 @@ async function validatePhoto(buffer, mimetype) {
   }
 }
 
-module.exports = { validatePhoto, CATEGORIES };
+/**
+ * Validate an in-memory image (used by the pre-upload gate).
+ * @param {Buffer} buffer     Raw image bytes.
+ * @param {string} mimetype   e.g. 'image/jpeg'.
+ * @returns {Object} { valid, category, quality, reason }
+ */
+async function validatePhoto(buffer, mimetype) {
+  if (!buffer || !buffer.length) {
+    return { valid: false, category: 'irrelevant', quality: 'poor', reason: 'No image data received.' };
+  }
+  if (!ALLOWED_MEDIA.includes(mimetype)) {
+    return {
+      valid: false,
+      category: 'irrelevant',
+      quality: 'poor',
+      reason: 'Unsupported image type — please upload a JPG, PNG or WebP photo.',
+    };
+  }
+  return classify({ type: 'base64', media_type: mimetype, data: buffer.toString('base64') });
+}
+
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024; // Anthropic's per-image ceiling.
+
+/**
+ * Fetch image bytes ourselves (rather than letting the model fetch the URL,
+ * which fails on robots.txt / redirects / private buckets). Returns null on any
+ * failure so the caller can decide how to handle it.
+ */
+async function fetchImageBytes(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'AVE-Insurance-ClaimBot/1.0', Accept: 'image/*' },
+    });
+    if (!res.ok) {
+      logger.warn(`[ai] could not fetch image for validation (${res.status}): ${url}`);
+      return null;
+    }
+    const mimetype = String(res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    if (!ALLOWED_MEDIA.includes(mimetype)) {
+      return { mimetype, buffer: null }; // known type but unsupported
+    }
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (buffer.length > MAX_IMAGE_BYTES) {
+      logger.warn(`[ai] image too large to validate (${buffer.length} bytes): ${url}`);
+      return null;
+    }
+    return { mimetype, buffer };
+  } catch (err) {
+    logger.warn(`[ai] image fetch failed for validation: ${err.message}`);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Validate an already-uploaded image by URL. This is the SERVER-SIDE gate the
+ * claim-intake endpoint uses on every attached photo, so validation cannot be
+ * bypassed by a frontend that uploads straight to storage. The bytes are
+ * fetched here and sent to the model as base64 — we never rely on the model
+ * fetching the URL, which is unreliable.
+ * @param {string} url  Fetchable image URL (e.g. S3 location).
+ * @returns {Object} { valid, category, quality, reason, url }
+ */
+async function validatePhotoUrl(url) {
+  if (!url || typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
+    return { valid: false, category: 'irrelevant', quality: 'poor', reason: 'Invalid image URL.', url };
+  }
+  const fetched = await fetchImageBytes(url);
+  if (fetched && fetched.buffer === null) {
+    return {
+      valid: false,
+      category: 'irrelevant',
+      quality: 'poor',
+      reason: 'Unsupported image type — please upload a JPG, PNG or WebP photo.',
+      url,
+    };
+  }
+  if (!fetched) {
+    // We could not retrieve the image. Fail OPEN so a storage/network blip never
+    // blocks a genuine claim, but this is logged above for follow-up.
+    return { valid: true, category: 'other_document', quality: 'good', reason: 'Could not fetch image — allowed.', url };
+  }
+  const result = await validatePhoto(fetched.buffer, fetched.mimetype);
+  return { ...result, url };
+}
+
+module.exports = { validatePhoto, validatePhotoUrl, CATEGORIES };
