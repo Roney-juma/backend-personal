@@ -194,6 +194,15 @@ const claimSchema = new Schema({
       investigatorId: { type: Schema.Types.ObjectId, ref: 'Investigator' },
       assignedDate: { type: Date },
     },
+    riskScore: { type: Number, default: 0 },
+    riskLevel: { type: String, enum: ['low', 'medium', 'high'], default: 'low' },
+    flags: [{
+      ruleId: { type: String },
+      label: { type: String },
+      score: { type: Number },
+      detectedAt: { type: Date, default: Date.now },
+    }],
+    lastCheckedAt: { type: Date },
   },
   selfRepair: {
     opted: { type: Boolean, default: false },

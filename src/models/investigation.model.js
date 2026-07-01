@@ -5,8 +5,11 @@ const investigationSchema = new Schema({
   claimId: { type: Schema.Types.ObjectId, ref: 'Claim', required: true },
 
   // Set on fraud flag (Step 1)
-  flaggedBy: { type: Schema.Types.ObjectId, required: true },
-  flaggedByType: { type: String, enum: ['admin', 'insuranceCompany'], required: true },
+  flaggedBy: {
+    type: Schema.Types.ObjectId,
+    required: function () { return this.flaggedByType !== 'system'; },
+  },
+  flaggedByType: { type: String, enum: ['admin', 'insuranceCompany', 'system'], required: true },
   reason: { type: String, required: true },
 
   // Set on investigator appointment (Step 2)
