@@ -11,6 +11,11 @@ function renderIntakePage(token) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>File a Claim — AVE Insurance</title>
+<!-- EXIF reader for the client-side photo age pre-check (fails open if it can't load). -->
+<script src="https://cdn.jsdelivr.net/npm/exifr/dist/full.umd.js"></script>
+<!-- In-browser object detection for the client-side "is it a vehicle" check. -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 <style>
   :root{--navy:#13294a;--blue:#2a6fc0;--bg:#eef2f7;--ai:#fff;--me:#2a6fc0}
   *{box-sizing:border-box}
@@ -56,6 +61,63 @@ const fileInput = document.getElementById('file');
 let messages = [];
 let busy = false, done = false;
 
+// Client-side photo pre-check limits (the server re-checks all of these).
+const ALLOWED_TYPES = ['image/jpeg','image/png','image/webp','image/gif'];
+const MAX_PHOTO_BYTES = 15 * 1024 * 1024; // 15 MB — matches the server ceiling.
+const MAX_PHOTO_AGE_DAYS = 7;
+
+// COCO-SSD classes we treat as a "vehicle" for the basic frontend check.
+const VEHICLE_CLASSES = ['car','truck','bus','motorcycle'];
+const VEHICLE_MIN_SCORE = 0.5;
+
+// Lazy-load the object-detection model once, then cache it. Returns null if the
+// CDN failed to load, so the check degrades gracefully (photo is allowed).
+let _cocoModel = null;
+async function loadVehicleModel() {
+  if (_cocoModel) return _cocoModel;
+  if (!window.cocoSsd) return null;
+  _cocoModel = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+  return _cocoModel;
+}
+
+// Run in-browser detection on a File.
+//  -> { ok:true }      a vehicle was found
+//  -> { ok:false }     ran successfully, no vehicle found
+//  -> { skip:true }    could not run (model/CDN unavailable) — caller should allow
+async function detectVehicle(file) {
+  let model;
+  try { model = await loadVehicleModel(); } catch (e) { return { skip: true }; }
+  if (!model) return { skip: true };
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = rej;
+      im.src = url;
+    });
+    const preds = await model.detect(img);
+    const hit = preds.some(p => VEHICLE_CLASSES.includes(p.class) && p.score >= VEHICLE_MIN_SCORE);
+    return { ok: hit };
+  } catch (e) {
+    return { skip: true };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// Best-effort device location. Captured once on load; may stay null if the
+// claimant denies permission or the browser can't get a fix. Sent with each
+// turn so the assistant can OFFER it as the incident location (never assumed).
+let geo = null;
+if (navigator.geolocation) {
+  navigator.geolocation.getCurrentPosition(
+    p => { geo = { latitude: p.coords.latitude, longitude: p.coords.longitude }; },
+    () => { geo = null; },
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+  );
+}
+
 // restore prior session if the page was refreshed
 try {
   const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
@@ -83,7 +145,7 @@ async function send(userMessage, opts = {}) {
   try {
     const res = await fetch('/ai/claim-intake/' + TOKEN, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages, userMessage, images: opts.images || [] })
+      body: JSON.stringify({ messages, userMessage, images: opts.images || [], coordinates: geo })
     });
     const data = await res.json();
     showTyping(false);
@@ -104,10 +166,42 @@ document.getElementById('attach').onclick = () => fileInput.click();
 fileInput.onchange = async () => {
   const f = fileInput.files[0]; if (!f) return;
   if (busy || done) { fileInput.value=''; return; }
-  // 1) Validate the photo BEFORE uploading — reject anything that isn't a
-  //    vehicle, damage, accident scene, or supporting document.
+
+  // 0) Instant client-side pre-checks — reject wrong type, oversized, or stale
+  //    photos before spending an upload or a server vision call. The server
+  //    still re-checks all of this, so these are UX only, not the source of truth.
+  if (!ALLOWED_TYPES.includes(f.type)) {
+    banner('err', 'Please upload a JPG, PNG, WebP or GIF image.'); fileInput.value=''; return;
+  }
+  if (f.size > MAX_PHOTO_BYTES) {
+    banner('err', 'That image is too large — please upload one under 15 MB.'); fileInput.value=''; return;
+  }
+  try {
+    if (window.exifr) {
+      const meta = await exifr.parse(f).catch(() => null);
+      const taken = meta && (meta.DateTimeOriginal || meta.CreateDate);
+      if (taken) {
+        const ageDays = Math.floor((Date.now() - new Date(taken).getTime()) / 86400000);
+        if (ageDays > MAX_PHOTO_AGE_DAYS) {
+          banner('err', 'This photo was taken ' + ageDays + ' days ago — please upload a photo taken within the last ' + MAX_PHOTO_AGE_DAYS + ' days.');
+          fileInput.value=''; return;
+        }
+      }
+      // No capture date (EXIF stripped) → allow; the server makes the final call.
+    }
+  } catch (e) { /* EXIF unreadable — allow; server still validates. */ }
+
+  // 1) Validate the photo BEFORE uploading.
   banner('typing', 'checking photo…');
   try {
+    // 1a) In-browser vehicle check. Rejects photos where no car/truck/bus/
+    //     motorcycle is detected. Skips (allows) if the model couldn't load.
+    const veh = await detectVehicle(f);
+    if (veh.ok === false) {
+      banner('err', "That photo doesn't look like a vehicle. Please upload a clear photo of the car, the damage, or the accident scene.");
+      fileInput.value=''; return;
+    }
+    // 1b) Server relevance check (also accepts documents like a licence/sticker).
     const vfd = new FormData(); vfd.append('image', f);
     const vr = await fetch('/ai/claim-intake/' + TOKEN + '/validate-photo', { method:'POST', body: vfd });
     const v = await vr.json();
