@@ -11,8 +11,18 @@ const { complete } = require('../llm/claude');
 const { CostTracker } = require('../llm/cost');
 const logger = require('../../middlewheres/logger');
 
+// Optional EXIF reader — used for the photo-recency gate. Installed separately
+// (npm i exifr). If it's missing we fail OPEN on the age check (see checkPhotoAge).
+let exifr = null;
+try { exifr = require('exifr'); } catch (_) {}
+
 // Fast, cheap model for a yes/no-style classification.
 const FAST_MODEL = process.env.ANTHROPIC_MODEL_FAST || 'claude-haiku-4-5';
+
+// Recency gate: reject photos taken more than this many days before upload.
+const MAX_PHOTO_AGE_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MAX_PHOTO_AGE_MS = MAX_PHOTO_AGE_DAYS * DAY_MS;
 
 const ALLOWED_MEDIA = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
@@ -104,6 +114,42 @@ async function classify(imageSource) {
 }
 
 /**
+ * Read the capture date from an image's EXIF metadata and decide whether the
+ * photo is older than MAX_PHOTO_AGE_DAYS relative to now.
+ *
+ * Fails OPEN (returns { tooOld: false }) whenever we cannot establish an age:
+ * the exifr package is missing, EXIF is unreadable, or there is no capture
+ * timestamp (WhatsApp, screenshots and some S3 re-encodes strip EXIF). We only
+ * reject when a real timestamp exists AND is more than 7 days in the past, so
+ * genuine claimants are never blocked by missing metadata.
+ *
+ * @param {Buffer} buffer  Raw image bytes.
+ * @returns {{ tooOld: boolean, ageDays: number }}
+ */
+async function checkPhotoAge(buffer) {
+  if (!exifr) return { tooOld: false, ageDays: 0 };
+
+  let exif = null;
+  try {
+    exif = await exifr.parse(buffer, { tiff: true, exif: true });
+  } catch (err) {
+    logger.warn(`[ai] could not read photo EXIF for age check: ${err.message}`);
+    return { tooOld: false, ageDays: 0 };
+  }
+
+  const taken = exif && (exif.DateTimeOriginal || exif.CreateDate || exif.ModifyDate);
+  if (!taken) return { tooOld: false, ageDays: 0 }; // no timestamp — allow.
+
+  const takenMs = new Date(taken).getTime();
+  if (!Number.isFinite(takenMs)) return { tooOld: false, ageDays: 0 };
+
+  const ageMs = Date.now() - takenMs;
+  // Future timestamps (camera clock skew) are treated as recent, not rejected.
+  if (ageMs <= MAX_PHOTO_AGE_MS) return { tooOld: false, ageDays: 0 };
+  return { tooOld: true, ageDays: Math.floor(ageMs / DAY_MS) };
+}
+
+/**
  * Validate an in-memory image (used by the pre-upload gate).
  * @param {Buffer} buffer     Raw image bytes.
  * @param {string} mimetype   e.g. 'image/jpeg'.
@@ -121,6 +167,19 @@ async function validatePhoto(buffer, mimetype) {
       reason: 'Unsupported image type — please upload a JPG, PNG or WebP photo.',
     };
   }
+
+  // Recency gate — runs before the vision call so we never spend tokens
+  // classifying an out-of-date photo.
+  const age = await checkPhotoAge(buffer);
+  if (age.tooOld) {
+    return {
+      valid: false,
+      category: 'irrelevant',
+      quality: 'good',
+      reason: `This photo was taken ${age.ageDays} days ago — please upload a photo taken within the last ${MAX_PHOTO_AGE_DAYS} days.`,
+    };
+  }
+
   return classify({ type: 'base64', media_type: mimetype, data: buffer.toString('base64') });
 }
 
