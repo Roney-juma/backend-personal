@@ -70,6 +70,7 @@ const haversineKm = (lat1, lon1, lat2, lon2) => {
 const GPS_MISMATCH_KM = 5;    // flag if photo GPS > 5 km from incident location
 const TIMESTAMP_TOLERANCE_H = 24; // flag if photo timestamp differs > 24h from incident
 const PHASH_HAMMING_THRESHOLD = 10; // flag if ≤10 bit difference (very similar image)
+const PHOTO_MAX_AGE_DAYS = 7; // business rule: claim photos should be < 7 days old
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
@@ -145,6 +146,37 @@ const run = async (claim) => {
           });
         }
       }
+    }
+
+    // ── Photo recency (absolute age vs when the claim was filed) ─────────────
+    // Business rule: photos should be taken within 7 days. Per the "allow but
+    // flag" policy the photo is NOT blocked here — we surface a signal so staff
+    // can review both genuinely-old photos and ones whose age we can't verify.
+    checksRun.push('photo_recency');
+    const filedAt = claim.createdAt ? new Date(claim.createdAt) : new Date();
+    const captureTs = exif && (exif.DateTimeOriginal || exif.CreateDate);
+    if (captureTs) {
+      const ageDays = (filedAt - new Date(captureTs)) / 86400000;
+      if (ageDays > PHOTO_MAX_AGE_DAYS) {
+        signals.push({
+          type: 'photo_too_old',
+          severity: 'high',
+          value: Math.round(ageDays),
+          evidence: url,
+          explanation: `Photo was taken ${Math.round(ageDays)} days before the claim was filed — older than the ${PHOTO_MAX_AGE_DAYS}-day limit.`,
+          source: 'image_forensics',
+        });
+      }
+    } else if (exif) {
+      // EXIF present but no capture date — the no-EXIF case is already covered by
+      // the exif_stripped signal above, so only flag the "has metadata, no date" case.
+      signals.push({
+        type: 'photo_age_unverifiable',
+        severity: 'medium',
+        evidence: url,
+        explanation: 'Photo metadata has no capture date, so its age could not be verified.',
+        source: 'image_forensics',
+      });
     }
 
     // ── Perceptual hash / duplicate detection ────────────────────────────────
