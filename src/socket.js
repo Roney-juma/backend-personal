@@ -22,10 +22,36 @@ const init = (httpServer) => {
       }
     });
 
+    // Admin portal joins this room to receive real-time fraud/AI events
+    socket.on('join-admin', () => {
+      socket.join('admin');
+      logger.info('Socket %s joined admin room', socket.id);
+    });
+
     socket.on('disconnect', () => {
       logger.info('Socket disconnected: %s', socket.id);
     });
   });
+
+  // Redis pub/sub bridge: worker process publishes, main app forwards to Socket.IO
+  if (process.env.REDIS_URL) {
+    const { Redis } = require('ioredis');
+    const subscriber = new Redis(process.env.REDIS_URL, {
+      maxRetriesPerRequest: null,
+      enableReadyCheck: false,
+    });
+    subscriber.subscribe('claim:ai_updated').catch(err =>
+      logger.warn(`[socket] Redis subscribe failed: ${err.message}`)
+    );
+    subscriber.on('message', (_channel, message) => {
+      try {
+        io.to('admin').emit('claim:ai_updated', JSON.parse(message));
+      } catch {}
+    });
+    subscriber.on('error', err =>
+      logger.warn(`[socket] Redis subscriber error: ${err.message}`)
+    );
+  }
 
   return io;
 };
