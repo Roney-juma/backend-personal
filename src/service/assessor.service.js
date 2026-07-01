@@ -259,13 +259,12 @@ const submitAssessmentReport = async (claimId, assessmentReport, req) => {
   await cache.delPattern('cache:claims:*');
   await cache.del(`cache:claim:${claimId}`);
 
-  // Async vehicle-continuity check: is the assessed car the one the claimant
-  // reported? Never blocks the assessor's submission.
+  // Re-run fraud pipeline now that assessor photos are available
   const analyzeQueue = getAnalyzeQueue();
   if (analyzeQueue) {
-    await analyzeQueue
-      .add('continuity', { claimId: String(claim._id), stage: 'assessment' })
-      .catch((err) => logger.warn(`[continuity] failed to enqueue assessment check for ${claim._id}: ${err.message}`));
+    analyzeQueue.add('analyze', { claimId: claim._id.toString() }).catch(err =>
+      logger.warn(`Failed to re-enqueue analysis after assessment for ${claim._id}: ${err.message}`)
+    );
   }
 
   await writeAuditLog(req, {
