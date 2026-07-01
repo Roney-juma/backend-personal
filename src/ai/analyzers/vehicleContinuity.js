@@ -1,14 +1,15 @@
 /**
  * Vehicle continuity comparator.
  *
- * Compares a downstream stage (assessment / garage / re-assessment) against the
- * claimant's baseline to answer one question: is this the SAME vehicle the
- * claimant reported? Deterministic identity checks (VIN, plate) run first and
- * short-circuit; a vision fingerprint is only extracted when needed.
+ * Answers: is the vehicle the assessor (or garage / re-assessor) photographed the
+ * SAME one the claimant reported? The comparison is PHOTO-TO-PHOTO — we extract a
+ * fingerprint (make, model, colour, plate) from the claimant's picture and from
+ * the stage's picture and compare them. Crucially this works even when NO number
+ * plate is visible in either photo: make + colour carry the identity, and a
+ * readable plate (when present) is a bonus, high-confidence confirmation.
  *
- * NB: we verify IDENTITY continuity, not damage sameness — damage is expected to
- * change across stages (damaged → repaired), so damage is not treated as a
- * mismatch here.
+ * We verify IDENTITY continuity, not damage sameness — damage is expected to
+ * change across stages (damaged → repaired).
  *
  * @returns { signals, checksRun, verdict, tokensUsed, kesSpent }
  */
@@ -18,6 +19,17 @@ const { extractFingerprint } = require('./vehicleIdentity');
 const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const differ = (a, b) => norm(a) && norm(b) && norm(a) !== norm(b);
 const match = (a, b) => norm(a) && norm(b) && norm(a) === norm(b);
+// Colour is fuzzy (lighting, "dark blue" vs "blue"): only a mismatch when neither
+// string contains the other.
+const colourDiffer = (a, b) => {
+  const na = norm(a), nb = norm(b);
+  if (!na || !nb) return false;
+  return !(na.includes(nb) || nb.includes(na));
+};
+const colourMatch = (a, b) => {
+  const na = norm(a), nb = norm(b);
+  return !!na && !!nb && (na.includes(nb) || nb.includes(na));
+};
 
 const sig = (type, severity, target, explanation) => ({
   type,
@@ -39,17 +51,19 @@ const publicFp = (fp) =>
     visibleDamage: fp.visibleDamage,
   };
 
-function deriveVerdict(signals, identityConfirmed, hadVehicle) {
+function deriveVerdict({ signals, plateConfirmed, makeOk, colourOk, makeKnown }) {
   const has = (prefix) => signals.some((s) => s.type.startsWith(prefix));
-  if (has('vin_mismatch') || has('plate_mismatch')) return { sameVehicle: 'no', confidence: 'high' };
-  if (has('vehicle_mismatch')) {
-    const high = signals.some((s) => s.type.startsWith('vehicle_mismatch') && s.severity === 'high');
-    return { sameVehicle: high ? 'no' : 'unclear', confidence: high ? 'medium' : 'low' };
-  }
-  if (identityConfirmed) return { sameVehicle: 'yes', confidence: 'high' };
+  const highMismatch = signals.some((s) => s.type.startsWith('vehicle_mismatch') && s.severity === 'high');
+  const medMismatch = signals.some((s) => s.type.startsWith('vehicle_mismatch') && s.severity === 'medium');
+
+  if (has('vin_mismatch') || has('plate_mismatch') || highMismatch) return { sameVehicle: 'no', confidence: 'high' };
+  if (plateConfirmed && makeOk) return { sameVehicle: 'yes', confidence: 'high' };
   if (has('identity_unverifiable')) return { sameVehicle: 'unclear', confidence: 'low' };
-  if (hadVehicle) return { sameVehicle: 'likely', confidence: 'medium' };
-  return { sameVehicle: 'unclear', confidence: 'low' };
+  if (makeOk && colourOk) return { sameVehicle: 'yes', confidence: 'medium' }; // appearance strongly agrees
+  if (medMismatch) return { sameVehicle: 'unclear', confidence: 'low' };
+  if (makeOk) return { sameVehicle: 'likely', confidence: 'medium' }; // make agrees, colour unknown
+  if (!makeKnown) return { sameVehicle: 'unclear', confidence: 'low' };
+  return { sameVehicle: 'likely', confidence: 'low' };
 }
 
 async function run(claim, stage) {
@@ -60,77 +74,105 @@ async function run(claim, stage) {
 
   const base = normalizeStage(claim, 'claimant');
   const target = normalizeStage(claim, stage);
-  const evidence = { stage, baseline: { plate: base.plate, vin: base.vin, make: base.make, model: base.model }, target: {} };
-  let identityConfirmed = false;
+  const evidence = { stage, baseline: {}, target: {} };
+  let plateConfirmed = false;
 
-  // ── 1. VIN (deterministic, highest confidence) ───────────────────────────
+  const finish = (extra) => {
+    const verdict = { ...deriveVerdict({ signals, plateConfirmed, ...extra }), evidence };
+    return { signals, checksRun, verdict, tokensUsed, kesSpent };
+  };
+
+  // ── 1. VIN (deterministic, when both typed VINs exist) ───────────────────
   if (base.vin && target.vin) {
     checksRun.push('vin_check');
+    evidence.baseline.vin = base.vin;
     evidence.target.vin = target.vin;
     if (differ(base.vin, target.vin)) {
       signals.push(sig('vin_mismatch', 'high', target,
         `The ${target.label} VIN (${target.vin}) does not match the claimant's VIN (${base.vin}).`));
-    } else {
-      identityConfirmed = true;
+      return finish({ makeOk: false, colourOk: false, makeKnown: false });
     }
+    plateConfirmed = true; // VIN match is as strong as a plate match
   }
 
-  // If the mismatch is already proven by VIN, don't spend a vision call.
-  const vinProvenMismatch = signals.some((s) => s.type === 'vin_mismatch');
-
-  // ── 2. No photos on the stage → cannot visually verify ───────────────────
+  // ── 2. Need a stage photo to compare appearance ──────────────────────────
   if (!target.photos.length) {
     checksRun.push('photo_presence');
-    if (!identityConfirmed && !vinProvenMismatch) {
+    if (!plateConfirmed) {
       signals.push(sig('identity_unverifiable', 'low', target,
         `The ${target.label} has no photos, so the vehicle could not be visually verified.`));
     }
-    const verdict = { ...deriveVerdict(signals, identityConfirmed, false), evidence };
-    return { signals, checksRun, verdict, tokensUsed, kesSpent };
+    return finish({ makeOk: plateConfirmed, colourOk: false, makeKnown: false });
   }
 
-  if (vinProvenMismatch) {
-    const verdict = { ...deriveVerdict(signals, identityConfirmed, true), evidence };
-    return { signals, checksRun, verdict, tokensUsed, kesSpent };
-  }
-
-  // ── 3. Vision fingerprint of the stage photos ────────────────────────────
+  // ── 3. Photo-to-photo fingerprints: claimant picture vs stage picture ────
   checksRun.push('vehicle_fingerprint');
-  const fp = await extractFingerprint(target.photos, target.label);
-  if (fp) { tokensUsed += fp._tokens || 0; kesSpent += fp._kes || 0; }
+  const baseFp = base.photos.length ? await extractFingerprint(base.photos, 'claimant') : null;
+  const targetFp = await extractFingerprint(target.photos, target.label);
+  for (const fp of [baseFp, targetFp]) if (fp) { tokensUsed += fp._tokens || 0; kesSpent += fp._kes || 0; }
 
-  if (!fp || !fp.vehicleVisible) {
+  if (!targetFp || !targetFp.vehicleVisible) {
     signals.push(sig('identity_unverifiable', 'medium', target,
       `Could not identify a vehicle in the ${target.label} photos.`));
-    const verdict = { ...deriveVerdict(signals, identityConfirmed, false), evidence };
-    return { signals, checksRun, verdict, tokensUsed, kesSpent };
+    return finish({ makeOk: false, colourOk: false, makeKnown: false });
   }
-  evidence.target.fingerprint = publicFp(fp);
-  evidence.target.plate = fp.plate;
+  evidence.target.fingerprint = publicFp(targetFp);
+  if (baseFp) evidence.baseline.fingerprint = publicFp(baseFp);
 
-  // ── 4. Plate: photo read vs the claimant's registered plate ──────────────
-  if (fp.plate && fp.plateConfidence !== 'none') {
+  // Baseline identity: prefer what we SEE in the claimant photo, fall back to the
+  // typed registration fields (which have no colour).
+  const baseMake = (baseFp && baseFp.vehicleVisible && baseFp.make) || base.make;
+  const baseModel = (baseFp && baseFp.vehicleVisible && baseFp.model) || base.model;
+  const baseColour = (baseFp && baseFp.vehicleVisible && baseFp.colour) || '';
+  const basePlate = (baseFp && baseFp.plateConfidence !== 'none' && baseFp.plate) || base.plate;
+  evidence.baseline = { ...evidence.baseline, plate: basePlate || '', make: baseMake || '', model: baseModel || '', colour: baseColour || '' };
+  evidence.target.plate = targetFp.plate;
+
+  if (!baseMake && !baseColour && !basePlate) {
+    signals.push(sig('identity_unverifiable', 'low', target,
+      'No baseline vehicle details from the claimant to compare against.'));
+    return finish({ makeOk: false, colourOk: false, makeKnown: false });
+  }
+
+  // ── 4. Plate (bonus, strong when both photos show one) ───────────────────
+  if (targetFp.plate && targetFp.plateConfidence !== 'none' && basePlate) {
     checksRun.push('plate_check');
-    if (differ(base.plate, fp.plate)) {
+    if (differ(basePlate, targetFp.plate)) {
       signals.push(sig('plate_mismatch', 'high', target,
-        `The number plate in the ${target.label} reads "${fp.plate}", but the claim is registered to "${base.plate}".`));
-    } else if (match(base.plate, fp.plate)) {
-      identityConfirmed = true;
+        `The number plate in the ${target.label} reads "${targetFp.plate}", but the claimant's is "${basePlate}".`));
+    } else if (match(basePlate, targetFp.plate)) {
+      plateConfirmed = true;
     }
   }
 
-  // ── 5. Make / model vs the claimant's registered vehicle ─────────────────
-  const discrepancies = [];
-  if (differ(base.make, fp.make)) discrepancies.push(`make (registered "${base.make}", seen "${fp.make}")`);
-  if (differ(base.model, fp.model)) discrepancies.push(`model (registered "${base.model}", seen "${fp.model}")`);
-  if (discrepancies.length) {
-    checksRun.push('makemodel_check');
-    signals.push(sig(`vehicle_mismatch_${stage}`, discrepancies.length >= 2 ? 'high' : 'medium', target,
-      `The vehicle in the ${target.label} differs from the registered vehicle: ${discrepancies.join('; ')}.`));
+  // ── 5. Make + colour + model (the primary appearance comparison) ─────────
+  checksRun.push('appearance_check');
+  const makeKnown = !!(baseMake && targetFp.make);
+  const makeDiff = differ(baseMake, targetFp.make);
+  const modelDiff = differ(baseModel, targetFp.model);
+  const colDiff = colourDiffer(baseColour, targetFp.colour);
+  const makeOk = match(baseMake, targetFp.make);
+  const colourOk = colourMatch(baseColour, targetFp.colour);
+
+  const parts = [];
+  if (makeDiff) parts.push(`make (claimant "${baseMake}", ${target.label} "${targetFp.make}")`);
+  if (colDiff) parts.push(`colour (claimant "${baseColour}", ${target.label} "${targetFp.colour}")`);
+  if (modelDiff) parts.push(`model (claimant "${baseModel}", ${target.label} "${targetFp.model}")`);
+
+  if (makeDiff) {
+    // A different manufacturer is definitive.
+    signals.push(sig(`vehicle_mismatch_${stage}`, 'high', target,
+      `The vehicle in the ${target.label} differs from the claimant's: ${parts.join('; ')}.`));
+  } else if (colDiff || (modelDiff && !makeOk)) {
+    // Colour, or a model difference when the make isn't confirmed, can be lighting
+    // or trim differences — flag for review. A model-only difference when make AND
+    // colour already agree is just naming variance (e.g. "Gran" vs "Grand"), so we
+    // don't flag it.
+    signals.push(sig(`vehicle_mismatch_${stage}`, 'medium', target,
+      `Possible mismatch between the claimant's and the ${target.label} vehicle: ${parts.join('; ')}.`));
   }
 
-  const verdict = { ...deriveVerdict(signals, identityConfirmed, true), evidence };
-  return { signals, checksRun, verdict, tokensUsed, kesSpent };
+  return finish({ makeOk, colourOk, makeKnown });
 }
 
 module.exports = { run };
