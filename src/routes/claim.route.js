@@ -57,6 +57,9 @@ router.post('/fraud-check/:id', claimController.runFraudCheck);
 // AI analysis — full signal breakdown for a claim (fetches AiAnalysis doc)
 router.get('/ai-analysis/:id', claimController.getAiAnalysis);
 
+// Vehicle continuity — cross-stage "same car?" verdicts (one per stage)
+router.get('/continuity/:id', claimController.getVehicleContinuity);
+
 // Wildcard param routes last — must come after all static-segment routes
 router.get('/:id', claimController.getClaimById)
 router.post('/awardClaim/:id', claimController.awardClaim)

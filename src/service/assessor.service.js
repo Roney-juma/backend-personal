@@ -7,6 +7,8 @@ const emailService = require("../service/email.service");
 const whatsappService = require('./whatsapp.service');
 const { writeAuditLog } = require('../utils/auditHelper');
 const cache = require('../cache');
+const { getAnalyzeQueue } = require('../queue/queues');
+const logger = require('../middlewheres/logger');
 
 
 
@@ -256,6 +258,15 @@ const submitAssessmentReport = async (claimId, assessmentReport, req) => {
   await claim.save();
   await cache.delPattern('cache:claims:*');
   await cache.del(`cache:claim:${claimId}`);
+
+  // Async vehicle-continuity check: is the assessed car the one the claimant
+  // reported? Never blocks the assessor's submission.
+  const analyzeQueue = getAnalyzeQueue();
+  if (analyzeQueue) {
+    await analyzeQueue
+      .add('continuity', { claimId: String(claim._id), stage: 'assessment' })
+      .catch((err) => logger.warn(`[continuity] failed to enqueue assessment check for ${claim._id}: ${err.message}`));
+  }
 
   await writeAuditLog(req, {
     action: 'UPDATE',

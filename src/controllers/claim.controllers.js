@@ -460,6 +460,22 @@ const getAiAnalysis = async (req, res) => {
   }
 };
 
+const getVehicleContinuity = async (req, res) => {
+  try {
+    const analyses = await AiAnalysis.find({ claimId: req.params.id, kind: 'vehicle_continuity' })
+      .sort({ createdAt: -1 })
+      .lean();
+    // One entry per stage — the most recent supersedes earlier re-submissions.
+    const latestByStage = {};
+    for (const a of analyses) {
+      if (a.stage && !latestByStage[a.stage]) latestByStage[a.stage] = a;
+    }
+    res.status(200).json(Object.values(latestByStage));
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 const runFraudCheck = async (req, res) => {
   try {
     const claim = await Claim.findById(req.params.id);
@@ -525,4 +541,5 @@ module.exports = {
   getGlassClaims,
   runFraudCheck,
   getAiAnalysis,
+  getVehicleContinuity,
 };
