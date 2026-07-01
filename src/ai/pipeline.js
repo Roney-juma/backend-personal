@@ -18,6 +18,7 @@ const narrativeAnalysis = require('./analyzers/narrativeAnalysis');
 const scoreEngine = require('./scoring/scoreEngine');
 const triage = require('./scoring/triage');
 const logger = require('../middlewheres/logger');
+const { getRedisClient } = require('../queue/connection');
 
 const run = async (claimId) => {
   let claim;
@@ -96,6 +97,17 @@ const run = async (claimId) => {
     // ── Stage 6: Triage ──────────────────────────────────────────────────────
     const freshClaim = await Claim.findById(claimId);
     await triage.route(freshClaim, band, { score, signals, reasoning });
+
+    // Notify the main app process so Socket.IO can push to the admin portal
+    const redis = getRedisClient();
+    if (redis) {
+      redis.publish('claim:ai_updated', JSON.stringify({
+        claimId: claimId.toString(),
+        score,
+        band,
+        status: 'analyzed',
+      })).catch(err => logger.warn(`[pipeline] Redis publish failed: ${err.message}`));
+    }
 
   } catch (err) {
     logger.error(`[pipeline] fatal error for claim ${claimId}: ${err.message}`);

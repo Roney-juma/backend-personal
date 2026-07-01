@@ -54,6 +54,9 @@ router.patch('/glass/complete/:id', claimController.completeGlassRepair);
 // Fraud detection — admin can manually re-run the automated check on any claim
 router.post('/fraud-check/:id', claimController.runFraudCheck);
 
+// AI analysis — full signal breakdown for a claim (fetches AiAnalysis doc)
+router.get('/ai-analysis/:id', claimController.getAiAnalysis);
+
 // Wildcard param routes last — must come after all static-segment routes
 router.get('/:id', claimController.getClaimById)
 router.post('/awardClaim/:id', claimController.awardClaim)
