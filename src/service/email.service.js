@@ -25,14 +25,18 @@ const sendEmailDirect = (to, subject, text) => {
     .catch((error) => logEmailError(to, error));
 };
 
-// Enqueued send — all services call this; falls back to direct if Redis not available
+// Enqueued send — all services call this; falls back to direct if Redis not available or queue fails
 const sendEmailNotification = async (to, subject, text) => {
   const queue = getQueue();
   if (queue) {
-    await queue.add('email', { to, subject, text });
-  } else {
-    await sendEmailDirect(to, subject, text);
+    try {
+      await queue.add('email', { to, subject, text });
+      return;
+    } catch (err) {
+      logger.warn(`Email queue failed, falling back to direct send | to=${to} | ${err.message}`);
+    }
   }
+  await sendEmailDirect(to, subject, text);
 };
 
 // Invoice email always sent directly — attachment serialisation overhead not worth it
