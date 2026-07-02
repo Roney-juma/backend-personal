@@ -31,6 +31,12 @@ const TOOLS = [
     input_schema: {
       type: 'object',
       properties: {
+        claimTypeId: {
+          type: 'string',
+          description:
+            'The id of the claim type the claimant chose. MUST be one of the ids from the ' +
+            'CLAIM TYPES list in the system prompt — never invent one. Establish this first.',
+        },
         incidentDetails: {
           type: 'object',
           properties: {
@@ -145,9 +151,26 @@ function reconstructDraft(messages) {
   return draft;
 }
 
-/** Return a list of human-readable missing required fields. */
-function missingRequired(draft) {
+/**
+ * Return a list of human-readable missing required fields.
+ *
+ * @param {Object} draft          The reconstructed claim draft.
+ * @param {string[]|null} claimTypeIds  Ids of the currently-available claim types.
+ *   When a non-empty list is supplied, a valid claimTypeId (present AND in the
+ *   list) is required. When null/empty — e.g. the types couldn't be loaded — the
+ *   claim-type requirement is skipped so filing never deadlocks on it.
+ */
+function missingRequired(draft, claimTypeIds = null) {
   const missing = [];
+
+  // Claim type must be chosen first — but only enforce it when we actually know
+  // the available types (otherwise we'd block filing on a list we couldn't load).
+  if (Array.isArray(claimTypeIds) && claimTypeIds.length > 0) {
+    if (!draft.claimTypeId || !claimTypeIds.includes(String(draft.claimTypeId))) {
+      missing.push('claim type');
+    }
+  }
+
   const inc = draft.incidentDetails || {};
   ['date', 'time', 'location', 'description'].forEach((f) => {
     if (!inc[f]) missing.push(`incident ${f}`);
@@ -233,12 +256,15 @@ function missingOptional(draft) {
  * @returns {Object} { content: <string for tool_result>, isError, submitted, claim }
  */
 async function executeTool(block, ctx) {
-  const { messages, token, req, fileClaim } = ctx;
+  const { messages, token, req, fileClaim, claimTypes } = ctx;
+  // Ids of the active claim types (if the caller loaded them) so we can require
+  // and validate the claimant's choice.
+  const claimTypeIds = Array.isArray(claimTypes) ? claimTypes.map((t) => String(t._id)) : null;
 
   if (block.name === 'set_claim_details') {
     // Merge the prior draft with THIS partial (this block isn't in `messages` yet).
     const draft = deepMerge(reconstructDraft(messages), block.input || {});
-    const missing = missingRequired(draft);
+    const missing = missingRequired(draft, claimTypeIds);
     const dateProblems = dateIssues(draft);
     return {
       content: JSON.stringify({
@@ -253,7 +279,7 @@ async function executeTool(block, ctx) {
 
   if (block.name === 'submit_claim') {
     const draft = reconstructDraft(messages);
-    const missing = missingRequired(draft);
+    const missing = missingRequired(draft, claimTypeIds);
     if (!block.input || block.input.confirmed !== true) {
       return { content: JSON.stringify({ error: 'Not submitted: confirmation required.' }), isError: true };
     }
