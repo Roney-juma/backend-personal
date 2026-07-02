@@ -233,7 +233,7 @@ function missingOptional(draft) {
  * @returns {Object} { content: <string for tool_result>, isError, submitted, claim }
  */
 async function executeTool(block, ctx) {
-  const { messages, token, req } = ctx;
+  const { messages, token, req, fileClaim } = ctx;
 
   if (block.name === 'set_claim_details') {
     // Merge the prior draft with THIS partial (this block isn't in `messages` yet).
@@ -271,7 +271,12 @@ async function executeTool(block, ctx) {
       };
     }
     try {
-      const claim = await claimService.fileClaimService(token, draft, req);
+      // JWT path (mobile app) injects a fileClaim callback that files for the
+      // authenticated customer; the token path (secure link) falls back to
+      // fileClaimService, which validates and consumes the ClaimToken.
+      const claim = fileClaim
+        ? await fileClaim(draft, req)
+        : await claimService.fileClaimService(token, draft, req);
       return {
         content: JSON.stringify({ submitted: true, claimId: claim._id, status: claim.status }),
         submitted: true,
