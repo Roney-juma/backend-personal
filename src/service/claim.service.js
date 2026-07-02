@@ -209,6 +209,71 @@ const fileClaimService = async (token, claimDetails, req) => {
 };
 
 
+/**
+ * File a claim for an already-authenticated customer (e.g. the mobile app, where
+ * the claimant is identified by their JWT rather than a one-time claim link).
+ * Same persistence and side effects as fileClaimService, but there is no
+ * ClaimToken to validate or consume — the caller has already authenticated the
+ * customer.
+ */
+const fileClaimForCustomer = async (customer, claimDetails, req) => {
+  try {
+    if (!customer) {
+      throw new Error('Customer not found');
+    }
+    const newClaim = new Claim({
+      customerId: customer._id,
+      claimant: {
+        name: `${customer.firstName} ${customer.lastName}`,
+        address: customer.address || 'Not Provided',
+        phone: customer.phone,
+        email: customer.email,
+      },
+      ...claimDetails,
+    });
+    const start = Date.now();
+    await newClaim.save();
+
+    // Enqueue async fraud analysis — never blocks the HTTP response
+    const analyzeQueue = getAnalyzeQueue();
+    if (analyzeQueue) {
+      await analyzeQueue.add('analyze', { claimId: newClaim._id.toString() }).catch(err =>
+        logger.warn(`Failed to enqueue claim analysis for ${newClaim._id}: ${err.message}`)
+      );
+    }
+
+    await invalidateClaimCache(newClaim._id);
+
+    await writeAuditLog(req, {
+      action: 'CREATE',
+      module: 'Claim',
+      actionDescription: `Customer ${customer.firstName} ${customer.lastName} filed a new claim via the AI assistant (app)`,
+      resourceType: 'Claim',
+      resourceId: newClaim._id,
+      statusCode: 201,
+      success: true,
+      responseTimeMs: Date.now() - start,
+      changes: { old: null, new: { customerId: customer._id, claimant: newClaim.claimant } },
+    });
+
+    const submissionMsg = `Dear ${newClaim.claimant.name},\n\nYour claim has been successfully submitted and is now being processed. Our team will review your claim and get back to you shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`;
+    if (newClaim.claimant.email) {
+      await emailService.sendEmailNotification(newClaim.claimant.email, 'Claim Submission Confirmation', submissionMsg);
+    }
+    if (newClaim.claimant.phone) {
+      await whatsappService.sendWhatsAppMessage(
+        newClaim.claimant.phone,
+        `Hi ${newClaim.claimant.name}, your claim has been submitted and is under review. We'll keep you updated. — Ave Insurance`
+      );
+    }
+
+    return newClaim;
+  } catch (error) {
+    throw new Error(error.message);
+  }
+};
+
+
 
 
 // Create a new claim
@@ -1891,6 +1956,7 @@ module.exports = {
   generateClaimLink,
   generateAiClaimLink,
   fileClaimService,
+  fileClaimForCustomer,
   createClaim,
   getClaims,
   getClaimsByCustomer,

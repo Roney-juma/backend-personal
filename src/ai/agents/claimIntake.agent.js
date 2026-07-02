@@ -128,7 +128,12 @@ const textOf = (content) =>
  *
  * @param {Object} params
  * @param {Object} params.customer    Customer doc (identity).
- * @param {string} params.token       Claim token (credential for filing).
+ * @param {string} [params.token]     Claim token (credential for filing via the
+ *                                    secure-link path). Omit when using fileClaim.
+ * @param {Function} [params.fileClaim] Optional (draft, req) => Promise<claim>
+ *                                    filing callback. Supplied by the JWT path
+ *                                    (mobile app) so filing goes through the
+ *                                    authenticated customer instead of a token.
  * @param {Array}  params.messages    Prior Anthropic-format history (may be []).
  * @param {string} params.userMessage New user text for this turn.
  * @param {Array}  [params.images]    S3 URLs of photos attached this turn; passed
@@ -139,7 +144,7 @@ const textOf = (content) =>
  * @param {Object} params.req         Express req (for fileClaimService audit log).
  * @returns {Object} { messages, reply, status, claimId }
  */
-async function runClaimIntake({ customer, token, messages = [], userMessage, images = [], videos = [], coordinates = null, req }) {
+async function runClaimIntake({ customer, token, fileClaim = null, messages = [], userMessage, images = [], videos = [], coordinates = null, req }) {
   const system = buildSystem(customer, moment.tz(CLAIM_TZ), coordinates);
   const working = [...messages, { role: 'user', content: buildUserTurn(userMessage, images, videos) }];
   const cost = new CostTracker('claim-intake');
@@ -163,7 +168,7 @@ async function runClaimIntake({ customer, token, messages = [], userMessage, ima
     const toolUses = response.content.filter((b) => b.type === 'tool_use');
     const toolResults = [];
     for (const block of toolUses) {
-      const result = await executeTool(block, { messages: working, token, req });
+      const result = await executeTool(block, { messages: working, token, fileClaim, req });
       if (result.submitted) {
         status = 'submitted';
         claimId = result.claim._id;
@@ -179,7 +184,7 @@ async function runClaimIntake({ customer, token, messages = [], userMessage, ima
 
     if (cost.exceeded()) {
       cost.flush();
-      logger.warn(`[ai] claim-intake hit token ceiling for token ${token}`);
+      logger.warn(`[ai] claim-intake hit token ceiling for session ${token || (customer && customer._id) || 'unknown'}`);
       working.push({
         role: 'assistant',
         content: [{ type: 'text', text: "Let's pause here — please continue in a moment." }],
