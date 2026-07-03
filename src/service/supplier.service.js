@@ -77,21 +77,27 @@ const getSupplierBids = async (supplierId) => {
 
 const submitBidForSupply = async (claimId, supplierId, parts) => {
   const claim = await Claim.findById(claimId);
+  if (!claim) {
+      return { error: 'Claim not found' };
+  }
+  if (claim.status !== 'Assessed' && claim.status !== 'GlassApproved') {
+      return { error: 'Bids can only be submitted for assessed or glass-approved claims' };
+  }
   const existingBid = await SupplyBid.findOne({ claimId, supplierId });
   if (existingBid) {
       return { error: 'You have already submitted a bid for this claim' };
   }
-//   console.log('Parts received for bid submission:', parts);// [
-// 0|app    |   { name: 'bumper', quantity: 1, cost: 1000 },
-// 0|app    |   { name: 'Bonet, areoai and Pain', quantity: 1, cost: 1000 },
-// 0|app    |   { name: 'Left Head lights', quantity: 1, cost: 1000 },
-// 0|app    |   { name: 'Wind Ahiled', quantity: 1, cost: 1000 }
-// 0|app    | ]
 
-  const normalizedParts = parts.map(p => ({
-    partName: p.partName || p.name || '',
-    cost: p.cost || 0,
-  }));
+  const isGlass = claim.status === 'GlassApproved';
+  const normalizedParts = isGlass
+    ? parts.map(p => ({
+        partName: 'Wind Screen',
+        cost: p.cost || 0,
+      }))
+    : parts.map(p => ({
+        partName: p.partName || p.name || '',
+        cost: p.cost || 0,
+      }));
 
   const totalCost = normalizedParts.reduce((acc, part) => acc + part.cost, 0);
 
