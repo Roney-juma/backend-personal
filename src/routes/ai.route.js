@@ -6,6 +6,19 @@ const Upload = require('../utils/upload');
 
 const router = express.Router();
 
+// ── Mobile-app claim intake (customer JWT) ─────────────────────────────────
+// The logged-in customer drives the same conversational agent as the secure
+// link, authenticated by their JWT instead of a one-time token. Registered
+// BEFORE the ':token' routes so the literal '/claim-intake/validate-photo' path
+// is matched here rather than captured as ':token'.
+router.post('/claim-intake', verifyToken(), aiController.claimIntakeJwt);
+router.post(
+  '/claim-intake/validate-photo',
+  verifyToken(),
+  Upload.single('image'),
+  aiController.validateClaimPhoto,
+);
+
 // Browser chat page — open this link to file a claim by chatting.
 router.get('/claim-intake/:token', aiController.claimIntakePage);
 

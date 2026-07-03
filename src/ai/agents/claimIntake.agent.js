@@ -10,6 +10,7 @@ const moment = require('moment-timezone');
 const { complete } = require('../llm/claude');
 const { CostTracker } = require('../llm/cost');
 const { TOOLS, executeTool, CLAIM_TZ } = require('./claimIntake.tools');
+const claimTypeService = require('../../service/claimType.service');
 const logger = require('../../middlewheres/logger');
 
 const MAX_TOOL_ROUNDS = 6; // bound the loop per turn
@@ -51,7 +52,27 @@ function locationContext(coordinates) {
   ];
 }
 
-function buildSystem(customer, now = moment.tz(CLAIM_TZ), coordinates = null) {
+/**
+ * Claim-type block. The kind of claim is chosen FIRST, before incident details.
+ * The active types are read from the DB and listed by name; the model records
+ * the chosen type's id (never invents one). Empty when types can't be loaded —
+ * the agent then skips the step rather than blocking (see missingRequired).
+ */
+function claimTypeContext(claimTypes) {
+  if (!Array.isArray(claimTypes) || claimTypes.length === 0) return [];
+  const lines = claimTypes.map(
+    (t) => `  - ${t.name}${t.description ? ` — ${t.description}` : ''}  (claimTypeId: ${t._id})`,
+  );
+  return [
+    `CLAIM TYPES (what kind of claim this is — establish this FIRST, before any incident details)`,
+    `- Right after greeting, ask the claimant which of these best describes their claim, listing the options by NAME only (never show or mention the ids):`,
+    ...lines,
+    `- Once they choose, record that type's claimTypeId via set_claim_details. Use ONLY an id from this list — never invent one. If their situation doesn't clearly match one, ask a brief clarifying question before deciding.`,
+    ``,
+  ];
+}
+
+function buildSystem(customer, now = moment.tz(CLAIM_TZ), coordinates = null, claimTypes = []) {
   const name = `${customer.firstName || ''} ${customer.lastName || ''}`.trim() || 'the claimant';
   return [
     `You are AVE Insurance's claim-intake assistant. You help a known policyholder file a motor-insurance claim through a friendly, step-by-step chat.`,
@@ -62,12 +83,14 @@ function buildSystem(customer, now = moment.tz(CLAIM_TZ), coordinates = null) {
     `- Email: ${customer.email || 'on file'}`,
     `- Policy number: ${customer.policyNumber || 'on file'}`,
     ``,
+    ...claimTypeContext(claimTypes),
     ...locationContext(coordinates),
     ...dateContext(now),
     `YOUR JOB`,
     `- Greet ${name} by name on the first turn and explain you'll help report the incident.`,
-    `- Collect the required details conversationally, a few at a time. Record everything via the set_claim_details tool as you learn it.`,
-    `- REQUIRED before filing: incident date, time, location and description; for each vehicle make, model, year and licence plate; for each driver name, phone, email and licence number; and at least TWO clear photos.`,
+    `- FIRST, before collecting incident details, establish the CLAIM TYPE (see above) and record it via set_claim_details. Do this on the opening turn, right after greeting.`,
+    `- Then collect the required details conversationally, a few at a time. Record everything via the set_claim_details tool as you learn it.`,
+    `- REQUIRED before filing: the claim type; incident date, time, location and description; for each vehicle make, model, year and licence plate; for each driver name, phone, email and licence number; and at least TWO clear photos.`,
     `- BE THOROUGH: ask plenty of follow-up questions to build a complete picture — how the accident happened step by step, direction and rough speed of travel, the point of impact, visible damage to each vehicle, any third parties or pedestrians, road/weather/lighting conditions, whether the vehicle is still driveable, and where it is now. Ask a few at a time so it feels like a friendly conversation, not an interrogation, but keep digging for detail the assessor would want.`,
     `- Optional (offer warmly, don't insist): other-vehicle/property damage, injuries, witnesses, police report, towing, and videos.`,
     `- PHOTOS: politely ask for as MANY photos as possible — the wider accident scene, every angle of the damage, close-ups of the damaged parts, the other vehicle(s), number plates, and any skid marks, debris or road signs. Explain that more photos mean a faster, more accurate assessment. Keep gently encouraging more ("any other angles you can add?") until they say that's everything. At least two photos are required to file.`,
@@ -90,6 +113,7 @@ function buildSystem(customer, now = moment.tz(CLAIM_TZ), coordinates = null) {
     `- When nothing required is missing, show a clear plain-language SUMMARY of the claim and ask the claimant to confirm before filing.`,
     `- Only call submit_claim AFTER the claimant explicitly confirms, with confirmed=true. Never file without confirmation.`,
     `- Keep replies concise and warm. Respond with your message to the claimant only — no internal notes.`,
+    `- FORMATTING: write every reply in Markdown. Use **bold** for key terms, field labels and the resolved date you restate; use bullet lists ("- ") when offering options or listing collected details; use a numbered list for any step-by-step recap. Render the pre-filing SUMMARY as a clean bulleted list of the claim details. Keep it light — no headings, tables, or code blocks.`,
   ].join('\n');
 }
 
@@ -128,7 +152,12 @@ const textOf = (content) =>
  *
  * @param {Object} params
  * @param {Object} params.customer    Customer doc (identity).
- * @param {string} params.token       Claim token (credential for filing).
+ * @param {string} [params.token]     Claim token (credential for filing via the
+ *                                    secure-link path). Omit when using fileClaim.
+ * @param {Function} [params.fileClaim] Optional (draft, req) => Promise<claim>
+ *                                    filing callback. Supplied by the JWT path
+ *                                    (mobile app) so filing goes through the
+ *                                    authenticated customer instead of a token.
  * @param {Array}  params.messages    Prior Anthropic-format history (may be []).
  * @param {string} params.userMessage New user text for this turn.
  * @param {Array}  [params.images]    S3 URLs of photos attached this turn; passed
@@ -139,8 +168,18 @@ const textOf = (content) =>
  * @param {Object} params.req         Express req (for fileClaimService audit log).
  * @returns {Object} { messages, reply, status, claimId }
  */
-async function runClaimIntake({ customer, token, messages = [], userMessage, images = [], videos = [], coordinates = null, req }) {
-  const system = buildSystem(customer, moment.tz(CLAIM_TZ), coordinates);
+async function runClaimIntake({ customer, token, fileClaim = null, messages = [], userMessage, images = [], videos = [], coordinates = null, req }) {
+  // Active claim types drive the "what kind of claim" step. Fetched per turn and
+  // fed to both the prompt (so the model can offer them) and the tools (so the
+  // chosen id is required + validated). Falls back to [] if the load fails.
+  let claimTypes = [];
+  try {
+    claimTypes = await claimTypeService.getAllClaimTypes(true);
+  } catch (err) {
+    logger.warn(`[ai] claim-intake could not load claim types: ${err.message}`);
+  }
+
+  const system = buildSystem(customer, moment.tz(CLAIM_TZ), coordinates, claimTypes);
   const working = [...messages, { role: 'user', content: buildUserTurn(userMessage, images, videos) }];
   const cost = new CostTracker('claim-intake');
 
@@ -163,7 +202,7 @@ async function runClaimIntake({ customer, token, messages = [], userMessage, ima
     const toolUses = response.content.filter((b) => b.type === 'tool_use');
     const toolResults = [];
     for (const block of toolUses) {
-      const result = await executeTool(block, { messages: working, token, req });
+      const result = await executeTool(block, { messages: working, token, fileClaim, claimTypes, req });
       if (result.submitted) {
         status = 'submitted';
         claimId = result.claim._id;
@@ -179,7 +218,7 @@ async function runClaimIntake({ customer, token, messages = [], userMessage, ima
 
     if (cost.exceeded()) {
       cost.flush();
-      logger.warn(`[ai] claim-intake hit token ceiling for token ${token}`);
+      logger.warn(`[ai] claim-intake hit token ceiling for session ${token || (customer && customer._id) || 'unknown'}`);
       working.push({
         role: 'assistant',
         content: [{ type: 'text', text: "Let's pause here — please continue in a moment." }],
