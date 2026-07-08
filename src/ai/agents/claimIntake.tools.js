@@ -92,7 +92,17 @@ const TOOLS = [
         damagedParts: { type: 'string' },
         injuries: { type: 'array', items: { type: 'object' } },
         witnesses: { type: 'array', items: { type: 'object' } },
-        policeReport: { type: 'object' },
+        policeReport: {
+          type: 'object',
+          description:
+            'Police report details. REQUIRED before filing — every claim must have one. ' +
+            'All three fields are needed.',
+          properties: {
+            reportNumber: { type: 'string', description: 'OB / police report number' },
+            officerName: { type: 'string', description: 'Name of the reporting officer' },
+            department: { type: 'string', description: 'Police station or department that issued the report' },
+          },
+        },
         supportingDocuments: {
           type: 'object',
           properties: {
@@ -198,6 +208,13 @@ function missingRequired(draft, claimTypeIds = null) {
     if (!d.driverLicenseNumber) missing.push(`driver ${i + 1} licence number`);
   });
 
+  // The claim schema requires the full police report (reportNumber, officerName,
+  // department) — filing without it fails Mongoose validation, so block it here.
+  const pr = draft.policeReport || {};
+  if (!pr.reportNumber) missing.push('police report number');
+  if (!pr.officerName) missing.push('police report officer name');
+  if (!pr.department) missing.push('police report department/station');
+
   // Require at least TWO supporting photos so the assessor has more than a single
   // angle to work from. (The DB schema still only enforces one.)
   const photos = (draft.supportingDocuments && draft.supportingDocuments.photos) || [];
@@ -240,8 +257,6 @@ function missingOptional(draft) {
   if (!dmg.otherVehicles && !dmg.property) optional.push('damage to other vehicles or property');
   if ((draft.injuries || []).length === 0) optional.push('injuries');
   if ((draft.witnesses || []).length === 0) optional.push('witnesses');
-  const pr = draft.policeReport || {};
-  if (!pr.reportNumber) optional.push('police report details');
   const towing = (draft.additionalInfo || {}).towingDetails || {};
   if (!towing.company && !towing.location) optional.push('towing details');
   const videos = (draft.supportingDocuments || {}).videos || [];

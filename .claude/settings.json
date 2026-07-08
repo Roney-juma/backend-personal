@@ -17,7 +17,9 @@
       "Bash(qlmanage -t -s 1200 -o /tmp/qlprev \"/Users/tt/Development/Backend/backend-personal/docs/AI-Claims-Intelligence-Platform-Proposal.pdf\")",
       "Read(//tmp/**)",
       "Read(//tmp/qlprev/**)",
-      "Read(//private/tmp/qlprev/**)"
+      "Read(//private/tmp/qlprev/**)",
+      "Bash(node -e ' *)",
+      "Bash(node --check src/ai/agents/claimIntake.agent.js)"
     ]
   }
 }
