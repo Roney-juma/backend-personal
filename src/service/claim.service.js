@@ -1637,7 +1637,7 @@ const payFinalSettlement = async (claimId, req) => {
   }
 
   const start = Date.now();
-  claim.selfRepair.status = 'SettlementPaid';
+  claim.selfRepair.status = 'Paid';
   claim.selfRepair.finalSettlementAmount = Number(payoutAmount); // record what was actually paid out
   claim.selfRepair.finalSettlementPaidAt = new Date();
   claim.selfRepair.paidAt = new Date();
@@ -1654,7 +1654,7 @@ const payFinalSettlement = async (claimId, req) => {
     statusCode: 200,
     success: true,
     responseTimeMs: Date.now() - start,
-    changes: { old: { selfRepairStatus: 'In-Review' }, new: { status: 'Completed', selfRepairStatus: 'SettlementPaid' } },
+    changes: { old: { selfRepairStatus: 'In-Review' }, new: { status: 'Completed', selfRepairStatus: 'Paid' } },
   });
 
   const setVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
