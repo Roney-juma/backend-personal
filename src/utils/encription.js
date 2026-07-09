@@ -1,6 +1,11 @@
 // #option1
+require('dotenv').config();
 const crypto = require('crypto');
-const EncryptionSecret = 'This is the one secret that we share, for if we do not then what happens';
+const EncryptionSecret = process.env.ENCRYPTION_SECRET;
+
+if (!EncryptionSecret) {
+  throw new Error('ENCRYPTION_SECRET is not set — required for Encrypt/Decrypt.');
+}
 
 const Encrypt = (plain) => {
   const iv = crypto.randomBytes(10);
