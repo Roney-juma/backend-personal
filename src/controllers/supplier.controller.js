@@ -54,7 +54,8 @@ const login = async (req, res) => {
 
 const getAllSuppliers = async (req, res) => {
     try {
-        const suppliers = await supplierService.getAllSuppliers();
+        const { page, limit, search } = req.query;
+        const suppliers = await supplierService.getAllSuppliers({ page, limit, search });
         res.status(200).json(suppliers);
     } catch (err) {
         logger.error('Error fetching suppliers: %s', err.message);

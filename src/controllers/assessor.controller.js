@@ -33,7 +33,8 @@ const createAssessor = async (req, res) => {
 
 const getAllAssessors = async (req, res) => {
   try {
-    const assessors = await assessorService.getAssessors();
+    const { page, limit, search } = req.query;
+    const assessors = await assessorService.getAssessors({ page, limit, search });
     res.status(200).json(assessors);
   } catch (error) {
     res.status(500).json({ message: error.message });

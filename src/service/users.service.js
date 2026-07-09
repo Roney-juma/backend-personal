@@ -46,9 +46,31 @@ Admin Team`
     return savedUser;
 };
 
-const getAllUsers = async () => {
-    // Populate the role field to get role details along with company information
-    return User.find().populate('role').populate('company').exec();
+const getAllUsers = async ({ page = 1, limit = 10, search = '' } = {}) => {
+    const query = {};
+    if (search) {
+        query.$or = [
+            { fullName: { $regex: search, $options: 'i' } },
+            { email: { $regex: search, $options: 'i' } },
+        ];
+    }
+
+    const p = Math.max(Number(page) || 1, 1);
+    const l = Math.min(Math.max(Number(limit) || 10, 1), 100); // cap page size
+    const skip = (p - 1) * l;
+
+    const [users, total] = await Promise.all([
+        User.find(query)
+            .populate('role')
+            .populate('company')
+            .skip(skip)
+            .limit(l)
+            .sort({ createdAt: -1 })
+            .lean(),
+        User.countDocuments(query),
+    ]);
+
+    return { users, total, page: p, limit: l, pages: Math.ceil(total / l) };
 };
 
 const getUserById = async (userId) => {
