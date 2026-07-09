@@ -125,7 +125,7 @@ const getClaimsInGarage = async () => {
     Claim.find({
       status: { $in: ['Assessed', 'GlassApproved'] },
       supplierBids: { $not: { $elemMatch: { status: 'Accepted' } } },
-    }),
+    }).lean(),
   300);
 };
 
@@ -135,18 +135,20 @@ const repairPartsDelivered = async (claimId) => {
         throw new Error('Claim not found');
     }
 
-    const acceptedBidId = claim.supplierBids.find(async (bidId) => {
-        const bid = await SupplyBid.findById(bidId);
-        return bid && bid.status === 'Accepted';
+    // Single indexed query instead of a findById per bid. The previous
+    // `supplierBids.find(async …)` always matched the first bid (an async predicate
+    // returns a Promise, which is always truthy) — this fixes that bug too.
+    const acceptedBid = await SupplyBid.findOne({
+        _id: { $in: claim.supplierBids },
+        status: 'Accepted',
     });
 
-    if (!acceptedBidId) {
+    if (!acceptedBid) {
         throw new Error('No accepted supplier bid found');
     }
 
-    const acceptedBid = await SupplyBid.findById(acceptedBidId);
     acceptedBid.status = 'Delivered';
-    claim.assessmentReport.parts = bid.parts
+    claim.assessmentReport.parts = acceptedBid.parts;
     await acceptedBid.save();
 
     claim.status = 'Garage';

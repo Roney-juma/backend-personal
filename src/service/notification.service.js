@@ -2,6 +2,7 @@ const Notification = require('../models/notification.model');
 const { getIO } = require('../socket');
 const firebaseService = require('./firebase.service');
 const whatsappService = require('./whatsapp.service');
+const logger = require('../middlewheres/logger');
 
 // Lazy model imports — avoids circular dependency issues
 const getRecipientModel = (recipientType) => {
@@ -59,25 +60,32 @@ const createAndEmit = async ({
     // Socket not yet initialized or recipient not connected
   }
 
-  // Firebase Cloud Messaging — push to mobile/web app
-  await firebaseService.sendPushNotification({
-    recipientId,
-    recipientType,
-    title,
-    body: content,
-    data: { notificationId: String(notification._id), ...(claimId && { claimId: String(claimId) }) },
-  });
-
-  // WhatsApp — send a concise version of the notification
-  const waNumber = await resolveWhatsAppNumber(recipientId, recipientType, whatsappNumber);
-  if (waNumber) {
-    await whatsappService.sendWhatsAppMessage(
-      waNumber,
-      `*${title}*\n${content}`
-    );
-  }
+  // Push + WhatsApp are best-effort and independent of the HTTP response — dispatch them
+  // in the background so callers aren't blocked on FCM/WhatsApp/DB latency. Both are queued
+  // internally; failures are logged, not thrown.
+  dispatchExternalChannels({ recipientId, recipientType, title, content, claimId, whatsappNumber, notificationId: notification._id })
+    .catch((err) => logger.warn(`Notification dispatch failed | recipient=${recipientId} | ${err.message}`));
 
   return notification;
+};
+
+// Fire-and-forget delivery over push + WhatsApp, run concurrently.
+const dispatchExternalChannels = async ({ recipientId, recipientType, title, content, claimId, whatsappNumber, notificationId }) => {
+  await Promise.all([
+    firebaseService.sendPushNotification({
+      recipientId,
+      recipientType,
+      title,
+      body: content,
+      data: { notificationId: String(notificationId), ...(claimId && { claimId: String(claimId) }) },
+    }),
+    (async () => {
+      const waNumber = await resolveWhatsAppNumber(recipientId, recipientType, whatsappNumber);
+      if (waNumber) {
+        await whatsappService.sendWhatsAppMessage(waNumber, `*${title}*\n${content}`);
+      }
+    })(),
+  ]);
 };
 
 const getNotifications = async (recipientId) => {

@@ -35,7 +35,7 @@ const loginUser = async (email, password) => {
 };
 
 const getCustomers = async () => {
-  return await Customer.find();
+  return await Customer.find().lean();
 };
 
 const getCustomerClaims = async (customerId) => {
@@ -44,7 +44,7 @@ const getCustomerClaims = async (customerId) => {
     throw new Error('Customer not found');
   }
 
-  const claims = await Claim.find({ 'claimant.email': customer.email });
+  const claims = await Claim.find({ 'claimant.email': customer.email }).lean();
   if (claims.length === 0) {
     throw new Error('No claims found for this customer');
   }
