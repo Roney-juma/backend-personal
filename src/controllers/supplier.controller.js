@@ -130,6 +130,7 @@ const submitBidForSupply = async (req, res) => {
 const getAllClaimsInGarage = async (req, res) => {
     try {
         const claims = await supplierService.getClaimsInGarage();
+        console.log('Claims in garage:', claims);
         res.json(claims);
     } catch (err) {
         logger.error('Error fetching claims in garage: %s', err.message);
