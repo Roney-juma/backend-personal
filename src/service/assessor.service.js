@@ -354,8 +354,34 @@ const submitReAssessmentReport = async (claimId, { notes, photos, outcome, asses
 
   if (outcome === 'Passed') {
     claim.status = 'ReAssessed';
+  } else if (claim.selfRepair && claim.selfRepair.opted) {
+    // Failed self-repair — no garage involved; send it back to the customer to redo the work.
+    claim.status = 'UnderRepair';
+
+    if (claim.claimant?.email) {
+      await emailService.sendEmailNotification(
+        claim.claimant.email,
+        'Self-Repair Re-Assessment — Further Work Required',
+        `Dear ${claim.claimant.name},
+
+Following the re-assessment of your vehicle (${vehicle}), our assessor has identified outstanding issues that still need to be addressed.
+
+Assessor notes: ${notes.trim()}
+
+Please complete the remaining repairs and call for re-assessment again once done.
+
+Best Regards,
+Admin Team`
+      );
+    }
+    if (claim.claimant?.phone) {
+      await whatsappService.sendWhatsAppMessage(
+        claim.claimant.phone,
+        `Hi ${claim.claimant.name}, the re-assessment of your vehicle (${vehicle}) found outstanding issues.\n\nNotes: ${notes.trim()}\n\nPlease complete the remaining repairs and call for re-assessment again. — Ave Insurance`
+      );
+    }
   } else {
-    // Failed — return directly to Repair and notify garage
+    // Failed garage repair — return directly to Repair and notify garage
     claim.status = 'Repair';
 
     if (claim.awardedGarage?.garageId) {
