@@ -4,13 +4,13 @@ const verifyToken = require('../middlewheres/verifyToken');
 
 const router = express.Router();
 
+// Reads are public — claim types are reference data (e.g. for populating claim forms).
 router.get('/', claimTypeController.getAllClaimTypes);
-
-router.use(verifyToken());
-
-router.post('/', claimTypeController.createClaimType);
 router.get('/:id', claimTypeController.getClaimTypeById);
-router.patch('/:id', claimTypeController.updateClaimType);
-router.delete('/:id', claimTypeController.deleteClaimType);
+
+// Mutations remain authenticated (admin).
+router.post('/', verifyToken(), claimTypeController.createClaimType);
+router.patch('/:id', verifyToken(), claimTypeController.updateClaimType);
+router.delete('/:id', verifyToken(), claimTypeController.deleteClaimType);
 
 module.exports = router;
