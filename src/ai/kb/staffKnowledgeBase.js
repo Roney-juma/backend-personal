@@ -44,14 +44,13 @@ Pending → (admin approves) Approved → (≥3 assessor bids, top-rated auto-aw
   one rejects the others and moves the claim toward garage repair.
 - Bids may also be awarded/rejected manually by staff.
 
-## Self-repair (cash-in-lieu) — two-stage payment
+## Self-repair (cash-in-lieu)
 1. Opt-in (from Assessed): customer chooses self-repair with an estimate → status SelfRepair.
-2. Submit: customer sends receipts + banking details (Mpesa or bank) → status Re-Assessment, selfRepair 'In-Review'.
-3. Approve: admin sets a total awarded amount and a deposit percentage; system computes
-   depositAmount and finalSettlementAmount → selfRepair 'Approved'.
-4. Pay deposit: admin pays the upfront deposit → 'DepositPaid'.
-5. Re-assess: assessor inspects completed repairs.
-6. Pay final settlement: admin pays the remainder → claim Completed.
+2. Submit: customer sends receipts + banking details (Mpesa or bank), no amount → status UnderRepair, selfRepair 'In-Review'.
+3. Call for re-assessment: customer signals the repair is done → status Re-Assessment; the assessor is notified to come inspect.
+4. Re-assess: assessor inspects the self-repair and sets a recommendedAmount.
+5. Pay: admin pays the recommendedAmount to the customer's account → selfRepair 'Paid', claim Completed.
+(Legacy optional two-stage deposit path: approve sets total + depositPercentage → deposit → settlement.)
 
 ## Glass / motor-glass fast-track
 Glass claims skip assessor and garage bidding. Flow: Pending → (approve) GlassApproved →

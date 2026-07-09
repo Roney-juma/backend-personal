@@ -36,6 +36,7 @@ router.patch('/resubmit/:id', claimController.resubmitRejectedClaim);
 router.get('/self-repair', claimController.getSelfRepairClaims);
 router.post('/self-repair/opt-in/:id', claimController.optInSelfRepair);
 router.patch('/self-repair/submit/:id', claimController.submitSelfRepair);
+router.patch('/self-repair/call-re-assessment/:id', claimController.callForSelfRepairReAssessment);
 router.patch('/self-repair/re-assess/:id', claimController.reAssessSelfRepair);
 router.patch('/self-repair/approve/:id', claimController.approveSelfRepair);
 router.patch('/self-repair/reject/:id', claimController.rejectSelfRepair);
