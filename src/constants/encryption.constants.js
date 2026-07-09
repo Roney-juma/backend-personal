@@ -1,7 +1,14 @@
-const EncryptionSecret = 'For the love of whats good, this is the encryption secret';
+require('dotenv').config();
 
-const TokenSecret = 'The secret of this is what becomes to be but also becomes the auth';
+const EncryptionSecret = process.env.ENCRYPTION_SECRET;
+const TokenSecret = process.env.TOKEN_SECRET;
+const TokenIssuer = process.env.TOKEN_ISSUER || 'EVE API';
 
-const TokenIssuer = 'EVE API';
+if (!TokenSecret) {
+  throw new Error('TOKEN_SECRET is not set — required to sign/verify auth tokens.');
+}
+if (!EncryptionSecret) {
+  throw new Error('ENCRYPTION_SECRET is not set.');
+}
 
 module.exports = { EncryptionSecret, TokenSecret, TokenIssuer };

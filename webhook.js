@@ -1,11 +1,16 @@
+require("dotenv").config();
 const express = require("express");
 const crypto = require("crypto");
 const { exec } = require("child_process");
 
 const app = express();
-const PORT = 4000;
+const PORT = process.env.WEBHOOK_PORT || 4000;
 
-const SECRET = "avebackendservicesecret";
+const SECRET = process.env.WEBHOOK_SECRET;
+
+if (!SECRET) {
+  throw new Error("WEBHOOK_SECRET is not set — required to verify GitHub webhook signatures.");
+}
 
 // Raw body parser for GitHub signature verification
 app.use(
