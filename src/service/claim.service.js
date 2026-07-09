@@ -25,6 +25,24 @@ const MOTOR_GLASS_TYPE_ID = '6a43d317ea0c6f0a546da885';
 const isGlassClaim = (claim) =>
   claim.claimTypeId && claim.claimTypeId.toString() === MOTOR_GLASS_TYPE_ID;
 
+// Human-readable, masked description of the account a cash-in-lieu payment was deposited to.
+// Used in customer notifications so they know where the money went, without exposing the full number.
+const describeBankingDetails = (bd) => {
+  if (!bd) return 'your provided account details';
+  const method = (bd.paymentMethod || '').toLowerCase();
+  const mask = (n) => (n ? `****${String(n).slice(-4)}` : '');
+  if (/mobile|mpesa|m-pesa|momo|phone/.test(method) && bd.phoneNumber) {
+    return `your ${bd.paymentMethod} number ${bd.phoneNumber}`;
+  }
+  if (bd.bankName || bd.accountNumber) {
+    const parts = [bd.bankName || 'your bank'];
+    if (bd.accountNumber) parts.push(`account ${mask(bd.accountNumber)}`);
+    if (bd.accountHolderName) parts.push(`(${bd.accountHolderName})`);
+    return `your ${parts.join(' ')}`;
+  }
+  return 'your provided account details';
+};
+
 const getGarageBidRankingData = (bid) => {
   const rating = bid?.garageDetails?.ratings?.averageRating ?? bid?.ratings ?? 0;
   const pendingWork = bid?.garageDetails?.pendingWork ?? Number.MAX_SAFE_INTEGER;
@@ -1628,41 +1646,44 @@ const payFinalSettlement = async (claimId, req) => {
   });
 
   const setVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
+  const account = describeBankingDetails(claim.selfRepair.bankingDetails);
+
+  // Fire-and-forget — the response doesn't depend on notification delivery.
   if (claim.claimant && claim.claimant.email) {
-    await emailService.sendEmailNotification(
+    emailService.sendEmailNotification(
       claim.claimant.email,
-      'Cash-in-Lieu Final Settlement Paid — Claim Closed',
+      'Cash-in-Lieu Balance Deposited — Claim Closed',
       `Dear ${claim.claimant.name},
 
-Your final settlement of KES ${claim.selfRepair.finalSettlementAmount} for claim reference: ${setVehicle} has been paid to your provided banking details.
+Your outstanding balance of KES ${claim.selfRepair.finalSettlementAmount} for claim reference: ${setVehicle} has been deposited to ${account}.
 
 Summary:
 - Initial deposit paid: KES ${claim.selfRepair.depositAmount}
-- Final settlement paid: KES ${claim.selfRepair.finalSettlementAmount}
+- Balance deposited: KES ${claim.selfRepair.finalSettlementAmount}
 - Total cash-in-lieu received: KES ${claim.selfRepair.totalAwardedAmount}
 
 Your claim is now closed. Thank you for choosing Ave Insurance.
 
 Best Regards,
 Admin Team`
-    );
+    ).catch(err => logger.warn(`Settlement email failed for claim ${claim._id}: ${err.message}`));
   }
   if (claim.claimant && claim.claimant.phone) {
-    await whatsappService.sendWhatsAppMessage(
+    whatsappService.sendWhatsAppMessage(
       claim.claimant.phone,
-      `Hi ${claim.claimant.name}, your final settlement of KES ${claim.selfRepair.finalSettlementAmount} for claim ${setVehicle} has been *paid*.\n\nTotal received: KES ${claim.selfRepair.totalAwardedAmount}. Your claim is now closed. — Ave Insurance`
-    );
+      `Hi ${claim.claimant.name}, your outstanding balance of KES ${claim.selfRepair.finalSettlementAmount} for claim ${setVehicle} has been *deposited* to ${account}.\n\nTotal received: KES ${claim.selfRepair.totalAwardedAmount}. Your claim is now closed. — Ave Insurance`
+    ).catch(err => logger.warn(`Settlement WhatsApp failed for claim ${claim._id}: ${err.message}`));
   }
   if (claim.customerId) {
-    await notificationService.createAndEmit({
+    notificationService.createAndEmit({
       recipientId: claim.customerId,
       recipientType: 'customer',
       type: 'self_repair_settlement_paid',
-      title: 'Final Settlement Paid — Claim Closed',
-      content: `Final settlement of KES ${claim.selfRepair.finalSettlementAmount} paid for claim ${setVehicle}. Total received: KES ${claim.selfRepair.totalAwardedAmount}.`,
+      title: 'Balance Deposited — Claim Closed',
+      content: `Your balance of KES ${claim.selfRepair.finalSettlementAmount} for claim ${setVehicle} has been deposited to ${account}. Claim closed.`,
       claimId: claim._id,
       whatsappNumber: claim.claimant?.phone,
-    });
+    }).catch(err => logger.warn(`Settlement notification failed for claim ${claim._id}: ${err.message}`));
   }
 
   return claim;

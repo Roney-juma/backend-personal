@@ -41,6 +41,8 @@ router.patch('/self-repair/approve/:id', claimController.approveSelfRepair);
 router.patch('/self-repair/reject/:id', claimController.rejectSelfRepair);
 router.patch('/self-repair/pay-deposit/:id', claimController.payInitialDeposit);
 router.patch('/self-repair/pay-settlement/:id', claimController.payFinalSettlement);
+// Pays the outstanding balance (final settlement) and closes the claim — alias used by the client.
+router.patch('/self-repair/pay/:id', claimController.payFinalSettlement);
 
 // Re-assessment completion (admin)
 router.patch('/complete-claim/:id', claimController.completeReAssessment);
