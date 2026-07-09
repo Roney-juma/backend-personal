@@ -1,11 +1,9 @@
 const jwt = require('jsonwebtoken');
-const path = require('path');
-const fs = require('fs');
 const { TokenIssuer } = require('../constants/encryption.constants');
 const logger = require('./logger');
+const { readPublicKey } = require('../config/keys');
 
-const folderPath = path.resolve(`${process.cwd()}/keys`);
-const publicKey = fs.readFileSync(`${folderPath}/public.pem`, 'utf8');
+const publicKey = readPublicKey();
 
 /**
  * Middleware for provider (platform staff) routes only.

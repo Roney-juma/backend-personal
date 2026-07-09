@@ -1,14 +1,13 @@
 const socketIo = require('socket.io');
 const jwt = require('jsonwebtoken');
-const path = require('path');
-const fs = require('fs');
 const logger = require('./middlewheres/logger');
 const { TokenIssuer } = require('./constants/encryption.constants');
 const { effectiveOrigins } = require('./config/cors');
+const { readPublicKey } = require('./config/keys');
 
 let io;
 
-const publicKey = fs.readFileSync(path.resolve(`${process.cwd()}/keys/public.pem`), 'utf8');
+const publicKey = readPublicKey();
 
 // Extract a bearer token from the Socket.IO handshake (auth payload, Authorization header, or query).
 const getHandshakeToken = (socket) => {
