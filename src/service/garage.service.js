@@ -8,6 +8,7 @@ const whatsappService = require('./whatsapp.service');
 const tokenService = require("./token.service");
 const SupplyBid = require('../models/supplyBids.model');
 const cache = require('../cache');
+const logger = require('../middlewheres/logger');
 
 const createGarage = async (garage) => {
   const plainPassword = garage.password;
@@ -193,21 +194,28 @@ const placeBid = async (claimId, garageId, description, timeline, parts) => {
   await cache.del(`cache:garage:bids:${garageId}`);
   await cache.delPattern('cache:claims:*');
 
+  // Fire-and-forget — response doesn't depend on notification delivery.
   if (garage && garage.email) {
-    await emailService.sendEmailNotification(
+    emailService.sendEmailNotification(
       garage.email,
       'New Bid Placed',
       `Dear ${garage.name},\n\nYou have successfully placed a bid of ${totalCost} on claim ID: ${claim._id}. The following parts are included in your bid:\n\n${parts
         .map((part) => `${part.partName}: ${part.cost}`)
         .join('\n')}\n\nThank you for your participation.`
-    );
+    ).catch(err => logger.warn(`Garage bid email failed for claim ${claim._id}: ${err.message}`));
   }
   if (garage && garage.contactNumber) {
-    await whatsappService.sendWhatsAppMessage(
+    whatsappService.sendWhatsAppMessage(
       garage.contactNumber,
       `Hi ${garage.name}, your bid of R${totalCost} on claim ${claim._id} has been placed successfully. We'll notify you of the outcome. — Ave Insurance`
-    );
+    ).catch(err => logger.warn(`Garage bid WhatsApp failed for claim ${claim._id}: ${err.message}`));
   }
+
+  // Auto-award if this bid completes the threshold (>3 pending garage bids). Runs in the
+  // background; previously this only happened lazily on the claims-list read.
+  require('./claim.service').runAutoAward(claimId)
+    .catch(err => logger.warn(`Auto-award after garage bid failed for claim ${claimId}: ${err.message}`));
+
   const response = {
     claim,
     garageDetails: {

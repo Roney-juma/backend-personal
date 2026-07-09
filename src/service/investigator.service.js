@@ -546,7 +546,8 @@ The AVE Insurance Team`;
 const getMyInvestigations = async (investigatorId) => {
   const investigations = await Investigation.find({ investigatorId })
     .populate('claimId', 'status incidentDetails vehiclesInvolved claimant customerId')
-    .sort({ createdAt: -1 });
+    .sort({ createdAt: -1 })
+    .lean();
 
   if (!investigations.length) throw new ApiError(404, 'No investigations found for this investigator');
   return investigations;
@@ -556,7 +557,8 @@ const getAllInvestigations = async () => {
   return Investigation.find()
     .populate('claimId', 'status incidentDetails vehiclesInvolved claimant')
     .populate('investigatorId', 'name email contactNumber')
-    .sort({ createdAt: -1 });
+    .sort({ createdAt: -1 })
+    .lean();
 };
 
 const getInvestigationById = async (id) => {

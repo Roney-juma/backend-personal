@@ -122,7 +122,7 @@ const getApprovedClaims = async (assessorId) => {
     const claims = await Claim.find({
       status: 'Approved',
       awardedAssessor: { $exists: false }
-    });
+    }).lean();
     const nearbyClaims = claims.filter((claim) => {
       const { latitude, longitude } = claim.incidentDetails;
       if (!latitude || !longitude) return false;
@@ -203,6 +203,11 @@ const placeBid = async (claimId, assessorId, amount, description, timeline, req)
     changes: { old: null, new: newBid },
   });
 
+  // Auto-award if this bid completes the threshold. Runs in the background so the bidder's
+  // response isn't blocked; previously this only happened lazily on the claims-list read.
+  require('./claim.service').runAutoAward(claimId)
+    .catch(err => logger.warn(`Auto-award after assessor bid failed for claim ${claimId}: ${err.message}`));
+
   return {
     amount,
     description,
@@ -219,7 +224,7 @@ const placeBid = async (claimId, assessorId, amount, description, timeline, req)
 
 const getAssessorBids = async (assessorId) => {
   return cache.wrap(`cache:assessor:bids:${assessorId}`, async () => {
-    const claims = await Claim.find({ "bids.assessorId": assessorId });
+    const claims = await Claim.find({ "bids.assessorId": assessorId }).lean();
 
     const assessorBids = [];
     for (const claim of claims) {

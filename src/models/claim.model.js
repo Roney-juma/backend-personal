@@ -300,5 +300,17 @@ const claimSchema = new Schema({
   },
 }, { timestamps: true });
 
+// Indexes matching the app's actual query filters. Without these, every list/lookup
+// (by status, customer, awarded assessor/garage, or nested bids) is a full collection
+// scan that degrades linearly as claims grow.
+claimSchema.index({ status: 1, createdAt: -1 });            // status lists, newest-first
+claimSchema.index({ customerId: 1 });                       // claims by customer
+claimSchema.index({ 'claimant.email': 1 });                 // customer portal lookups
+claimSchema.index({ claimTypeId: 1 });                      // glass vs motor filtering
+claimSchema.index({ 'awardedAssessor.assessorId': 1 });     // assessor's awarded claims
+claimSchema.index({ 'awardedGarage.garageId': 1 });         // garage's awarded claims
+claimSchema.index({ 'bids.assessorId': 1 });                // getAssessorBids
+claimSchema.index({ 'bids.garageId': 1 });                  // getGarageBids
+
 const Claim = mongoose.model('Claim', claimSchema);
 module.exports = Claim;

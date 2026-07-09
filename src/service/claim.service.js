@@ -332,57 +332,52 @@ const createClaim = async (data, req) => {
   }
 };
 
+// Pure read — no side effects. Auto-award now runs on bid submission via runAutoAward()
+// instead of on every list read (which previously triggered writes + emails per claim).
 const getClaims = async () => {
-  const claims = await Claim.find().sort({ createdAt: -1 });
+  return Claim.find().sort({ createdAt: -1 }).lean();
+};
 
-  for (let claim of claims) {
-    // Check if the claim is approved and has at least 3 assessor bids
-    if (claim.bids.length >= 3 && claim.status === 'Approved') {
-      const assessorBids = claim.bids.filter(bid => bid.bidderType === 'assessor');
-      if (assessorBids.length === 0) continue;
+// Evaluate and apply auto-award rules for a single claim. Called after a bid is placed.
+// Assessors: 3+ bids on an Approved claim, all pending → award highest-rated.
+// Garages: more than 3 pending garage bids on a Garage claim → award best.
+const runAutoAward = async (claimId) => {
+  const claim = await Claim.findById(claimId);
+  if (!claim) return;
 
-      // Check if all assessor bids are pending and none have been awarded
+  if (claim.bids.length >= 3 && claim.status === 'Approved') {
+    const assessorBids = claim.bids.filter(bid => bid.bidderType === 'assessor');
+    if (assessorBids.length > 0) {
       const hasAwardedBid = assessorBids.some(bid => bid.status === 'awarded');
       const allPending = assessorBids.every(bid => bid.status === 'pending');
 
-      if (hasAwardedBid || !allPending) {
-        continue; // Skip this claim if any bid is already awarded or not all are pending
-      }
-
-      let topRatedBid = null;
-      let highestRating = -1;
-
-      // Find the top-rated assessor bid
-      for (let bid of assessorBids) {
-        if (bid.assessorDetails && bid.assessorDetails.ratings.averageRating > highestRating) {
-          highestRating = bid.assessorDetails.ratings.averageRating;
-          topRatedBid = bid; // Update the top-rated bid
+      if (!hasAwardedBid && allPending) {
+        let topRatedBid = null;
+        let highestRating = -1;
+        for (let bid of assessorBids) {
+          if (bid.assessorDetails && bid.assessorDetails.ratings.averageRating > highestRating) {
+            highestRating = bid.assessorDetails.ratings.averageRating;
+            topRatedBid = bid;
+          }
+        }
+        if (topRatedBid) {
+          await awardClaim(claim._id, topRatedBid._id, null);
         }
       }
-
-      // Award the top-rated assessor bid if found
-      if (topRatedBid) {
-        await awardClaim(claim._id, topRatedBid._id, null);
-      }
     }
+  }
 
-    // Auto-award garage bid once more than one garage has placed a bid
-    if (claim.status === 'Garage') {
-      const garageBids = claim.bids.filter(
-        (bid) => bid.bidderType === 'garage' && bid.status === 'pending'
-      );
-      if (garageBids.length <= 3) continue;
-
+  if (claim.status === 'Garage') {
+    const garageBids = claim.bids.filter(
+      (bid) => bid.bidderType === 'garage' && bid.status === 'pending'
+    );
+    if (garageBids.length > 3) {
       const topRatedGarageBid = selectBestGarageBid(garageBids);
-
-      // Award the best garage bid (rating first, then lower pending work) if found
       if (topRatedGarageBid) {
         await awardBidToGarage(claim._id, topRatedGarageBid._id, null);
       }
     }
   }
-
-  return claims;
 };
 
 
@@ -394,7 +389,8 @@ const getClaimsByCustomer = async (customerId) => {
     Claim.find({ customerId })
       .populate('customerId')
       .populate({ path: 'garageRepairReport.garageId', select: 'name email contactNumber _id' })
-      .populate({ path: 'reAssessmentReport.assessorId', select: 'name email _id' }),
+      .populate({ path: 'reAssessmentReport.assessorId', select: 'name email _id' })
+      .lean(),
   600);
 };
 
@@ -425,46 +421,48 @@ const approveClaim = async (id, req) => {
   const claimant = claim.claimant;
   const vehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
 
+  // Fire-and-forget notifications — the response doesn't depend on delivery (email/WhatsApp
+  // are queued; createAndEmit backgrounds push+WhatsApp). Failures are logged, not thrown.
   if (glass) {
     if (claimant?.email) {
-      await emailService.sendEmailNotification(
+      emailService.sendEmailNotification(
         claimant.email,
         'Glass Claim Approved',
         `Dear ${claimant.name},\n\nYour glass/windscreen claim (Reference: ${vehicle}) has been approved. A service provider will be assigned shortly to carry out the replacement.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
-      );
+      ).catch(err => logger.warn(`Approval email failed for claim ${claim._id}: ${err.message}`));
     }
     if (claimant?.phone) {
-      await whatsappService.sendWhatsAppMessage(
+      whatsappService.sendWhatsAppMessage(
         claimant.phone,
         `Hi ${claimant.name}, your glass/windscreen claim (${vehicle}) has been *approved*. A service provider will be assigned shortly. — Ave Insurance`
-      );
+      ).catch(err => logger.warn(`Approval WhatsApp failed for claim ${claim._id}: ${err.message}`));
     }
     if (claim.customerId) {
-      await notificationService.createAndEmit({
+      notificationService.createAndEmit({
         recipientId: claim.customerId,
         recipientType: 'customer',
         type: 'claim_approved',
         title: 'Glass Claim Approved',
         content: `Your glass/windscreen claim (${vehicle}) has been approved. A service provider will be assigned shortly.`,
         claimId: claim._id,
-      });
+      }).catch(err => logger.warn(`Approval notification failed for claim ${claim._id}: ${err.message}`));
     }
   } else {
     if (claimant?.email) {
-      await emailService.sendEmailNotification(
+      emailService.sendEmailNotification(
         claimant.email,
         'Claim Approval Notification',
         `Dear ${claimant.name},\n\nWe acknowledge receipt of your claim regarding vehicle registration number ${vehicle}.\n\nTo facilitate the claims process, an assessor will be appointed shortly to inspect and assess the vehicle. The assessment findings will enable us to determine the next steps and process your claim accordingly.\n\nOur team will keep you informed throughout the process and will contact you should any additional information be required.\n\nThank you for choosing Ave Insurance.\n\nKind regards,\n\nClaims Department\nAve Insurance`
-      );
+      ).catch(err => logger.warn(`Approval email failed for claim ${claim._id}: ${err.message}`));
     }
     if (claimant?.phone) {
-      await whatsappService.sendWhatsAppMessage(
+      whatsappService.sendWhatsAppMessage(
         claimant.phone,
         `Hi ${claimant.name}, your claim (${vehicle}) has been *approved*. An assessor will be appointed shortly. — Ave Insurance`
-      );
+      ).catch(err => logger.warn(`Approval WhatsApp failed for claim ${claim._id}: ${err.message}`));
     }
     if (claim.customerId) {
-      await notificationService.createAndEmit({
+      notificationService.createAndEmit({
         recipientId: claim.customerId,
         recipientType: 'customer',
         type: 'claim_approved',
@@ -472,7 +470,7 @@ const approveClaim = async (id, req) => {
         content: `Your claim (${vehicle}) has been approved.`,
         claimId: claim._id,
         whatsappNumber: claimant?.phone,
-      });
+      }).catch(err => logger.warn(`Approval notification failed for claim ${claim._id}: ${err.message}`));
     }
   }
 
@@ -637,14 +635,14 @@ const awardClaim = async (id, bidId, req) => {
   });
 
 
-  await notificationService.createAndEmit({
+  notificationService.createAndEmit({
     recipientId: bid.assessorId,
     recipientType: 'assessor',
     type: 'bid_awarded',
     title: 'Bid Awarded',
     content: `Your bid for claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been awarded.`,
     claimId: claim._id,
-  });
+  }).catch(err => logger.warn(`Award notification failed for claim ${claim._id}: ${err.message}`));
   const start = Date.now();
   await claim.save();
   await invalidateClaimCache(id);
@@ -672,31 +670,32 @@ const awardClaim = async (id, bidId, req) => {
   // Fetch the awarded assessor's details
   const assessor = await Assessor.findById(bid.assessorId);
   const vehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
+  // Fire-and-forget — response doesn't depend on notification delivery.
   if (assessor && assessor.email) {
-    await emailService.sendEmailNotification(
+    emailService.sendEmailNotification(
       assessor.email,
       'Claim Award Notification',
       `Dear ${assessor.name},\n\nCongratulations! You have been awarded the claim with ID: ${vehicle}. You are required to submit a report within 3 days.\n\nPlease ensure that the report is submitted on time to facilitate the next steps in the claims process.\n\nBest Regards,\nAdmin Team`
-    );
+    ).catch(err => logger.warn(`Award email (assessor) failed for claim ${claim._id}: ${err.message}`));
     if (assessor.contactInfo?.phone) {
-      await whatsappService.sendWhatsAppMessage(
+      whatsappService.sendWhatsAppMessage(
         assessor.contactInfo?.phone,
         `Hi ${assessor.name}, you have been *awarded* claim ${vehicle}. Please submit your assessment report within 3 days. — Ave Insurance`
-      );
+      ).catch(err => logger.warn(`Award WhatsApp (assessor) failed for claim ${claim._id}: ${err.message}`));
     }
   }
   if (claim.claimant && claim.claimant.email) {
-    await emailService.sendEmailNotification(
+    emailService.sendEmailNotification(
       claim.claimant.email,
       'Assessor Visit Notification',
       `Dear ${claim.claimant.name},\n\nWe are pleased to inform you that your claim with ID: ${vehicle} has been awarded to an assessor. The assessor, ${assessor?.name}, will be visiting to assess the state of your vehicle.\n\nHere are the assessor's contact details:\n- Phone: ${assessor?.phone}\n- Email: ${assessor?.email}\n\nPlease feel free to reach out to the assessor to coordinate the visit.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
-    );
+    ).catch(err => logger.warn(`Award email (claimant) failed for claim ${claim._id}: ${err.message}`));
   }
   if (claim.claimant && claim.claimant.phone) {
-    await whatsappService.sendWhatsAppMessage(
+    whatsappService.sendWhatsAppMessage(
       claim.claimant.phone,
       `Hi ${claim.claimant.name}, an assessor has been assigned to your claim (${vehicle}).\n\nAssessor: ${assessor?.name}\nPhone: ${assessor?.phone}\nEmail: ${assessor?.email}\n\nThey will contact you to arrange a visit. — Ave Insurance`
-    );
+    ).catch(err => logger.warn(`Award WhatsApp (claimant) failed for claim ${claim._id}: ${err.message}`));
   }
 
   return claim;
@@ -739,14 +738,14 @@ const awardBidToGarage = async (id, bidId, req) => {
   garage.pendingWork = (garage.pendingWork || 0) + 1;
   await garage.save();
 
-  await notificationService.createAndEmit({
+  notificationService.createAndEmit({
     recipientId: bid.garageId,
     recipientType: 'garage',
     type: 'bid_awarded',
     title: 'Bid Awarded',
     content: `Your bid for claim ${claim.vehiclesInvolved[0]?.licensePlate || claim._id} has been awarded.`,
     claimId: claim._id,
-  });
+  }).catch(err => logger.warn(`Garage award notification failed for claim ${claim._id}: ${err.message}`));
   const start = Date.now();
   await claim.save();
   await invalidateClaimCache(id);
@@ -765,32 +764,33 @@ const awardBidToGarage = async (id, bidId, req) => {
 
   const gVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
 
+  // Fire-and-forget — response doesn't depend on notification delivery.
   if (garage.email) {
-    await emailService.sendEmailNotification(
+    emailService.sendEmailNotification(
       garage.email,
       'Bid Award Notification',
       `Dear ${garage.name},\n\nCongratulations! Your bid for the claim with ID: ${gVehicle} has been awarded. You are requested to proceed with the repair of the vehicle as soon as possible.\n\nPlease ensure that all necessary repairs are completed in a timely and professional manner.\n\nThank you for your cooperation.\n\nBest Regards,\nAdmin Team`
-    );
+    ).catch(err => logger.warn(`Garage award email failed for claim ${claim._id}: ${err.message}`));
   }
   if (garage.contactNumber) {
-    await whatsappService.sendWhatsAppMessage(
+    whatsappService.sendWhatsAppMessage(
       garage.contactNumber,
       `Hi ${garage.name}, your bid for claim ${gVehicle} has been *awarded*. Please proceed with the repair as soon as possible. — Ave Insurance`
-    );
+    ).catch(err => logger.warn(`Garage award WhatsApp failed for claim ${claim._id}: ${err.message}`));
   }
 
   if (claim.claimant?.email) {
-    await emailService.sendEmailNotification(
+    emailService.sendEmailNotification(
       claim.claimant.email,
       'Repair Details for Your Vehicle',
       `Dear ${claim.claimant.name},\n\nWe are pleased to inform you that your claim for (ID: ${gVehicle}) has been processed, and your vehicle will be repaired at the following garage:\n\nGarage Details:\n- Name: ${garage.name}\n- Location: ${garage.location.name}\n- Timeline: ${bid.garageDetails?.timeline || 'No timeline available'}\n- Ratings: ${garage.ratings.averageRating || 'No ratings available'}\n- Description: ${garage.description || 'No description available'}\n\nThe garage will contact you shortly to proceed with the repairs. If you have any questions, please feel free to reach out.\n\nThank you for choosing our services.\n\nBest Regards,\nAdmin Team`
-    );
+    ).catch(err => logger.warn(`Garage repair email (claimant) failed for claim ${claim._id}: ${err.message}`));
   }
   if (claim.claimant?.phone) {
-    await whatsappService.sendWhatsAppMessage(
+    whatsappService.sendWhatsAppMessage(
       claim.claimant.phone,
       `Hi ${claim.claimant.name}, your vehicle (${gVehicle}) has been assigned to *${garage.name}* for repair.\n📍 ${garage.location.name}\n⭐ Rating: ${garage.ratings.averageRating || 'N/A'}\n\nThe garage will contact you shortly. — Ave Insurance`
-    );
+    ).catch(err => logger.warn(`Garage repair WhatsApp (claimant) failed for claim ${claim._id}: ${err.message}`));
   }
 
   return claim;
@@ -939,7 +939,7 @@ const rejectGarageBid = async (id, bidId, req) => {
 
 // Get awarded claims
 const getAwardedClaims = async () => {
-  return cache.wrap('cache:claims:awarded', () => Claim.find({ awardedAssessor: { $exists: true } }), 300);
+  return cache.wrap('cache:claims:awarded', () => Claim.find({ awardedAssessor: { $exists: true } }).lean(), 300);
 };
 const updateClaim = async (id, updateData) => {
   updateData.status = 'Repair';
@@ -980,7 +980,7 @@ const getGarageBidsByClaim = async (id) => {
 
 // Garage finds assessed claims for repair
 const garageFindsAssessedClaimsForRepair = async () => {
-  return cache.wrap('cache:claims:assessed', () => Claim.find({ status: 'Assessed' }), 300);
+  return cache.wrap('cache:claims:assessed', () => Claim.find({ status: 'Assessed' }).lean(), 300);
 };
 
 // Get assessed claim by ID
@@ -995,7 +995,7 @@ const getAssessedClaimById = async (id) => {
 // Get assessed claims by garage
 const getAssessedClaimsByGarage = async (garageId) => {
   return cache.wrap(`cache:claims:assessed:garage:${garageId}`, () =>
-    Claim.find({ garage: garageId, status: 'Assessed' }), 600);
+    Claim.find({ garage: garageId, status: 'Assessed' }).lean(), 600);
 };
 
 // Get all supplier bids for a claim
@@ -1732,7 +1732,7 @@ const reAssessSelfRepair = async (claimId, { notes, recommendedAmount }, req) =>
 // Get all claims that are in self-repair workflow
 const getSelfRepairClaims = async () => {
   return cache.wrap('cache:claims:self-repair', () =>
-    Claim.find({ 'selfRepair.opted': true }).sort({ createdAt: -1 }), 600);
+    Claim.find({ 'selfRepair.opted': true }).sort({ createdAt: -1 }).lean(), 600);
 };
 
 // Approve a glass claim — sets status to GlassApproved
@@ -1918,7 +1918,7 @@ const completeGlassRepair = async (claimId, req) => {
 // Get all glass/motor glass claims
 const getGlassClaims = async () => {
   return cache.wrap('cache:claims:glass', () =>
-    Claim.find({ claimTypeId: MOTOR_GLASS_TYPE_ID }).sort({ createdAt: -1 }), 600);
+    Claim.find({ claimTypeId: MOTOR_GLASS_TYPE_ID }).sort({ createdAt: -1 }).lean(), 600);
 };
 
 // Customer resubmits a rejected claim with updated details
@@ -1974,6 +1974,7 @@ module.exports = {
   getClaimById,
   awardClaim,
   awardBidToGarage,
+  runAutoAward,
   getAwardedClaims,
   getBidsByClaim,
   getGarageBidsByClaim,

@@ -3,6 +3,7 @@ const { Worker } = require('bullmq');
 const { getRedisClient } = require('./queue/connection');
 const { sendEmailDirect } = require('./service/email.service');
 const { sendWhatsAppDirect } = require('./service/whatsapp.service');
+const { sendPushDirect } = require('./service/firebase.service');
 const logger = require('./middlewheres/logger');
 
 // Mongoose must be connected for the pipeline's DB queries
@@ -34,6 +35,12 @@ const notificationProcessor = async (job) => {
       const { to, message } = job.data;
       if (!to || !message) throw new Error(`Invalid WhatsApp job data: ${JSON.stringify(job.data)}`);
       await sendWhatsAppDirect(to, message);
+      break;
+    }
+    case 'push': {
+      const { recipientId, recipientType } = job.data;
+      if (!recipientId || !recipientType) throw new Error(`Invalid push job data: ${JSON.stringify(job.data)}`);
+      await sendPushDirect(job.data);
       break;
     }
     default:
