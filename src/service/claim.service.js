@@ -13,6 +13,7 @@ const crypto = require('crypto');
 const logger = require('../middlewheres/logger');
 const cache = require('../cache');
 const { getAnalyzeQueue } = require('../queue/queues');
+const { getCorrelationId } = require('../utils/requestContext');
 const FraudOutcome = require('../models/fraudOutcome.model');
 
 const invalidateClaimCache = async (claimId) => {
@@ -185,7 +186,7 @@ const fileClaimService = async (token, claimDetails, req) => {
     // Enqueue async fraud analysis — never blocks the HTTP response
     const analyzeQueue = getAnalyzeQueue();
     if (analyzeQueue) {
-      await analyzeQueue.add('analyze', { claimId: newClaim._id.toString() }).catch(err =>
+      await analyzeQueue.add('analyze', { claimId: newClaim._id.toString(), correlationId: getCorrelationId() }).catch(err =>
         logger.warn(`Failed to enqueue claim analysis for ${newClaim._id}: ${err.message}`)
       );
     }
@@ -255,7 +256,7 @@ const fileClaimForCustomer = async (customer, claimDetails, req) => {
     // Enqueue async fraud analysis — never blocks the HTTP response
     const analyzeQueue = getAnalyzeQueue();
     if (analyzeQueue) {
-      await analyzeQueue.add('analyze', { claimId: newClaim._id.toString() }).catch(err =>
+      await analyzeQueue.add('analyze', { claimId: newClaim._id.toString(), correlationId: getCorrelationId() }).catch(err =>
         logger.warn(`Failed to enqueue claim analysis for ${newClaim._id}: ${err.message}`)
       );
     }
@@ -314,7 +315,7 @@ const createClaim = async (data, req) => {
 
     const analyzeQueue = getAnalyzeQueue();
     if (analyzeQueue) {
-      await analyzeQueue.add('analyze', { claimId: claim._id.toString() }).catch(err =>
+      await analyzeQueue.add('analyze', { claimId: claim._id.toString(), correlationId: getCorrelationId() }).catch(err =>
         logger.warn(`Failed to enqueue claim analysis for ${claim._id}: ${err.message}`)
       );
     }
