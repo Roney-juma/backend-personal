@@ -9,9 +9,8 @@ const s3 = new AWS.S3();
 const Upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024 * 1024 *1024
-}
-
+    fileSize: 10 * 1024 * 1024, // 10 MiB (was 10 TiB — the extra *1024*1024 was a typo)
+  },
 });
 
 module.exports = Upload;
