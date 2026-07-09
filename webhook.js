@@ -12,6 +12,12 @@ if (!SECRET) {
   throw new Error("WEBHOOK_SECRET is not set — required to verify GitHub webhook signatures.");
 }
 
+// Branch → deploy script. Override the paths via env if your server dirs differ.
+const DEPLOY_SCRIPTS = {
+  production: process.env.DEPLOY_SCRIPT_PRODUCTION || "/home/ubuntu/deploy.sh",
+  staging: process.env.DEPLOY_SCRIPT_STAGING || "/home/ubuntu/backend-staging/deploy-staging.sh",
+};
+
 // Raw body parser for GitHub signature verification
 app.use(
   express.json({
@@ -32,18 +38,24 @@ app.post("/deploy", (req, res) => {
   const digest =
     "sha256=" + hmac.update(req.rawBody).digest("hex");
 
-  if (
-    !crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(digest)
-    )
-  ) {
+  const sigBuf = Buffer.from(signature);
+  const digestBuf = Buffer.from(digest);
+  if (sigBuf.length !== digestBuf.length || !crypto.timingSafeEqual(sigBuf, digestBuf)) {
     return res.status(401).send("Invalid signature");
   }
 
-  console.log("Webhook verified");
+  // Route by the pushed branch: staging push → staging deploy, production push → prod deploy.
+  const branch = (req.body.ref || "").replace("refs/heads/", "");
+  const script = DEPLOY_SCRIPTS[branch];
 
-  exec("bash /home/ubuntu/deploy.sh", (error, stdout, stderr) => {
+  if (!script) {
+    console.log(`Webhook: ignoring push to '${branch || "unknown"}'`);
+    return res.status(200).send(`Ignored branch: ${branch}`);
+  }
+
+  console.log(`Webhook verified — deploying '${branch}' via ${script}`);
+
+  exec(`bash ${script}`, (error, stdout, stderr) => {
     if (error) {
       console.error(error);
       return res.status(500).send("Deployment failed");
@@ -55,7 +67,7 @@ app.post("/deploy", (req, res) => {
       console.error(stderr);
     }
 
-    res.status(200).send("Deployment successful");
+    res.status(200).send(`Deployment successful: ${branch}`);
   });
 });
 
