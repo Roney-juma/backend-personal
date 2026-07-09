@@ -1,31 +1,74 @@
 const socketIo = require('socket.io');
+const jwt = require('jsonwebtoken');
+const path = require('path');
+const fs = require('fs');
 const logger = require('./middlewheres/logger');
+const { TokenIssuer } = require('./constants/encryption.constants');
+const { effectiveOrigins } = require('./config/cors');
 
 let io;
 
+const publicKey = fs.readFileSync(path.resolve(`${process.cwd()}/keys/public.pem`), 'utf8');
+
+// Extract a bearer token from the Socket.IO handshake (auth payload, Authorization header, or query).
+const getHandshakeToken = (socket) => {
+  const { token } = socket.handshake.auth || {};
+  if (token) return token;
+  const header = socket.handshake.headers?.authorization;
+  if (header) return header.split(' ')[1];
+  return socket.handshake.query?.token || null;
+};
+
+// Connection-level auth: reject sockets without a valid token, attach the decoded user.
+const authenticateSocket = (socket, next) => {
+  const token = getHandshakeToken(socket);
+  if (!token) return next(new Error('Unauthorized: no token'));
+
+  jwt.verify(token, publicKey.replace(/\\n/gm, '\n'), { issuer: TokenIssuer, algorithms: ['RS512'] }, (err, decoded) => {
+    if (err) return next(new Error('Unauthorized: invalid token'));
+    socket.user = decoded.payload;
+    next();
+  });
+};
+
 const init = (httpServer) => {
+  // Socket.IO needs a literal '*' for allow-all; an array is matched by exact membership.
+  const wildcard = effectiveOrigins.includes('*');
   io = socketIo(httpServer, {
     cors: {
-      origin: '*',
-      methods: ['GET', 'POST', 'PUT', 'DELETE'],
+      origin: wildcard ? '*' : effectiveOrigins,
+      methods: ['GET', 'POST'],
       allowedHeaders: ['Content-Type', 'Authorization'],
+      credentials: !wildcard, // '*' + credentials is rejected by browsers
     },
   });
 
-  io.on('connection', (socket) => {
-    logger.info('Socket connected: %s', socket.id);
+  io.use(authenticateSocket);
 
-    socket.on('join-room', (userId) => {
+  io.on('connection', (socket) => {
+    const userId = socket.user?.id;
+    logger.info('Socket connected: %s (user %s)', socket.id, userId);
+
+    // A user may only join their OWN notification room, regardless of the id they send.
+    socket.on('join-room', (requestedId) => {
       if (userId) {
+        if (requestedId && String(requestedId) !== String(userId)) {
+          logger.warn('Socket %s (user %s) tried to join notification:%s — denied', socket.id, userId, requestedId);
+          return;
+        }
         socket.join(`notification:${userId}`);
         logger.info('Socket %s joined notification:%s', socket.id, userId);
       }
     });
 
-    // Admin portal joins this room to receive real-time fraud/AI events
+    // Admin/fraud room is restricted to platform staff (ProviderUser tokens only).
     socket.on('join-admin', () => {
+      if (socket.user?.accountType !== 'ProviderUser') {
+        logger.warn('Socket %s (user %s) denied admin room — accountType=%s', socket.id, userId, socket.user?.accountType);
+        return socket.emit('error', { message: 'Forbidden: admin access only' });
+      }
       socket.join('admin');
-      logger.info('Socket %s joined admin room', socket.id);
+      logger.info('Socket %s (user %s) joined admin room', socket.id, userId);
     });
 
     socket.on('disconnect', () => {
