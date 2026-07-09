@@ -2,6 +2,7 @@ require('../config/firebase');
 const { getMessaging } = require('firebase-admin/messaging');
 const logger = require('../middlewheres/logger');
 const { getQueue } = require('../queue/queues');
+const { getCorrelationId } = require('../utils/requestContext');
 const Customer = require('../models/customerModel');
 const Assessor = require('../models/assessor.model');
 const Garage = require('../models/garage.model');
@@ -41,7 +42,7 @@ const sendPushNotification = async ({ recipientId, recipientType, title, body, d
   const queue = getQueue();
   if (queue) {
     try {
-      await queue.add('push', { recipientId, recipientType, title, body, data });
+      await queue.add('push', { recipientId, recipientType, title, body, data, correlationId: getCorrelationId() });
       return;
     } catch (err) {
       logger.warn(`Push queue failed, falling back to direct send | ${err.message}`);

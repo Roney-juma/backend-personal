@@ -1,6 +1,7 @@
 const nodemailer = require('nodemailer');
 const logger = require('../middlewheres/logger');
 const { getQueue } = require('../queue/queues');
+const { getCorrelationId } = require('../utils/requestContext');
 require('dotenv').config();
 
 const transporter = nodemailer.createTransport({
@@ -30,7 +31,7 @@ const sendEmailNotification = async (to, subject, text) => {
   const queue = getQueue();
   if (queue) {
     try {
-      await queue.add('email', { to, subject, text });
+      await queue.add('email', { to, subject, text, correlationId: getCorrelationId() });
       return;
     } catch (err) {
       logger.warn(`Email queue failed, falling back to direct send | to=${to} | ${err.message}`);

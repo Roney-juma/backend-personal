@@ -1,6 +1,7 @@
 const https = require('https');
 const logger = require('../middlewheres/logger');
 const { getQueue } = require('../queue/queues');
+const { getCorrelationId } = require('../utils/requestContext');
 require('dotenv').config();
 
 const toE164 = (number) => {
@@ -73,7 +74,7 @@ const sendWhatsAppDirect = async (to, message) => {
 const sendWhatsAppMessage = async (to, message) => {
   const queue = getQueue();
   if (queue) {
-    await queue.add('whatsapp', { to, message });
+    await queue.add('whatsapp', { to, message, correlationId: getCorrelationId() });
   } else {
     await sendWhatsAppDirect(to, message);
   }

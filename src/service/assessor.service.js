@@ -8,6 +8,7 @@ const whatsappService = require('./whatsapp.service');
 const { writeAuditLog } = require('../utils/auditHelper');
 const cache = require('../cache');
 const { getAnalyzeQueue } = require('../queue/queues');
+const { getCorrelationId } = require('../utils/requestContext');
 const logger = require('../middlewheres/logger');
 
 
@@ -273,7 +274,7 @@ const submitAssessmentReport = async (claimId, assessmentReport, req) => {
   // Re-run fraud pipeline now that assessor photos are available
   const analyzeQueue = getAnalyzeQueue();
   if (analyzeQueue) {
-    analyzeQueue.add('analyze', { claimId: claim._id.toString() }).catch(err =>
+    analyzeQueue.add('analyze', { claimId: claim._id.toString(), correlationId: getCorrelationId() }).catch(err =>
       logger.warn(`Failed to re-enqueue analysis after assessment for ${claim._id}: ${err.message}`)
     );
   }
