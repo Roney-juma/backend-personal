@@ -258,6 +258,12 @@ const submitAssessmentReport = async (claimId, assessmentReport, req) => {
   await claim.save();
   await cache.delPattern('cache:claims:*');
   await cache.del(`cache:claim:${claimId}`);
+  // The assessor's bids list is cached per-assessor (5-min TTL) and isn't covered above,
+  // so the submitted report only reflected after the TTL. Clear it for the awarded assessor.
+  const submittingAssessorId = claim.awardedAssessor?.assessorId;
+  if (submittingAssessorId) {
+    await cache.del(`cache:assessor:bids:${submittingAssessorId}`);
+  }
 
   // Re-run fraud pipeline now that assessor photos are available
   const analyzeQueue = getAnalyzeQueue();
