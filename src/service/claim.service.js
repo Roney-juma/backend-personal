@@ -1333,9 +1333,8 @@ const submitSelfRepair = async (claimId, { bankingDetails }, req) => {
   if (claim.status !== 'SelfRepair') throw new Error('Claim is not in self-repair status');
   if (!claim.selfRepair || !claim.selfRepair.opted) throw new Error('Self-repair was not opted in for this claim');
 
-  const { paymentMethod, phoneNumber, bankName, accountHolderName, accountNumber, amountRequested, description, receipts } = bankingDetails || {};
+  const { paymentMethod, phoneNumber, bankName, accountHolderName, accountNumber, description, receipts } = bankingDetails || {};
 
-  if (!amountRequested || Number(amountRequested) <= 0) throw new Error('A valid amountRequested is required');
   if (!receipts || receipts.length === 0) throw new Error('At least one receipt is required');
   if (!paymentMethod) throw new Error('paymentMethod is required');
 
@@ -1344,26 +1343,25 @@ const submitSelfRepair = async (claimId, { bankingDetails }, req) => {
   if (!isMpesa && (!bankName || !accountNumber)) throw new Error('bankName and accountNumber are required for bank payments');
 
   const start = Date.now();
-  claim.selfRepair.amountRequested = Number(amountRequested);
   claim.selfRepair.receipts = receipts;
   claim.selfRepair.description = description || '';
   claim.selfRepair.bankingDetails = { paymentMethod, phoneNumber, bankName, accountHolderName, accountNumber };
   claim.selfRepair.status = 'In-Review';
   claim.selfRepair.submittedAt = new Date();
-  claim.status = 'Re-Assessment';
+  claim.status = 'UnderRepair';
   await claim.save();
   await invalidateClaimCache(claimId);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'Claim',
-    actionDescription: `Self-repair submission received for claim ${claimId}, sent for re-assessment`,
+    actionDescription: `Self-repair submission received for claim ${claimId}, vehicle marked under repair`,
     resourceType: 'Claim',
     resourceId: claim._id,
     statusCode: 200,
     success: true,
     responseTimeMs: Date.now() - start,
-    changes: { old: { status: 'SelfRepair', selfRepairStatus: 'Submitted' }, new: { status: 'Re-Assessment' } },
+    changes: { old: { status: 'SelfRepair', selfRepairStatus: 'Submitted' }, new: { status: 'UnderRepair' } },
   });
 
   const ssrVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
@@ -1371,13 +1369,13 @@ const submitSelfRepair = async (claimId, { bankingDetails }, req) => {
     await emailService.sendEmailNotification(
       claim.claimant.email,
       'Self-Repair Submission Received',
-      `Dear ${claim.claimant.name},\n\nWe have received your self-repair submission for claim reference: ${ssrVehicle}.\n\nAmount requested: ${Number(amountRequested)}\n\nOur team will review your submission and notify you of the outcome shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+      `Dear ${claim.claimant.name},\n\nWe have received your self-repair submission for claim reference: ${ssrVehicle}.\n\nOur team will review your submission and notify you of the outcome shortly.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     );
   }
   if (claim.claimant && claim.claimant.phone) {
     await whatsappService.sendWhatsAppMessage(
       claim.claimant.phone,
-      `Hi ${claim.claimant.name}, we've received your self-repair submission for claim ${ssrVehicle}.\nAmount requested: R${Number(amountRequested)}\n\nWe'll review and update you shortly. — Ave Insurance`
+      `Hi ${claim.claimant.name}, we've received your self-repair submission for claim ${ssrVehicle}.\n\nWe'll review and update you shortly. — Ave Insurance`
     );
   }
   if (claim.customerId) {
@@ -1392,33 +1390,77 @@ const submitSelfRepair = async (claimId, { bankingDetails }, req) => {
     });
   }
 
-  // Notify the assessor who originally assessed the claim
+  return claim;
+};
+
+// Customer calls for re-assessment once the self-repair is complete. Moves the claim from
+// UnderRepair → Re-Assessment and notifies the assessor to come inspect the repaired vehicle.
+const callForSelfRepairReAssessment = async (claimId, req) => {
+  const claim = await Claim.findById(claimId);
+  if (!claim) throw new Error('Claim not found');
+  if (!claim.selfRepair || !claim.selfRepair.opted) throw new Error('This claim has no self-repair request');
+  if (claim.status !== 'UnderRepair') throw new Error('Claim must be under repair to call for re-assessment');
+
+  const start = Date.now();
+  claim.status = 'Re-Assessment';
+  await claim.save();
+  await invalidateClaimCache(claimId);
+
+  await writeAuditLog(req, {
+    action: 'UPDATE',
+    module: 'Claim',
+    actionDescription: `Customer called for re-assessment on self-repair claim ${claimId}`,
+    resourceType: 'Claim',
+    resourceId: claim._id,
+    statusCode: 200,
+    success: true,
+    responseTimeMs: Date.now() - start,
+    changes: { old: { status: 'UnderRepair' }, new: { status: 'Re-Assessment' } },
+  });
+
+  const vehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
+
+  // Notify the assessor who originally assessed the claim to come re-assess the repair.
+  // Fire-and-forget — the response doesn't depend on notification delivery.
   const assessorId = claim.awardedAssessor?.assessorId;
   if (assessorId) {
     const assessor = await Assessor.findById(assessorId);
-    await notificationService.createAndEmit({
+    notificationService.createAndEmit({
       recipientId: assessorId,
       recipientType: 'assessor',
-      type: 'self_repair_submitted',
+      type: 'self_repair_reassessment_requested',
       title: 'Re-Assessment Required',
-      content: `The customer has submitted a self-repair claim for ${ssrVehicle}. Please review and re-assess.`,
+      content: `The customer has completed the self-repair for claim ${vehicle} and requested a re-assessment. Please visit to inspect the repaired vehicle.`,
       claimId: claim._id,
       whatsappNumber: assessor?.contactInfo?.phone,
-    });
+    }).catch(err => logger.warn(`Re-assessment assessor notification failed for claim ${claim._id}: ${err.message}`));
 
     if (assessor && assessor.email) {
-      await emailService.sendEmailNotification(
+      emailService.sendEmailNotification(
         assessor.email,
-        'Re-Assessment Required',
-        `Dear ${assessor.name},\n\nThe customer has completed a self-repair for claim reference: ${ssrVehicle} and has submitted their repair costs for review.\n\nAmount requested: ${Number(amountRequested)}\n\nPlease log in to review the submission and provide your re-assessment.\n\nBest Regards,\nAdmin Team`
-      );
+        'Re-Assessment Required — Self-Repair Completed',
+        `Dear ${assessor.name},\n\nThe customer has completed the self-repair for claim reference: ${vehicle} and has requested a re-assessment.\n\nPlease arrange to visit and inspect the repaired vehicle, then submit your re-assessment report.\n\nBest Regards,\nAdmin Team`
+      ).catch(err => logger.warn(`Re-assessment assessor email failed for claim ${claim._id}: ${err.message}`));
     }
     if (assessor && assessor.contactInfo?.phone) {
-      await whatsappService.sendWhatsAppMessage(
+      whatsappService.sendWhatsAppMessage(
         assessor.contactInfo?.phone,
-        `Hi ${assessor.name}, re-assessment required for claim ${ssrVehicle}. The customer has submitted self-repair costs of R${Number(amountRequested)}. Please log in to review. — Ave Insurance`
-      );
+        `Hi ${assessor.name}, re-assessment required for claim ${vehicle}. The customer has completed their self-repair. Please visit to inspect the vehicle. — Ave Insurance`
+      ).catch(err => logger.warn(`Re-assessment assessor WhatsApp failed for claim ${claim._id}: ${err.message}`));
     }
+  }
+
+  // Acknowledge to the customer.
+  if (claim.customerId) {
+    notificationService.createAndEmit({
+      recipientId: claim.customerId,
+      recipientType: 'customer',
+      type: 'self_repair_reassessment_requested',
+      title: 'Re-Assessment Requested',
+      content: `Your re-assessment request for claim ${vehicle} has been sent. An assessor will visit to inspect your repaired vehicle.`,
+      claimId: claim._id,
+      whatsappNumber: claim.claimant?.phone,
+    }).catch(err => logger.warn(`Re-assessment customer notification failed for claim ${claim._id}: ${err.message}`));
   }
 
   return claim;
@@ -1725,7 +1767,7 @@ const reAssessSelfRepair = async (claimId, { notes, recommendedAmount }, req) =>
     statusCode: 200,
     success: true,
     responseTimeMs: Date.now() - start,
-    changes: { old: { status: 'Re-Assessment', selfRepairStatus: 'Submitted' }, new: { status: 'Assessed', selfRepairStatus: 'In-Review' } },
+    changes: { old: { status: 'Re-Assessment', selfRepairStatus: 'Submitted' }, new: { status: 'Re-Assessment', selfRepairStatus: 'In-Review' } },
   });
 
   const raVeh = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
@@ -2021,6 +2063,7 @@ module.exports = {
   rejectSupplierBid,
   optInSelfRepair,
   submitSelfRepair,
+  callForSelfRepairReAssessment,
   reAssessSelfRepair,
   approveSelfRepair,
   rejectSelfRepair,

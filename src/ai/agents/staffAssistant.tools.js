@@ -16,7 +16,7 @@ const Customer = require('../../models/customerModel');
 
 const CLAIM_STATUSES = [
   'Pending', 'Approved', 'Rejected', 'Resubmitted', 'Assessment', 'Assessed',
-  'Awarded', 'Repair', 'Garage', 'Re-Assessment', 'ReAssessed', 'SelfRepair',
+  'Awarded', 'Repair', 'Garage', 'Re-Assessment', 'ReAssessed', 'SelfRepair', 'UnderRepair',
   'Completed', 'UnderInvestigation', 'Investigated', 'GlassApproved', 'GlassRepair',
 ];
 
