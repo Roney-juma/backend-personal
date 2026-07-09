@@ -1,11 +1,9 @@
-const path = require('path');
-const fs = require('fs');
 const jwt = require('jsonwebtoken');
 const { TokenIssuer, TokenSecret } = require('../constants/encryption.constants');
 const { Encrypt } = require('../utils/encription.js');
+const { readPrivateKey } = require('../config/keys');
 
-const folderPath = path.resolve(`${process.cwd()}/keys`);
-const privateKey = fs.readFileSync(`${folderPath}/private.pem`, 'utf8');
+const privateKey = readPrivateKey();
 
 const GenerateToken = (user) => {
     const data = {
