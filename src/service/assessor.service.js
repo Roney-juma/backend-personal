@@ -40,8 +40,25 @@ const createAssessor = async (assessorData, req) => {
 
   return newAssessor;
 };
-const getAssessors = async () => {
-  return cache.wrap('cache:assessors:all', () => Assessor.find(), 1800);
+const getAssessors = async ({ page = 1, limit = 10, search = '' } = {}) => {
+  const query = {};
+  if (search) {
+    query.$or = [
+      { name: { $regex: search, $options: 'i' } },
+      { email: { $regex: search, $options: 'i' } },
+    ];
+  }
+
+  const p = Math.max(Number(page) || 1, 1);
+  const l = Math.min(Math.max(Number(limit) || 10, 1), 100); // cap page size
+  const skip = (p - 1) * l;
+
+  const [assessors, total] = await Promise.all([
+    Assessor.find(query).skip(skip).limit(l).sort({ createdAt: -1 }).lean(),
+    Assessor.countDocuments(query),
+  ]);
+
+  return { assessors, total, page: p, limit: l, pages: Math.ceil(total / l) };
 };
 
 const getAssessorById = async (id) => {

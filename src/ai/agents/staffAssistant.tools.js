@@ -155,9 +155,11 @@ async function executeTool(block) {
         return ok({ count: list.length, garages: cap(list).map((g) => ({ id: g._id, name: g.name, city: g.location?.city, rating: g.ratings?.averageRating, pendingWork: g.pendingWork })) });
       }
       case 'list_suppliers': {
-        const list = await supplierService.getAllSuppliers();
-        return ok({ count: (list || []).length, suppliers: cap(list).map((s) => ({ id: s._id, name: s.name, email: s.email })) });
+        const r = await supplierService.getAllSuppliers({ page: 1, limit: Math.min(a.limit || 20, 50) });
+        const list = r?.suppliers || r || [];
+        return ok({ count: list.length, suppliers: cap(list).map((s) => ({ id: s._id, name: s.name, email: s.email })) });
       }
+
       case 'investigator_stats':
         return ok(await investigatorService.getInvestigatorStats());
       case 'list_investigations': {

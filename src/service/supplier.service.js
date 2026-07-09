@@ -49,8 +49,25 @@ const createSupplier = async (supplierData) => {
   return saved;
 };
 
-const getAllSuppliers = async () => {
-  return cache.wrap('cache:suppliers:all', () => Supplier.find(), 1800);
+const getAllSuppliers = async ({ page = 1, limit = 10, search = '' } = {}) => {
+  const query = {};
+  if (search) {
+    query.$or = [
+      { name: { $regex: search, $options: 'i' } },
+      { email: { $regex: search, $options: 'i' } },
+    ];
+  }
+
+  const p = Math.max(Number(page) || 1, 1);
+  const l = Math.min(Math.max(Number(limit) || 10, 1), 100); // cap page size
+  const skip = (p - 1) * l;
+
+  const [suppliers, total] = await Promise.all([
+    Supplier.find(query).skip(skip).limit(l).sort({ createdAt: -1 }).lean(),
+    Supplier.countDocuments(query),
+  ]);
+
+  return { suppliers, total, page: p, limit: l, pages: Math.ceil(total / l) };
 };
 
 const getSupplierById = async (supplierId) => {
