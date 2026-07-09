@@ -1623,11 +1623,22 @@ Admin Team`
 const payFinalSettlement = async (claimId, req) => {
   const claim = await Claim.findById(claimId);
   if (!claim) throw new Error('Claim not found');
-  if (!claim.selfRepair || claim.selfRepair.status !== 'In-Review') throw new Error('Re-assessment must be complete before paying the final settlement');
-  if (!claim.selfRepair.depositPaidAt) throw new Error('Initial deposit must be paid before the final settlement');
+  if (!claim.selfRepair || claim.selfRepair.status !== 'In-Review') throw new Error('Re-assessment must be complete before paying the settlement');
+
+  // Payout amount for the live (one-shot) self-repair flow: the assessor's re-assessment
+  // recommendedAmount is the vetted figure; fall back to the customer's amountRequested,
+  // then to a pre-approved finalSettlementAmount if the two-stage deposit flow was used.
+  const payoutAmount =
+    claim.selfRepair.reAssessmentReport?.recommendedAmount ??
+    claim.selfRepair.amountRequested ??
+    claim.selfRepair.finalSettlementAmount;
+  if (!payoutAmount || Number(payoutAmount) <= 0) {
+    throw new Error('No settlement amount available — the claim must be re-assessed with a recommended amount before payout');
+  }
 
   const start = Date.now();
   claim.selfRepair.status = 'SettlementPaid';
+  claim.selfRepair.finalSettlementAmount = Number(payoutAmount); // record what was actually paid out
   claim.selfRepair.finalSettlementPaidAt = new Date();
   claim.selfRepair.paidAt = new Date();
   claim.status = 'Completed';
@@ -1653,15 +1664,10 @@ const payFinalSettlement = async (claimId, req) => {
   if (claim.claimant && claim.claimant.email) {
     emailService.sendEmailNotification(
       claim.claimant.email,
-      'Cash-in-Lieu Balance Deposited — Claim Closed',
+      'Self-Repair Balance Deposited — Claim Closed',
       `Dear ${claim.claimant.name},
 
-Your outstanding balance of KES ${claim.selfRepair.finalSettlementAmount} for claim reference: ${setVehicle} has been deposited to ${account}.
-
-Summary:
-- Initial deposit paid: KES ${claim.selfRepair.depositAmount}
-- Balance deposited: KES ${claim.selfRepair.finalSettlementAmount}
-- Total cash-in-lieu received: KES ${claim.selfRepair.totalAwardedAmount}
+Your self-repair reimbursement of KES ${payoutAmount} for claim reference: ${setVehicle} has been deposited to ${account}.
 
 Your claim is now closed. Thank you for choosing Ave Insurance.
 
@@ -1672,7 +1678,7 @@ Admin Team`
   if (claim.claimant && claim.claimant.phone) {
     whatsappService.sendWhatsAppMessage(
       claim.claimant.phone,
-      `Hi ${claim.claimant.name}, your outstanding balance of KES ${claim.selfRepair.finalSettlementAmount} for claim ${setVehicle} has been *deposited* to ${account}.\n\nTotal received: KES ${claim.selfRepair.totalAwardedAmount}. Your claim is now closed. — Ave Insurance`
+      `Hi ${claim.claimant.name}, your self-repair reimbursement of KES ${payoutAmount} for claim ${setVehicle} has been *deposited* to ${account}.\n\nYour claim is now closed. — Ave Insurance`
     ).catch(err => logger.warn(`Settlement WhatsApp failed for claim ${claim._id}: ${err.message}`));
   }
   if (claim.customerId) {
@@ -1681,7 +1687,7 @@ Admin Team`
       recipientType: 'customer',
       type: 'self_repair_settlement_paid',
       title: 'Balance Deposited — Claim Closed',
-      content: `Your balance of KES ${claim.selfRepair.finalSettlementAmount} for claim ${setVehicle} has been deposited to ${account}. Claim closed.`,
+      content: `Your reimbursement of KES ${payoutAmount} for claim ${setVehicle} has been deposited to ${account}. Claim closed.`,
       claimId: claim._id,
       whatsappNumber: claim.claimant?.phone,
     }).catch(err => logger.warn(`Settlement notification failed for claim ${claim._id}: ${err.message}`));
