@@ -648,6 +648,14 @@ const awardClaim = async (id, bidId, req) => {
   const start = Date.now();
   await claim.save();
   await invalidateClaimCache(id);
+  // Assessor dashboards are cached per-assessor (5-min TTL) and are NOT covered by
+  // invalidateClaimCache, so an award only reflected after the TTL expired. Clear the
+  // awarded assessor's bids list, and every assessor's available-claims list (this claim
+  // is no longer open for bidding).
+  await Promise.all([
+    cache.del(`cache:assessor:bids:${bid.assessorId}`),
+    cache.delPattern('cache:assessor:approved-claims:*'),
+  ]);
 
   await writeAuditLog(req, {
     action: 'UPDATE',
