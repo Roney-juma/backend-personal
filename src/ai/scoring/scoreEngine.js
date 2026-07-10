@@ -1,6 +1,7 @@
 const { weights, severityMultiplier, bands } = require('./weights');
 const { complete } = require('../llm/claude');
 const { CostTracker } = require('../llm/cost');
+const { FEATURES } = require('../features');
 
 const FAST_MODEL = process.env.ANTHROPIC_MODEL_FAST || 'claude-haiku-4-5-20251001';
 
@@ -33,7 +34,7 @@ const aggregate = async (signals, claim, stage = 'fraud') => {
 
   if (signals.length > 0 && process.env.ANTHROPIC_API_KEY) {
     try {
-      const tracker = new CostTracker('fraud-reasoning');
+      const tracker = new CostTracker(FEATURES.FRAUD_REASONING);
       const sigSummary = signals
         .map(s => `- ${s.type} (${s.severity}): ${s.explanation || s.evidence || ''}`)
         .join('\n');
@@ -48,7 +49,7 @@ const aggregate = async (signals, claim, stage = 'fraud') => {
           role: 'user',
           content: `Claim: ${vehicle}\nRisk score: ${score}/100 (${band})\n\nSignals:\n${sigSummary}\n\nWrite the reasoning summary.`,
         }],
-        meta: { feature: 'fraud-reasoning', stage, claimId: claim._id, customerId: claim.customerId },
+        meta: { feature: FEATURES.FRAUD_REASONING, stage, claimId: claim._id, customerId: claim.customerId },
       });
 
       tracker.record(resp);

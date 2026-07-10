@@ -10,6 +10,7 @@
 const { complete } = require('../llm/claude');
 const { CostTracker } = require('../llm/cost');
 const logger = require('../../middlewheres/logger');
+const { FEATURES } = require('../features');
 
 // Optional EXIF reader — used for the photo-recency gate. Installed separately
 // (npm i exifr). If it's missing we fail OPEN on the age check (see checkPhotoAge).
@@ -83,7 +84,7 @@ async function classify(imageSource, meta = {}) {
       maxTokens: 256,
       tools: [CHECK_TOOL],
       toolChoice: { type: 'tool', name: 'report_photo_check' },
-      meta: { feature: 'photo-validate', stage: 'intake', ...meta },
+      meta: { feature: FEATURES.PHOTO_VALIDATE, stage: 'intake', ...meta },
       messages: [
         {
           role: 'user',

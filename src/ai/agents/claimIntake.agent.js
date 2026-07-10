@@ -10,6 +10,7 @@ const moment = require('moment-timezone');
 const { complete } = require('../llm/claude');
 const { CostTracker } = require('../llm/cost');
 const { attributeSessionToClaim } = require('../llm/usage');
+const { FEATURES } = require('../features');
 const { TOOLS, executeTool, CLAIM_TZ } = require('./claimIntake.tools');
 const claimTypeService = require('../../service/claimType.service');
 const logger = require('../../middlewheres/logger');
@@ -191,10 +192,10 @@ async function runClaimIntake({ customer, token, fileClaim = null, messages = []
 
   const system = buildSystem(customer, moment.tz(CLAIM_TZ), coordinates, claimTypes);
   const working = [...messages, { role: 'user', content: buildUserTurn(userMessage, images, videos) }];
-  const cost = new CostTracker('claim-intake');
+  const cost = new CostTracker(FEATURES.CLAIM_INTAKE);
   const sessionKey = intakeSessionKey(token, customer);
   const usageMeta = {
-    feature: 'claim-intake',
+    feature: FEATURES.CLAIM_INTAKE,
     stage: 'intake',
     sessionKey,
     customerId: customer && customer._id,
