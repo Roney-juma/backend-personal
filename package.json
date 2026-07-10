@@ -9,6 +9,9 @@
   },
   "author": "",
   "license": "ISC",
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.108.0",
     "@aws-sdk/client-s3": "^3.685.0",
