@@ -9,11 +9,19 @@
 const moment = require('moment-timezone');
 const { complete } = require('../llm/claude');
 const { CostTracker } = require('../llm/cost');
+const { attributeSessionToClaim } = require('../llm/usage');
 const { TOOLS, executeTool, CLAIM_TZ } = require('./claimIntake.tools');
 const claimTypeService = require('../../service/claimType.service');
 const logger = require('../../middlewheres/logger');
 
 const MAX_TOOL_ROUNDS = 6; // bound the loop per turn
+
+/**
+ * Stable key for one intake conversation, shared by the agent turns and the
+ * photo gate so all pre-claim spend can be attributed to the claim once filed.
+ */
+const intakeSessionKey = (token, customer) =>
+  token ? `intake:${token}` : `customer:${(customer && customer._id) || 'unknown'}`;
 
 /**
  * Human-readable "now" block injected into the system prompt so the model can
@@ -184,12 +192,19 @@ async function runClaimIntake({ customer, token, fileClaim = null, messages = []
   const system = buildSystem(customer, moment.tz(CLAIM_TZ), coordinates, claimTypes);
   const working = [...messages, { role: 'user', content: buildUserTurn(userMessage, images, videos) }];
   const cost = new CostTracker('claim-intake');
+  const sessionKey = intakeSessionKey(token, customer);
+  const usageMeta = {
+    feature: 'claim-intake',
+    stage: 'intake',
+    sessionKey,
+    customerId: customer && customer._id,
+  };
 
   let status = 'collecting';
   let claimId = null;
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-    const response = await complete({ system, messages: working, tools: TOOLS, maxTokens: 1024 });
+    const response = await complete({ system, messages: working, tools: TOOLS, maxTokens: 1024, meta: usageMeta });
     cost.record(response);
 
     // Persist the assistant turn (text + any tool_use blocks) into history.
@@ -208,6 +223,10 @@ async function runClaimIntake({ customer, token, fileClaim = null, messages = []
       if (result.submitted) {
         status = 'submitted';
         claimId = result.claim._id;
+        // Stamp the claim onto this session's usage rows (agent turns + photo
+        // checks) and onto any calls still to come this turn.
+        usageMeta.claimId = claimId;
+        attributeSessionToClaim(sessionKey, claimId);
       }
       toolResults.push({
         type: 'tool_result',
@@ -239,4 +258,4 @@ async function runClaimIntake({ customer, token, fileClaim = null, messages = []
   };
 }
 
-module.exports = { runClaimIntake, buildSystem };
+module.exports = { runClaimIntake, buildSystem, intakeSessionKey };

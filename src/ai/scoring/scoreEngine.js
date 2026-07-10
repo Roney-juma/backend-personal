@@ -12,9 +12,11 @@ const getBand = (score) => {
 
 /**
  * Aggregate signals into a 0–100 score + band.
+ * `stage` attributes the reasoning call's spend ('fraud' for the filing
+ * pipeline; 'assessment'/'garage'/'reassessment' for continuity checks).
  * Returns { score, band, reasoning, tokensUsed, kesSpent }
  */
-const aggregate = async (signals, claim) => {
+const aggregate = async (signals, claim, stage = 'fraud') => {
   let raw = 0;
   for (const sig of signals) {
     const w = weights[sig.type] || 5;
@@ -46,6 +48,7 @@ const aggregate = async (signals, claim) => {
           role: 'user',
           content: `Claim: ${vehicle}\nRisk score: ${score}/100 (${band})\n\nSignals:\n${sigSummary}\n\nWrite the reasoning summary.`,
         }],
+        meta: { feature: 'fraud-reasoning', stage, claimId: claim._id, customerId: claim.customerId },
       });
 
       tracker.record(resp);

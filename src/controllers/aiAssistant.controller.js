@@ -1,4 +1,4 @@
-const { runClaimIntake } = require('../ai/agents/claimIntake.agent');
+const { runClaimIntake, intakeSessionKey } = require('../ai/agents/claimIntake.agent');
 const { runStaffAssistant } = require('../ai/agents/staffAssistant.agent');
 const { validatePhoto, validatePhotoUrl } = require('../ai/agents/photoValidator');
 const { renderIntakePage } = require('../ai/intakePage');
@@ -63,7 +63,13 @@ const runIntakeTurn = async (req, res, identity) => {
   // Server-side photo gate: reject the turn if any attached photo is not a
   // vehicle, damage, accident scene, or supporting document.
   if (photoUrls.length > 0) {
-    const checks = await Promise.all(photoUrls.map((url) => validatePhotoUrl(url)));
+    // Same session key as the agent turns, so this spend is attributed to the
+    // claim once it is filed.
+    const usageMeta = {
+      sessionKey: intakeSessionKey(identity.token, identity.customer),
+      customerId: identity.customer && identity.customer._id,
+    };
+    const checks = await Promise.all(photoUrls.map((url) => validatePhotoUrl(url, usageMeta)));
     const rejected = checks.filter((c) => !c.valid);
     if (rejected.length > 0) {
       const reason = rejected[0].reason || "that photo doesn't look claim-related";
@@ -146,7 +152,15 @@ const validateClaimPhoto = async (req, res) => {
     if (!req.file || !req.file.buffer) {
       return res.status(400).json({ message: 'No image uploaded' });
     }
-    const result = await validatePhoto(req.file.buffer, req.file.mimetype);
+    // Pre-upload gate runs on both auth paths: secure-link token or customer JWT.
+    const usageMeta = {
+      sessionKey: intakeSessionKey(
+        req.claimToken && req.claimToken.token,
+        req.customer || (req.user && { _id: req.user.id })
+      ),
+      customerId: (req.customer && req.customer._id) || (req.user && req.user.id),
+    };
+    const result = await validatePhoto(req.file.buffer, req.file.mimetype, usageMeta);
     res.status(200).json(result);
   } catch (err) {
     logger.error(`validateClaimPhoto error: ${err.message}`);

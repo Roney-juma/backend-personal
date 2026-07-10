@@ -289,6 +289,14 @@ const claimSchema = new Schema({
     riskBand: { type: String, enum: ['low', 'medium', 'high'] },
     analysisId: { type: mongoose.Schema.Types.ObjectId, ref: 'AiAnalysis' },
     analyzedAt: { type: Date },
+    // Claimant vehicle fingerprint, cached so continuity checks on later stages
+    // don't re-run the vision call over the same photos.
+    baselineFingerprint: {
+      promptVersion: { type: String },
+      photosHash: { type: String },
+      fingerprint: { type: mongoose.Schema.Types.Mixed },
+      extractedAt: { type: Date },
+    },
   },
 }, { timestamps: true });
 

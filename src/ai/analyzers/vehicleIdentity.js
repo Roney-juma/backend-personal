@@ -6,6 +6,8 @@
  * here and sent as base64 (never rely on the model downloading URLs, which fails
  * for private buckets / hotlink-protected hosts).
  */
+const crypto = require('crypto');
+const sharp = require('sharp');
 const { complete } = require('../llm/claude');
 const { CostTracker, estimateKes } = require('../llm/cost');
 const logger = require('../../middlewheres/logger');
@@ -13,7 +15,11 @@ const logger = require('../../middlewheres/logger');
 const FAST_MODEL = process.env.ANTHROPIC_MODEL_FAST || 'claude-haiku-4-5';
 const ALLOWED_MEDIA = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
-const MAX_PHOTOS = 4; // cap photos per stage for cost/latency
+const MAX_PHOTOS = 2; // cap photos per stage for cost/latency
+// Vision token cost scales with pixel area (~w*h/750); 1024px long edge keeps a
+// photo readable for make/colour/plate while costing ~1k tokens instead of ~1.6k.
+const MAX_IMAGE_EDGE = 1024;
+const MAX_UNRESIZED_BYTES = 2 * 1024 * 1024;
 
 // Bumped whenever the prompt/schema changes, so a stored verdict stays reproducible.
 const FINGERPRINT_PROMPT_VERSION = 'vehicle-fingerprint@1';
@@ -49,6 +55,27 @@ const SYSTEM = [
   'List permanent identifying features separately from claim-related visible damage. Do not infer anything you cannot actually see.',
 ].join('\n');
 
+// Shrink an image so it costs fewer vision tokens. Falls back to the original
+// bytes on any decode failure (corrupt file, unsupported variant).
+async function downscale(buf, mimetype) {
+  try {
+    const img = sharp(buf, { failOn: 'none' });
+    const meta = await img.metadata();
+    const longEdge = Math.max(meta.width || 0, meta.height || 0);
+    if (longEdge && longEdge <= MAX_IMAGE_EDGE && buf.length <= MAX_UNRESIZED_BYTES) {
+      return { buf, mimetype };
+    }
+    const out = await img
+      .rotate() // apply EXIF orientation before it's stripped by re-encoding
+      .resize({ width: MAX_IMAGE_EDGE, height: MAX_IMAGE_EDGE, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 80 })
+      .toBuffer();
+    return { buf: out, mimetype: 'image/jpeg' };
+  } catch (_) {
+    return { buf, mimetype };
+  }
+}
+
 async function fetchImageSource(url) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
@@ -62,7 +89,8 @@ async function fetchImageSource(url) {
     if (!ALLOWED_MEDIA.includes(mimetype)) return null;
     const buf = Buffer.from(await res.arrayBuffer());
     if (!buf.length || buf.length > MAX_IMAGE_BYTES) return null;
-    return { type: 'base64', media_type: mimetype, data: buf.toString('base64') };
+    const small = await downscale(buf, mimetype);
+    return { type: 'base64', media_type: small.mimetype, data: small.buf.toString('base64') };
   } catch (_) {
     return null;
   } finally {
@@ -70,15 +98,30 @@ async function fetchImageSource(url) {
   }
 }
 
+// The photos a fingerprint call would actually send — shared with the cache key
+// so the key changes whenever the effective photo set does.
+const selectPhotos = (photos) =>
+  (Array.isArray(photos) ? photos : []).filter((u) => typeof u === 'string' && u).slice(0, MAX_PHOTOS);
+
+/**
+ * Cache key for a stored fingerprint: changes when the prompt version, the
+ * photo cap, or the effective photo set changes, so stale entries self-invalidate.
+ */
+const fingerprintCacheKey = (photos) =>
+  crypto.createHash('sha256')
+    .update([FINGERPRINT_PROMPT_VERSION, ...selectPhotos(photos)].join('\n'))
+    .digest('hex');
+
 /**
  * Extract a vehicle fingerprint from a set of photo URLs.
  * @param {string[]} photos
  * @param {string}   label  human label for the stage (for the prompt)
+ * @param {Object}   [meta] usage attribution ({ claimId, customerId, stage })
  * @returns {Object|null} fingerprint (with _tokens/_kes spend), or null if no
  *   usable photo could be fetched or the vision call failed.
  */
-async function extractFingerprint(photos, label = 'vehicle') {
-  const urls = (Array.isArray(photos) ? photos : []).filter((u) => typeof u === 'string' && u).slice(0, MAX_PHOTOS);
+async function extractFingerprint(photos, label = 'vehicle', meta = {}) {
+  const urls = selectPhotos(photos);
   if (!urls.length) return null;
 
   const sources = [];
@@ -103,6 +146,7 @@ async function extractFingerprint(photos, label = 'vehicle') {
           { type: 'text', text: `These are the ${label} photos. Identify the vehicle.` },
         ],
       }],
+      meta: { feature: 'vehicle-fingerprint', ...meta },
     });
     cost.record(resp);
     cost.flush();
@@ -129,4 +173,4 @@ async function extractFingerprint(photos, label = 'vehicle') {
   }
 }
 
-module.exports = { extractFingerprint, FINGERPRINT_PROMPT_VERSION, estimateKes };
+module.exports = { extractFingerprint, fingerprintCacheKey, FINGERPRINT_PROMPT_VERSION, estimateKes };

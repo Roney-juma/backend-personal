@@ -7,6 +7,7 @@
 require('dotenv').config();
 const Anthropic = require('@anthropic-ai/sdk');
 const logger = require('../../middlewheres/logger');
+const { recordUsage } = require('./usage');
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -23,9 +24,11 @@ const AGENT_MODEL = process.env.ANTHROPIC_MODEL_AGENT || 'claude-opus-4-8';
  * @param {Object}   [opts.toolChoice] Anthropic tool_choice (e.g. force a tool).
  * @param {string}   [opts.model]    Override the model id.
  * @param {number}   [opts.maxTokens]
+ * @param {Object}   [opts.meta]     Usage attribution, persisted to AiUsage:
+ *                                   { feature, stage, claimId, customerId, userId, sessionKey }
  * @returns the raw Anthropic message response.
  */
-const complete = async ({ system, messages, tools, toolChoice, model, maxTokens = 1024 }) => {
+const complete = async ({ system, messages, tools, toolChoice, model, maxTokens = 1024, meta }) => {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error('ANTHROPIC_API_KEY is not configured');
   }
@@ -51,6 +54,8 @@ const complete = async ({ system, messages, tools, toolChoice, model, maxTokens 
       `[ai] ${response.model} in=${u.input_tokens} out=${u.output_tokens} ` +
       `cacheRead=${u.cache_read_input_tokens || 0} cacheWrite=${u.cache_creation_input_tokens || 0}`
     );
+    // Durable ledger — one AiUsage doc per call, non-blocking.
+    recordUsage(response, meta);
   }
 
   return response;

@@ -50,9 +50,14 @@ async function runStaffAssistant({ user, messages = [], userMessage }) {
   const system = buildSystem(user);
   const working = [...messages, { role: 'user', content: userMessage }];
   const cost = new CostTracker('staff-assistant');
+  const usageMeta = {
+    feature: 'staff-assistant',
+    userId: user && (user.id || user._id),
+    sessionKey: user && (user.id || user._id) ? `staff:${user.id || user._id}` : undefined,
+  };
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-    const response = await complete({ system, messages: working, tools: TOOLS, model: FAST_MODEL, maxTokens: 1024 });
+    const response = await complete({ system, messages: working, tools: TOOLS, model: FAST_MODEL, maxTokens: 1024, meta: usageMeta });
     cost.record(response);
     working.push({ role: 'assistant', content: response.content });
 
