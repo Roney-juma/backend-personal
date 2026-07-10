@@ -20,12 +20,20 @@ const runStageCheck = async (claimId, stage) => {
   const claim = await Claim.findById(claimId);
   if (!claim) { logger.warn(`[continuity] claim ${claimId} not found`); return; }
 
-  const { signals, checksRun, verdict, tokensUsed = 0, kesSpent = 0 } =
+  const { signals, checksRun, verdict, tokensUsed = 0, kesSpent = 0, baselineFingerprintUpdate } =
     await vehicleContinuity.run(claim, stage);
+
+  // Cache the claimant fingerprint so later stage checks skip that vision call.
+  if (baselineFingerprintUpdate) {
+    await Claim.updateOne(
+      { _id: claim._id },
+      { $set: { 'ai.baselineFingerprint': baselineFingerprintUpdate } },
+    ).catch((err) => logger.warn(`[continuity] baseline fingerprint cache write failed: ${err.message}`));
+  }
 
   // Reuse the shared scorer so continuity signals feed the same 0–100 risk band.
   const { score, band, reasoning, tokensUsed: rTok = 0, kesSpent: rKes = 0 } =
-    await scoreEngine.aggregate(signals, claim);
+    await scoreEngine.aggregate(signals, claim, stage);
 
   const summary = reasoning ||
     `Vehicle continuity (${stage}): ${verdict.sameVehicle} — ${verdict.confidence} confidence.`;

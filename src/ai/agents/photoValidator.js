@@ -74,7 +74,7 @@ const SYSTEM = [
  * @returns {Object} { valid, category, quality, reason }
  */
 /** Run the classification against a prepared Anthropic image source block. */
-async function classify(imageSource) {
+async function classify(imageSource, meta = {}) {
   const cost = new CostTracker('photo-validate');
   try {
     const response = await complete({
@@ -83,6 +83,7 @@ async function classify(imageSource) {
       maxTokens: 256,
       tools: [CHECK_TOOL],
       toolChoice: { type: 'tool', name: 'report_photo_check' },
+      meta: { feature: 'photo-validate', stage: 'intake', ...meta },
       messages: [
         {
           role: 'user',
@@ -153,9 +154,10 @@ async function checkPhotoAge(buffer) {
  * Validate an in-memory image (used by the pre-upload gate).
  * @param {Buffer} buffer     Raw image bytes.
  * @param {string} mimetype   e.g. 'image/jpeg'.
+ * @param {Object} [meta]     Usage attribution ({ sessionKey, claimId, customerId }).
  * @returns {Object} { valid, category, quality, reason }
  */
-async function validatePhoto(buffer, mimetype) {
+async function validatePhoto(buffer, mimetype, meta = {}) {
   if (!buffer || !buffer.length) {
     return { valid: false, category: 'irrelevant', quality: 'poor', reason: 'No image data received.' };
   }
@@ -180,7 +182,7 @@ async function validatePhoto(buffer, mimetype) {
     };
   }
 
-  return classify({ type: 'base64', media_type: mimetype, data: buffer.toString('base64') });
+  return classify({ type: 'base64', media_type: mimetype, data: buffer.toString('base64') }, meta);
 }
 
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024; // Anthropic's per-image ceiling.
@@ -227,9 +229,10 @@ async function fetchImageBytes(url) {
  * fetched here and sent to the model as base64 — we never rely on the model
  * fetching the URL, which is unreliable.
  * @param {string} url  Fetchable image URL (e.g. S3 location).
+ * @param {Object} [meta]  Usage attribution ({ sessionKey, claimId, customerId }).
  * @returns {Object} { valid, category, quality, reason, url }
  */
-async function validatePhotoUrl(url) {
+async function validatePhotoUrl(url, meta = {}) {
   if (!url || typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
     return { valid: false, category: 'irrelevant', quality: 'poor', reason: 'Invalid image URL.', url };
   }
@@ -248,7 +251,7 @@ async function validatePhotoUrl(url) {
     // blocks a genuine claim, but this is logged above for follow-up.
     return { valid: true, category: 'other_document', quality: 'good', reason: 'Could not fetch image — allowed.', url };
   }
-  const result = await validatePhoto(fetched.buffer, fetched.mimetype);
+  const result = await validatePhoto(fetched.buffer, fetched.mimetype, meta);
   return { ...result, url };
 }
 

@@ -17,12 +17,26 @@ const PRICING = {
   'claude-sonnet-4-6': { in: 3, out: 15 },
 };
 
-const estimateKes = (model, usage) => {
-  const p = PRICING[model] || PRICING['claude-opus-4-8'];
-  const usd =
-    ((usage.input_tokens || 0) * p.in + (usage.output_tokens || 0) * p.out) / 1_000_000;
-  return usd * USD_TO_KES;
+// Responses carry dated ids ('claude-haiku-4-5-20251001'); match by prefix so
+// they don't silently fall back to Opus rates.
+const priceFor = (model) => {
+  const id = String(model || '');
+  const key = Object.keys(PRICING).find((k) => id.startsWith(k));
+  return PRICING[key] || PRICING['claude-opus-4-8'];
 };
+
+// Cache reads bill at ~0.1x the input rate, cache writes at 1.25x.
+const estimateUsd = (model, usage = {}) => {
+  const p = priceFor(model);
+  return (
+    (usage.input_tokens || 0) * p.in +
+    (usage.output_tokens || 0) * p.out +
+    (usage.cache_read_input_tokens || 0) * p.in * 0.1 +
+    (usage.cache_creation_input_tokens || 0) * p.in * 1.25
+  ) / 1_000_000;
+};
+
+const estimateKes = (model, usage) => estimateUsd(model, usage) * USD_TO_KES;
 
 /**
  * Accumulates token spend across a multi-call agent loop and trips a ceiling.
@@ -51,4 +65,4 @@ class CostTracker {
   }
 }
 
-module.exports = { CostTracker, estimateKes, MAX_TOKENS_PER_CONVO };
+module.exports = { CostTracker, estimateKes, estimateUsd, MAX_TOKENS_PER_CONVO, USD_TO_KES };

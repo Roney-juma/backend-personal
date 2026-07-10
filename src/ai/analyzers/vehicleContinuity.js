@@ -14,7 +14,7 @@
  * @returns { signals, checksRun, verdict, tokensUsed, kesSpent }
  */
 const { normalizeStage } = require('./stageAdapter');
-const { extractFingerprint } = require('./vehicleIdentity');
+const { extractFingerprint, fingerprintCacheKey, FINGERPRINT_PROMPT_VERSION } = require('./vehicleIdentity');
 
 const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const differ = (a, b) => norm(a) && norm(b) && norm(a) !== norm(b);
@@ -66,11 +66,23 @@ function deriveVerdict({ signals, plateConfirmed, makeOk, colourOk, makeKnown })
   return { sameVehicle: 'likely', confidence: 'low' };
 }
 
+// Reuse the claimant fingerprint stored on the claim when it was produced by the
+// same prompt version over the same photo set — the vision call is deterministic
+// enough that re-running it per stage only burns tokens.
+function cachedBaseline(claim, photos) {
+  const stored = claim && claim.ai && claim.ai.baselineFingerprint;
+  if (!stored || !stored.fingerprint) return null;
+  if (stored.promptVersion !== FINGERPRINT_PROMPT_VERSION) return null;
+  if (stored.photosHash !== fingerprintCacheKey(photos)) return null;
+  return stored.fingerprint;
+}
+
 async function run(claim, stage) {
   const signals = [];
   const checksRun = [];
   let tokensUsed = 0;
   let kesSpent = 0;
+  let baselineFingerprintUpdate = null; // set when a fresh baseline should be persisted
 
   const base = normalizeStage(claim, 'claimant');
   const target = normalizeStage(claim, stage);
@@ -79,7 +91,7 @@ async function run(claim, stage) {
 
   const finish = (extra) => {
     const verdict = { ...deriveVerdict({ signals, plateConfirmed, ...extra }), evidence };
-    return { signals, checksRun, verdict, tokensUsed, kesSpent };
+    return { signals, checksRun, verdict, tokensUsed, kesSpent, baselineFingerprintUpdate };
   };
 
   // ── 1. VIN (deterministic, when both typed VINs exist) ───────────────────
@@ -107,8 +119,20 @@ async function run(claim, stage) {
 
   // ── 3. Photo-to-photo fingerprints: claimant picture vs stage picture ────
   checksRun.push('vehicle_fingerprint');
-  const baseFp = base.photos.length ? await extractFingerprint(base.photos, 'claimant') : null;
-  const targetFp = await extractFingerprint(target.photos, target.label);
+  const usageMeta = { claimId: claim._id, customerId: claim.customerId, stage };
+  let baseFp = base.photos.length ? cachedBaseline(claim, base.photos) : null;
+  if (!baseFp && base.photos.length) {
+    baseFp = await extractFingerprint(base.photos, 'claimant', usageMeta);
+    if (baseFp) {
+      baselineFingerprintUpdate = {
+        promptVersion: FINGERPRINT_PROMPT_VERSION,
+        photosHash: fingerprintCacheKey(base.photos),
+        fingerprint: { vehicleVisible: baseFp.vehicleVisible, ...publicFp(baseFp) },
+        extractedAt: new Date(),
+      };
+    }
+  }
+  const targetFp = await extractFingerprint(target.photos, target.label, usageMeta);
   for (const fp of [baseFp, targetFp]) if (fp) { tokensUsed += fp._tokens || 0; kesSpent += fp._kes || 0; }
 
   if (!targetFp || !targetFp.vehicleVisible) {

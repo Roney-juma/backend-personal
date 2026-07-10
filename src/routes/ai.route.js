@@ -1,5 +1,6 @@
 const express = require('express');
 const aiController = require('../controllers/aiAssistant.controller');
+const aiUsageController = require('../controllers/aiUsage.controller');
 const verifyClaimToken = require('../middlewheres/verifyClaimToken');
 const verifyToken = require('../middlewheres/verifyToken');
 const Upload = require('../utils/upload');
@@ -37,5 +38,11 @@ router.post(
 
 // Front-office staff Q&A assistant. Authenticated by staff JWT (read-only).
 router.post('/staff-assistant', verifyToken(), aiController.staffAssistant);
+
+// ── AI usage reporting (staff JWT) ─────────────────────────────────────────
+// Full AI lifecycle cost of one claim, broken down by feature/stage.
+router.get('/usage/claims/:claimId', verifyToken(), aiUsageController.claimCost);
+// Period rollup: ?from=YYYY-MM-DD&to=YYYY-MM-DD&groupBy=day|month|feature|model|claim
+router.get('/usage/report', verifyToken(), aiUsageController.report);
 
 module.exports = router;
