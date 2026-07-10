@@ -11,6 +11,7 @@ const sharp = require('sharp');
 const { complete } = require('../llm/claude');
 const { CostTracker, estimateKes } = require('../llm/cost');
 const logger = require('../../middlewheres/logger');
+const { FEATURES } = require('../features');
 
 const FAST_MODEL = process.env.ANTHROPIC_MODEL_FAST || 'claude-haiku-4-5';
 const ALLOWED_MEDIA = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
@@ -131,7 +132,7 @@ async function extractFingerprint(photos, label = 'vehicle', meta = {}) {
   }
   if (!sources.length) return null;
 
-  const cost = new CostTracker('vehicle-fingerprint');
+  const cost = new CostTracker(FEATURES.VEHICLE_FINGERPRINT);
   try {
     const resp = await complete({
       model: FAST_MODEL,
@@ -146,7 +147,7 @@ async function extractFingerprint(photos, label = 'vehicle', meta = {}) {
           { type: 'text', text: `These are the ${label} photos. Identify the vehicle.` },
         ],
       }],
-      meta: { feature: 'vehicle-fingerprint', ...meta },
+      meta: { feature: FEATURES.VEHICLE_FINGERPRINT, ...meta },
     });
     cost.record(resp);
     cost.flush();

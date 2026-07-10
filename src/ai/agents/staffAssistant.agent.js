@@ -10,6 +10,7 @@ const { CostTracker } = require('../llm/cost');
 const { TOOLS, executeTool } = require('./staffAssistant.tools');
 const { STAFF_KNOWLEDGE_BASE } = require('../kb/staffKnowledgeBase');
 const logger = require('../../middlewheres/logger');
+const { FEATURES } = require('../features');
 
 const FAST_MODEL = process.env.ANTHROPIC_MODEL_FAST || 'claude-haiku-4-5';
 const MAX_TOOL_ROUNDS = 6;
@@ -49,9 +50,9 @@ const textOf = (content) =>
 async function runStaffAssistant({ user, messages = [], userMessage }) {
   const system = buildSystem(user);
   const working = [...messages, { role: 'user', content: userMessage }];
-  const cost = new CostTracker('staff-assistant');
+  const cost = new CostTracker(FEATURES.STAFF_ASSISTANT);
   const usageMeta = {
-    feature: 'staff-assistant',
+    feature: FEATURES.STAFF_ASSISTANT,
     userId: user && (user.id || user._id),
     sessionKey: user && (user.id || user._id) ? `staff:${user.id || user._id}` : undefined,
   };

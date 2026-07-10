@@ -6,6 +6,7 @@
 const { complete } = require('../llm/claude');
 const { CostTracker, estimateKes } = require('../llm/cost');
 const logger = require('../../middlewheres/logger');
+const { FEATURES } = require('../features');
 
 const FAST_MODEL = process.env.ANTHROPIC_MODEL_FAST || 'claude-haiku-4-5-20251001';
 
@@ -64,13 +65,13 @@ const run = async (claim) => {
   const userMessage = `STRUCTURED DATA:\n${context}\n\nCLAIM NARRATIVE:\n${narrative}`;
 
   try {
-    const tracker = new CostTracker('narrative-analysis');
+    const tracker = new CostTracker(FEATURES.NARRATIVE_ANALYSIS);
     const resp = await complete({
       model: FAST_MODEL,
       maxTokens: 512,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userMessage }],
-      meta: { feature: 'narrative-analysis', stage: 'fraud', claimId: claim._id, customerId: claim.customerId },
+      meta: { feature: FEATURES.NARRATIVE_ANALYSIS, stage: 'fraud', claimId: claim._id, customerId: claim.customerId },
     });
     tracker.record(resp);
     tracker.flush();
