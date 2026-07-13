@@ -8,7 +8,8 @@
     "dev": "nodemon src/app.js",
     "backup:setup": "node scripts/setup-backup-infra.js",
     "backup:db": "node scripts/backup-db.js",
-    "restore:db": "node scripts/restore-db.js"
+    "restore:db": "node scripts/restore-db.js",
+    "dr:replicate": "node scripts/setup-s3-replication.js"
   },
   "author": "",
   "license": "ISC",
