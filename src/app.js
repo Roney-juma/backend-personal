@@ -8,6 +8,7 @@ const logger = require('./middlewheres/logger');
 const httpLogger = require('./middlewheres/httpLogger');
 const mongoose = require("mongoose");
 const cors = require("cors");
+const cookieParser = require("cookie-parser");
 const { corsOptions } = require('./config/cors');
 const sanitizeRequest = require('./middlewheres/sanitizeRequest');
 const correlationId = require('./middlewheres/correlationId');
@@ -87,6 +88,7 @@ app.use(helmet());                          // security headers
 app.use(cors(corsOptions));                 // restricted CORS (env allowlist)
 app.use(express.json({ limit: '10mb' }));   // parse + cap JSON body size
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(cookieParser());                    // read the SSO transaction cookie
 app.use(globalLimiter);                     // rate limiting
 app.use(sanitizeRequest);                   // WAF-lite input sanitizer
 app.use(httpLogger);
