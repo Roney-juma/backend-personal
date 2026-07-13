@@ -6,7 +6,7 @@ const bcrypt = require('bcrypt')
 const ApiError = require('../utils/ApiError.js');
 const emailService = require("../service/email.service");
 const tokenService = require("../service/token.service");
-const { createResetToken, verifyResetToken, buildResetUrl } = require("../utils/passwordReset");
+const { createResetToken, verifyResetToken, resetEmailBody } = require("../utils/passwordReset");
 const { isLocked, registerFailedAttempt, resetAttempts, AccountLockedError } = require("../utils/accountLockout");
 
 async function createCustomer(cus) {
@@ -93,11 +93,10 @@ const forgotPassword = async (email) => {
     user.resetPasswordExpires = expires;
     await user.save();
 
-    const resetUrl = buildResetUrl(rawToken, email);
     await emailService.sendEmailNotification(
       user.email,
-      'Reset your Ave Insurance password',
-      `Dear ${user.firstName || 'Customer'},\n\nWe received a request to reset your password. Use the link below within one hour to set a new password:\n${resetUrl}\n\nIf you did not request this, you can safely ignore this email.`
+      'Your Ave Insurance password reset code',
+      resetEmailBody(user.firstName, rawToken)
     );
   }
   return { message: 'If an account exists for that email, a reset link has been sent.' };

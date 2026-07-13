@@ -4,7 +4,7 @@ const bcrypt = require('bcrypt');
 const Claim = require('../models/claim.model');
 const ApiError = require('../utils/ApiError');
 const { isLocked, registerFailedAttempt, resetAttempts, AccountLockedError } = require('../utils/accountLockout');
-const { createResetToken, verifyResetToken, buildResetUrl } = require('../utils/passwordReset');
+const { createResetToken, verifyResetToken, resetEmailBody } = require('../utils/passwordReset');
 const emailService = require("../service/email.service");
 const whatsappService = require('./whatsapp.service');
 const { writeAuditLog } = require('../utils/auditHelper');
@@ -20,11 +20,11 @@ const createAssessor = async (assessorData, req) => {
   if (existingUser) throw new ApiError(409, 'Assessor already exists');
 
   const start = Date.now();
+  // The Assessor model's pre('save') hook hashes the password. Do NOT hash here
+  // as well — double-hashing makes the stored password impossible to match on login.
   const safeData = { ...assessorData };
   delete safeData.password;
 
-  safeData.password = await bcrypt.hash(assessorData.password, 10);
-  assessorData.password = safeData.password;
   const newAssessor = await Assessor.create(assessorData);
   await cache.del('cache:assessors:all', 'cache:stats:assessors', 'cache:assessors:top');
 
@@ -331,11 +331,10 @@ const forgotPassword = async (email) => {
       { $set: { resetPasswordToken: hashedToken, resetPasswordExpires: expires } }
     );
 
-    const resetUrl = buildResetUrl(rawToken, email);
     await emailService.sendEmailNotification(
       user.email,
-      'Reset your Ave Insurance password',
-      `Dear ${user.name || 'Assessor'},\n\nWe received a request to reset your password. Use the link below within one hour to set a new password:\n${resetUrl}\n\nIf you did not request this, you can safely ignore this email.`
+      'Your Ave Insurance password reset code',
+      resetEmailBody(user.name, rawToken)
     );
   }
   return { message: 'If an account exists for that email, a reset link has been sent.' };
