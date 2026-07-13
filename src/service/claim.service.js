@@ -22,6 +22,20 @@ const invalidateClaimCache = async (claimId) => {
   await Promise.all(ops);
 };
 
+// Real-time fan-out for supplier bid changes. Invalidates each affected
+// supplier's cached bid history (so GET /supplier/myBids/:supplierId returns
+// fresh data) and pushes a `bids:updated` event to their private room so the
+// portal refetches live instead of polling. Covers the winning supplier AND
+// every supplier auto-rejected on the same claim. Best-effort; never throws.
+const notifySupplierBidsChanged = async (supplierIds, claimId) => {
+  const unique = [...new Set((supplierIds || []).filter(Boolean).map(String))];
+  if (!unique.length) return;
+  await cache.del(...unique.map((id) => `cache:supplier:bids:${id}`));
+  for (const id of unique) {
+    notificationService.emitToUser(id, 'bids:updated', { claimId: String(claimId) });
+  }
+};
+
 const MOTOR_GLASS_TYPE_ID = '6a43d317ea0c6f0a546da885';
 const isGlassClaim = (claim) =>
   claim.claimTypeId && claim.claimTypeId.toString() === MOTOR_GLASS_TYPE_ID;
@@ -1045,6 +1059,10 @@ const acceptSupplierBid = async (claimId, bidId, req) => {
   await claim.save();
   await invalidateClaimCache(claimId);
 
+  // Live-update every supplier on this claim (accepted + auto-rejected).
+  const affectedSuppliers = await SupplyBid.find({ claimId }).distinct('supplierId');
+  await notifySupplierBidsChanged(affectedSuppliers, claimId);
+
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'SupplyBid',
@@ -1090,6 +1108,10 @@ const awardSupplierBid = async (claimId, bidId, req) => {
   }
   await claim.save();
   await invalidateClaimCache(claimId);
+
+  // Live-update every supplier on this claim (awarded + auto-rejected).
+  const affectedSuppliers = await SupplyBid.find({ claimId }).distinct('supplierId');
+  await notifySupplierBidsChanged(affectedSuppliers, claimId);
 
   await notificationService.createAndEmit({
     recipientId: supplyBid.supplierId,
@@ -1138,6 +1160,9 @@ const rejectSupplierBid = async (claimId, bidId, req) => {
   const start = Date.now();
   supplyBid.status = 'Rejected';
   await supplyBid.save();
+
+  // Live-update the rejected supplier's bid history.
+  await notifySupplierBidsChanged([supplyBid.supplierId], claimId);
 
   await notificationService.createAndEmit({
     recipientId: supplyBid.supplierId,

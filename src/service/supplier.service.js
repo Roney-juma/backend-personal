@@ -4,9 +4,7 @@ const Supplier = require('../models/supplier.model');
 const SupplyBid = require('../models/supplyBids.model');
 const Claim = require('../models/claim.model');
 const cache = require('../cache');
-const emailService = require('./email.service');
-const { createResetToken, verifyResetToken, buildResetUrl } = require('../utils/passwordReset');
-const { isLocked, registerFailedAttempt, resetAttempts, AccountLockedError } = require('../utils/accountLockout');
+const notificationService = require('./notification.service');
 
 const loginUserWithEmailAndPassword = async (email, password) => {
   const user = await getUserByEmail(email);
@@ -141,6 +139,9 @@ const submitBidForSupply = async (claimId, supplierId, parts) => {
   await claim.save();
   await cache.del(`cache:supplier:bids:${supplierId}`, 'cache:claims:in-garage');
   await cache.delPattern('cache:claims:*');
+
+  // Push the new bid to the supplier's other open sessions in real time.
+  notificationService.emitToUser(String(supplierId), 'bids:updated', { claimId: String(claimId) });
 
   return supplyBid;
 };

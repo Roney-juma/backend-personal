@@ -35,9 +35,9 @@ const notificationProcessor = (job) => runWithContext({ correlationId: job.data.
       break;
     }
     case 'whatsapp': {
-      const { to, message } = job.data;
+      const { to, message, template } = job.data;
       if (!to || !message) throw new Error(`Invalid WhatsApp job data: ${JSON.stringify(job.data)}`);
-      await sendWhatsAppDirect(to, message);
+      await sendWhatsAppDirect(to, message, template);
       break;
     }
     case 'push': {
