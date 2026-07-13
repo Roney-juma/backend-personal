@@ -5,6 +5,8 @@ const Claim = require('../models/claim.model');
 const ApiError = require('../utils/ApiError');
 const { isLocked, registerFailedAttempt, resetAttempts, AccountLockedError } = require('../utils/accountLockout');
 const { createResetToken, verifyResetToken, resetEmailBody } = require('../utils/passwordReset');
+const { assertValidPassword } = require('../utils/passwordPolicy');
+const { DEFAULT_TEMP_PASSWORD } = require('../constants/userDefaults');
 const emailService = require("../service/email.service");
 const whatsappService = require('./whatsapp.service');
 const { writeAuditLog } = require('../utils/auditHelper');
@@ -20,8 +22,11 @@ const createAssessor = async (assessorData, req) => {
   if (existingUser) throw new ApiError(409, 'Assessor already exists');
 
   const start = Date.now();
-  // The Assessor model's pre('save') hook hashes the password. Do NOT hash here
-  // as well — double-hashing makes the stored password impossible to match on login.
+  // Admin-created: default temporary password + forced change on first login.
+  // The Assessor model's pre('save') hook hashes the password, so pass it plain
+  // and do NOT hash here (double-hashing makes login impossible).
+  assessorData.password = assessorData.password || DEFAULT_TEMP_PASSWORD;
+  assessorData.mustChangePassword = true;
   const safeData = { ...assessorData };
   delete safeData.password;
 
@@ -347,6 +352,7 @@ const resetPassword = async (email, token, newPassword) => {
     throw new Error('Reset token is invalid or has expired');
   }
 
+  assertValidPassword(newPassword);
   // Hash here and write via updateOne to avoid the model's pre-save hook double-hashing.
   const hashed = await bcrypt.hash(newPassword, 10);
   await Assessor.updateOne(

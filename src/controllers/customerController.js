@@ -16,7 +16,7 @@ const createCustomer = async (req, res) => {
     if (error.message === 'Customer already exists') {
       res.status(409).json({ error: 'Customer already exists' });
     } else {
-      res.status(500).json({ error: error.message });
+      res.status(error.statusCode || 500).json({ error: error.message });
     }
   }
 };

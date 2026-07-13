@@ -5,6 +5,8 @@ const customerModel = require("../models/customerModel");
 const bcrypt = require('bcrypt');
 const { createResetToken, verifyResetToken, resetEmailBody } = require("../utils/passwordReset");
 const { isLocked, registerFailedAttempt, resetAttempts, AccountLockedError } = require("../utils/accountLockout");
+const { assertValidPassword } = require("../utils/passwordPolicy");
+const { DEFAULT_TEMP_PASSWORD } = require("../constants/userDefaults");
 const emailService = require("./email.service");
 const whatsappService = require('./whatsapp.service');
 const tokenService = require("./token.service");
@@ -13,8 +15,6 @@ const cache = require('../cache');
 const logger = require('../middlewheres/logger');
 
 const createGarage = async (garage) => {
-  const plainPassword = garage.password;
-
   const existingGarage = await Garage.findOne({ email: garage.email });
   const existingCustomer = await customerModel.findOne({ email: garage.email });
   // const existingAssessor = await Assessor.findOne({ email: garage.email });
@@ -22,9 +22,10 @@ const createGarage = async (garage) => {
     throw new Error('We Already have a user with this Email');
   }
 
-  // Hash the password
-  const hashedPassword = await bcrypt.hash(plainPassword, 10);
-  garage.password = hashedPassword;
+  // Admin-created: default temporary password + forced change on first login.
+  const plainPassword = garage.password || DEFAULT_TEMP_PASSWORD;
+  garage.password = await bcrypt.hash(plainPassword, 10);
+  garage.mustChangePassword = true;
 
   // Create and save the new Garage. Admin sets the initial password, so require
   // a change on first login (forced-override so the client can't opt out).
@@ -41,13 +42,12 @@ const createGarage = async (garage) => {
 
 We are delighted to welcome you to Ave Insurance! Your new account has been successfully created.
 
-Here are your account details:
+Here are your login details:
 
-- Name: ${savedGarage.name}
 - Email: ${savedGarage.email}
-- Password: ${plainPassword}
+- Temporary password: ${plainPassword}
 
-You can log in to your account using your registered email address. Please contact us if you have any questions or need further assistance.
+For your security, you will be asked to set a new password the first time you log in.
 
 Thank you for choosing Ave Insurance.
 
@@ -362,6 +362,7 @@ const resetPassword = async (email, token, newPassword) => {
     throw new Error('Reset token is invalid or has expired');
   }
 
+  assertValidPassword(newPassword);
   user.password = await bcrypt.hash(newPassword, 10);
 
   // Invalidate the token so it can only be used once.
