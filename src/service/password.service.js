@@ -1,5 +1,6 @@
 const bcrypt = require('bcrypt');
 const MODELS = require('../utils/userModels');
+const { assertValidPassword } = require('../utils/passwordPolicy');
 
 const getModel = (accountType) => {
   const model = MODELS[accountType];
@@ -14,9 +15,7 @@ const getModel = (accountType) => {
  * password, bypassing per-model pre-save hooks (avoids double-hashing).
  */
 const changePassword = async (accountType, userId, currentPassword, newPassword) => {
-  if (!newPassword || String(newPassword).length < 8) {
-    throw new Error('New password must be at least 8 characters');
-  }
+  assertValidPassword(newPassword);
 
   const Model = getModel(accountType);
   const user = await Model.findById(userId);

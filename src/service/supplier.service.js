@@ -5,6 +5,11 @@ const SupplyBid = require('../models/supplyBids.model');
 const Claim = require('../models/claim.model');
 const cache = require('../cache');
 const notificationService = require('./notification.service');
+const emailService = require('./email.service');
+const { createResetToken, verifyResetToken, resetEmailBody } = require('../utils/passwordReset');
+const { isLocked, registerFailedAttempt, resetAttempts, AccountLockedError } = require('../utils/accountLockout');
+const { assertValidPassword } = require('../utils/passwordPolicy');
+const { DEFAULT_TEMP_PASSWORD } = require('../constants/userDefaults');
 
 const loginUserWithEmailAndPassword = async (email, password) => {
   const user = await getUserByEmail(email);
@@ -43,16 +48,24 @@ const createSupplier = async (supplierData) => {
   if (existingSupplier) {
       throw new ApiError('Email is already registered');
   }
+
+  // Admin-created: default temporary password + forced change on first login.
+  const plainPassword = supplierData.password || DEFAULT_TEMP_PASSWORD;
   const newSupplier = new Supplier(supplierData);
-  const password = await bcrypt.hash(newSupplier.password, 10);
-  newSupplier.password = password;
-
-//   Send Email notification
-
-
+  newSupplier.password = await bcrypt.hash(plainPassword, 10);
+  newSupplier.mustChangePassword = true;
 
   const saved = await newSupplier.save();
   await cache.del('cache:suppliers:all');
+
+  if (saved.email) {
+    await emailService.sendEmailNotification(
+      saved.email,
+      'Welcome to Ave Insurance - Your Account Details',
+      `Dear ${saved.name},\n\nYour supplier account has been created.\n\nEmail: ${saved.email}\nTemporary password: ${plainPassword}\n\nFor your security, you will be asked to set a new password the first time you log in.\n\nBest Regards,\nAdmin Team`
+    ).catch(() => { /* non-fatal */ });
+  }
+
   return saved;
 };
 
@@ -211,6 +224,7 @@ const resetPassword = async (email, token, newPassword) => {
     throw new Error('Reset token is invalid or has expired');
   }
 
+  assertValidPassword(newPassword);
   user.password = await bcrypt.hash(newPassword, 10);
 
   // Invalidate the token so it can only be used once.
