@@ -5,7 +5,10 @@
   "main": "index.js",
   "scripts": {
     "start": "node src/app.js",
-    "dev": "nodemon src/app.js"
+    "dev": "nodemon src/app.js",
+    "backup:setup": "node scripts/setup-backup-infra.js",
+    "backup:db": "node scripts/backup-db.js",
+    "restore:db": "node scripts/restore-db.js"
   },
   "author": "",
   "license": "ISC",
