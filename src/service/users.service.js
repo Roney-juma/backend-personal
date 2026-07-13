@@ -2,6 +2,7 @@ const bcrypt = require('bcrypt');
 const User = require('../models/users.model');
 const emailService = require('./email.service');
 const { isLocked, registerFailedAttempt, resetAttempts, AccountLockedError } = require('../utils/accountLockout');
+const { DEFAULT_TEMP_PASSWORD } = require('../constants/userDefaults');
 
 const createUser = async (userData) => {
     const { company,username, password, fullName, email, role, phone, department, position } = userData;
@@ -11,7 +12,8 @@ const createUser = async (userData) => {
         throw new Error('User with this email or username already exists');
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Admin-created accounts use a default temporary password and must change it on first login.
+    const hashedPassword = await bcrypt.hash(password || DEFAULT_TEMP_PASSWORD, 10);
 
     const newUser = new User({
         company,
@@ -35,11 +37,10 @@ const createUser = async (userData) => {
             'Welcome to Ave Insurance - Your Account Details',
             `Dear ${savedUser.fullName},
 Welcome to Ave Insurance! Your account has been successfully created.
-Here are your account details:
-- Username: ${savedUser.username}
+Here are your login details:
 - Email: ${savedUser.email}
-- Password: password (the one you set during registration)
-Please use your registered email and password to log in.
+- Temporary password: ${DEFAULT_TEMP_PASSWORD}
+For your security, you will be asked to set a new password the first time you log in.
 If you have any questions, feel free to contact us.
 Best Regards,
 Admin Team`

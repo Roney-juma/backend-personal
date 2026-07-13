@@ -2,6 +2,7 @@ const bcrypt = require('bcrypt');
 const ProviderUser = require('../models/providerUser.model');
 const emailService = require('./email.service');
 const { isLocked, lockMinutesRemaining, registerFailedAttempt, resetAttempts } = require('../utils/accountLockout');
+const { DEFAULT_TEMP_PASSWORD } = require('../constants/userDefaults');
 
 const login = async (email, password) => {
     const user = await ProviderUser.findOne({ email }).populate('role');
@@ -39,7 +40,8 @@ const createProviderUser = async (data) => {
         throw new Error('A provider user with this email or username already exists');
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Admin-created accounts use a default temporary password and must change it on first login.
+    const hashedPassword = await bcrypt.hash(password || DEFAULT_TEMP_PASSWORD, 10);
 
     const newUser = new ProviderUser({
         username,
@@ -58,7 +60,7 @@ const createProviderUser = async (data) => {
         await emailService.sendEmailNotification(
             saved.email,
             'Welcome to AVE Provider Portal — Your Account Details',
-            `Dear ${saved.fullName},\n\nYour provider portal account has been created.\n\nUsername: ${saved.username}\nEmail: ${saved.email}\n\nPlease use your registered email and password to log in.\n\nBest Regards,\nAVE Platform Team`
+            `Dear ${saved.fullName},\n\nYour provider portal account has been created.\n\nEmail: ${saved.email}\nTemporary password: ${DEFAULT_TEMP_PASSWORD}\n\nFor your security, you will be asked to set a new password the first time you log in.\n\nBest Regards,\nAVE Platform Team`
         ).catch(() => { /* non-fatal */ });
     }
 

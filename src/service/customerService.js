@@ -8,6 +8,7 @@ const emailService = require("../service/email.service");
 const tokenService = require("../service/token.service");
 const { createResetToken, verifyResetToken, resetEmailBody } = require("../utils/passwordReset");
 const { isLocked, registerFailedAttempt, resetAttempts, AccountLockedError } = require("../utils/accountLockout");
+const { assertValidPassword } = require("../utils/passwordPolicy");
 
 async function createCustomer(cus) {
   const existingGarage = await Garage.findOne({ email: cus.email });
@@ -21,6 +22,7 @@ async function createCustomer(cus) {
     throw new Error('Customer already exists');
   }
 
+  assertValidPassword(cus.password);
   const password = await bcrypt.hash(cus.password, 10);
   cus.password = password;
 
@@ -108,6 +110,7 @@ const resetPassword = async (email, token, newPassword) => {
     throw new Error('Reset token is invalid or has expired');
   }
 
+  assertValidPassword(newPassword);
   user.password = await bcrypt.hash(newPassword, 10);
 
   // Invalidate the token so it can only be used once.
