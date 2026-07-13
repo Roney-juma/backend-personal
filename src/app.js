@@ -12,13 +12,28 @@ const { corsOptions } = require('./config/cors');
 const sanitizeRequest = require('./middlewheres/sanitizeRequest');
 const correlationId = require('./middlewheres/correlationId');
 const { getRedisClient } = require('./queue/connection');
+const { makeRedisStore } = require('./middlewheres/rateLimitStore');
 const socketModule = require('./socket');
 
 const PORT = process.env.PORT || 3000;
 
-mongoose.connect(process.env.MONGO_URI)
+// retryWrites + w:majority let a single Atlas replica-set failover be retried
+// transparently instead of surfacing as an error. Pool + timeouts are tuned so a
+// slow/failing node is dropped quickly rather than hanging requests behind it.
+mongoose.connect(process.env.MONGO_URI, {
+  maxPoolSize: Number(process.env.MONGO_MAX_POOL) || 20,
+  minPoolSize: Number(process.env.MONGO_MIN_POOL) || 5,
+  serverSelectionTimeoutMS: Number(process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS) || 10000,
+  socketTimeoutMS: Number(process.env.MONGO_SOCKET_TIMEOUT_MS) || 45000,
+  retryWrites: true,
+  w: 'majority',
+})
   .then(() => logger.info('Connected to MongoDB'))
   .catch((err) => logger.error('MongoDB connection error:', err));
+
+// Failover visibility — log when the driver loses/regains the primary.
+mongoose.connection.on('disconnected', () => logger.warn('MongoDB disconnected'));
+mongoose.connection.on('reconnected', () => logger.info('MongoDB reconnected'));
 
 const app = express();
 // Trust the reverse proxy (nginx) so rate-limit / logging see the real client IP.
@@ -62,6 +77,9 @@ const globalLimiter = rateLimit({
   max: Number(process.env.RATE_LIMIT_MAX) || 300,
   standardHeaders: true,
   legacyHeaders: false,
+  // Shared Redis counter => one global limit across all instances (falls back to
+  // in-memory per-instance when REDIS_URL is unset).
+  store: makeRedisStore('rl:global:'),
   message: { message: 'Too many requests, please try again later.' },
 });
 

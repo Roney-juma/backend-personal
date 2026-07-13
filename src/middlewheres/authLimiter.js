@@ -1,5 +1,6 @@
 const rateLimit = require('express-rate-limit');
 const { ipKeyGenerator } = require('express-rate-limit');
+const { makeRedisStore } = require('./rateLimitStore');
 
 // Strict limiter for authentication endpoints (login, forgot/reset password).
 // Keyed by client IP + submitted email so both distributed and targeted
@@ -9,6 +10,9 @@ const authLimiter = rateLimit({
   max: Number(process.env.AUTH_RATE_LIMIT_MAX) || 10,
   standardHeaders: true,
   legacyHeaders: false,
+  // Redis store => the auth limit is shared across all instances (brute-force
+  // protection can't be diluted by spreading attempts over multiple servers).
+  store: makeRedisStore('rl:auth:'),
   // Do not count successful logins against the limit — only failed/abusive attempts.
   skipSuccessfulRequests: true,
   keyGenerator: (req) => {

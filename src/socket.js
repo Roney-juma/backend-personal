@@ -42,6 +42,24 @@ const init = (httpServer) => {
     },
   });
 
+  // Multi-instance fan-out: with the Redis adapter, an emit on ANY app instance
+  // (e.g. getIO().to('notification:123').emit(...)) reaches that room's sockets on
+  // EVERY instance. Without it, a user only gets events from the one instance their
+  // socket happens to be connected to — which breaks as soon as we run >1 instance.
+  if (process.env.REDIS_URL) {
+    const { createAdapter } = require('@socket.io/redis-adapter');
+    const { Redis } = require('ioredis');
+    const opts = { maxRetriesPerRequest: null, enableReadyCheck: false };
+    const pubClient = new Redis(process.env.REDIS_URL, opts);
+    const subClient = pubClient.duplicate();
+    pubClient.on('error', (err) => logger.warn(`[socket] adapter pub error: ${err.message}`));
+    subClient.on('error', (err) => logger.warn(`[socket] adapter sub error: ${err.message}`));
+    io.adapter(createAdapter(pubClient, subClient));
+    logger.info('[socket] Redis adapter enabled — events fan out across all instances');
+  } else {
+    logger.warn('[socket] REDIS_URL not set — running single-instance only (no cross-instance fan-out)');
+  }
+
   io.use(authenticateSocket);
 
   io.on('connection', (socket) => {
@@ -75,19 +93,24 @@ const init = (httpServer) => {
     });
   });
 
-  // Redis pub/sub bridge: worker process publishes, main app forwards to Socket.IO
+  // Worker → app bridge. The AI worker is a separate process (not a Socket.IO
+  // server), so it publishes plain Redis messages. Redis pub/sub delivers to EVERY
+  // subscribed app instance, so each instance forwards to its OWN admin sockets via
+  // `io.local` — using `io.to()` here would double-deliver now that the adapter is
+  // attached (each instance would re-broadcast the same message to all instances).
   if (process.env.REDIS_URL) {
     const { Redis } = require('ioredis');
     const subscriber = new Redis(process.env.REDIS_URL, {
       maxRetriesPerRequest: null,
       enableReadyCheck: false,
     });
-    subscriber.subscribe('claim:ai_updated').catch(err =>
+    const channels = ['claim:ai_updated', 'claim:continuity_updated'];
+    subscriber.subscribe(...channels).catch(err =>
       logger.warn(`[socket] Redis subscribe failed: ${err.message}`)
     );
-    subscriber.on('message', (_channel, message) => {
+    subscriber.on('message', (channel, message) => {
       try {
-        io.to('admin').emit('claim:ai_updated', JSON.parse(message));
+        io.local.to('admin').emit(channel, JSON.parse(message));
       } catch {}
     });
     subscriber.on('error', err =>

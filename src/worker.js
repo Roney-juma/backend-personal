@@ -10,7 +10,14 @@ const logger = require('./middlewheres/logger');
 // Mongoose must be connected for the pipeline's DB queries
 const mongoose = require('mongoose');
 if (mongoose.connection.readyState === 0) {
-  mongoose.connect(process.env.MONGO_URI || process.env.DATABASE_URL).catch(err =>
+  mongoose.connect(process.env.MONGO_URI || process.env.DATABASE_URL, {
+    maxPoolSize: Number(process.env.MONGO_MAX_POOL) || 20,
+    minPoolSize: Number(process.env.MONGO_MIN_POOL) || 5,
+    serverSelectionTimeoutMS: Number(process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS) || 10000,
+    socketTimeoutMS: Number(process.env.MONGO_SOCKET_TIMEOUT_MS) || 45000,
+    retryWrites: true,
+    w: 'majority',
+  }).catch(err =>
     logger.error(`Worker MongoDB connect failed: ${err.message}`)
   );
 }
