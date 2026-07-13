@@ -88,6 +88,19 @@ const dispatchExternalChannels = async ({ recipientId, recipientType, title, con
   ]);
 };
 
+// Best-effort real-time emit to a single user's private room. No DB write, no
+// push/WhatsApp — use this for live UI signals (e.g. "your bids changed") that
+// the client reacts to by refetching. No-op if the socket server isn't
+// initialised in this process (e.g. the worker) or the user is offline, so
+// callers must never depend on delivery.
+const emitToUser = (recipientId, event, payload) => {
+  try {
+    getIO().to(`notification:${recipientId}`).emit(event, payload);
+  } catch {
+    // Socket not initialised here / recipient not connected — ignore.
+  }
+};
+
 const getNotifications = async (recipientId) => {
   return Notification.find({ recipientId }).sort({ createdAt: -1 }).limit(50);
 };
@@ -100,4 +113,4 @@ const markAllAsRead = async (recipientId) => {
   return Notification.updateMany({ recipientId, isRead: false }, { isRead: true });
 };
 
-module.exports = { createAndEmit, getNotifications, markAsRead, markAllAsRead };
+module.exports = { createAndEmit, emitToUser, getNotifications, markAsRead, markAllAsRead };
