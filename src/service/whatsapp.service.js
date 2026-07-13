@@ -118,12 +118,12 @@ const sendWhatsAppDirect = async (to, message, template = null) => {
 };
 
 // Enqueued send — all services call this; falls back to direct if Redis not available
-const sendWhatsAppMessage = async (to, message) => {
+const sendWhatsAppMessage = async (to, message, template = null) => {
   const queue = getQueue();
   if (queue) {
-    await queue.add('whatsapp', { to, message, correlationId: getCorrelationId() });
+    await queue.add('whatsapp', { to, message, template, correlationId: getCorrelationId() });
   } else {
-    await sendWhatsAppDirect(to, message);
+    await sendWhatsAppDirect(to, message, template);
   }
 };
 
