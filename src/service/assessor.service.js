@@ -3,6 +3,8 @@ const Garage = require('../models/garage.model');
 const bcrypt = require('bcrypt');
 const Claim = require('../models/claim.model');
 const ApiError = require('../utils/ApiError');
+const { isLocked, registerFailedAttempt, resetAttempts, AccountLockedError } = require('../utils/accountLockout');
+const { createResetToken, verifyResetToken, buildResetUrl } = require('../utils/passwordReset');
 const emailService = require("../service/email.service");
 const whatsappService = require('./whatsapp.service');
 const { writeAuditLog } = require('../utils/auditHelper');
@@ -119,10 +121,17 @@ const deleteAssessor = async (id, req) => {
 
 const loginUserWithEmailAndPassword = async (email, password) => {
   const user = await Assessor.findOne({ email });
-
-  if (!user || !(await !(await user.isPasswordMatch(password)))) {
+  if (!user) {
     throw new ApiError(401, 'Invalid email or password');
   }
+  if (isLocked(user)) {
+    throw new AccountLockedError(user);
+  }
+  if (!(await user.isPasswordMatch(password))) {
+    await registerFailedAttempt(user);
+    throw new ApiError(401, 'Invalid email or password');
+  }
+  await resetAttempts(user);
   return user;
 };
 
@@ -311,25 +320,39 @@ const submitAssessmentReport = async (claimId, assessmentReport, req) => {
   return claim;
 };
 
-const resetPassword = async (email, newPassword, req) => {
+const forgotPassword = async (email) => {
   const user = await Assessor.findOne({ email });
-  if (!user) throw new Error('Invalid request');
+  // Always return the same response so the endpoint cannot be used to enumerate accounts.
+  if (user) {
+    const { rawToken, hashedToken, expires } = await createResetToken();
+    // updateOne bypasses the password pre-save hook (which would otherwise re-hash on save).
+    await Assessor.updateOne(
+      { _id: user._id },
+      { $set: { resetPasswordToken: hashedToken, resetPasswordExpires: expires } }
+    );
 
-  const start = Date.now();
-  user.password = await bcrypt.hash(newPassword, 10);
-  await user.save();
+    const resetUrl = buildResetUrl(rawToken, email);
+    await emailService.sendEmailNotification(
+      user.email,
+      'Reset your Ave Insurance password',
+      `Dear ${user.name || 'Assessor'},\n\nWe received a request to reset your password. Use the link below within one hour to set a new password:\n${resetUrl}\n\nIf you did not request this, you can safely ignore this email.`
+    );
+  }
+  return { message: 'If an account exists for that email, a reset link has been sent.' };
+};
 
-  await writeAuditLog(req, {
-    action: 'RESET_PASSWORD',
-    module: 'Assessor',
-    actionDescription: `Password reset for assessor ${email}`,
-    resourceType: 'Assessor',
-    resourceId: user._id,
-    statusCode: 200,
-    success: true,
-    responseTimeMs: Date.now() - start,
-    changes: { old: null, new: '[PASSWORD CHANGED]' },
-  });
+const resetPassword = async (email, token, newPassword) => {
+  const user = await Assessor.findOne({ email });
+  if (!user || !(await verifyResetToken(token, user))) {
+    throw new Error('Reset token is invalid or has expired');
+  }
+
+  // Hash here and write via updateOne to avoid the model's pre-save hook double-hashing.
+  const hashed = await bcrypt.hash(newPassword, 10);
+  await Assessor.updateOne(
+    { _id: user._id },
+    { $set: { password: hashed }, $unset: { resetPasswordToken: '', resetPasswordExpires: '' } }
+  );
 
   return { message: 'Password has been reset successfully' };
 };
@@ -602,6 +625,7 @@ module.exports = {
   getAssessorBids,
   submitAssessmentReport,
   submitReAssessmentReport,
+  forgotPassword,
   resetPassword,
   completeRepair,
   rejectRepair,

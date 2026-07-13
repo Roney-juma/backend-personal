@@ -1,6 +1,7 @@
 const bcrypt = require('bcrypt');
 const User = require('../models/users.model');
 const emailService = require('./email.service');
+const { isLocked, registerFailedAttempt, resetAttempts, AccountLockedError } = require('../utils/accountLockout');
 
 const createUser = async (userData) => {
     const { company,username, password, fullName, email, role, phone, department, position } = userData;
@@ -21,7 +22,9 @@ const createUser = async (userData) => {
         role,
         phone,
         department,
-        position
+        position,
+        // Admin sets the initial password, so require a change on first login.
+        mustChangePassword: true,
     });
 
     const savedUser = await newUser.save();
@@ -118,9 +121,17 @@ const loginUserWithEmailAndPassword = async (email, password) => {
 
     if (!user) return false;
 
-    const authorized = await bcrypt.compare(password, user.password);
-    if (!authorized) return false;
+    if (isLocked(user)) {
+        throw new AccountLockedError(user);
+    }
 
+    const authorized = await bcrypt.compare(password, user.password);
+    if (!authorized) {
+        await registerFailedAttempt(user);
+        return false;
+    }
+
+    await resetAttempts(user);
     return user;
 };
 

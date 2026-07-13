@@ -25,7 +25,11 @@
       "Bash(mdls -name kMDItemNumberOfPages -name kMDItemTitle \"/Users/tt/Downloads/AVE-Phased-Implementation-Plan.pdf\")",
       "Bash(node /private/tmp/claude-501/-Users-tt-Development-Backend-backend-personal/70943c06-03db-4c9b-badf-926d85a7bcdf/scratchpad/usage-smoke.js)",
       "Bash(node -e \"const sharp=require\\('sharp'\\); console.log\\('sharp', sharp.versions.sharp\\)\")",
-      "Bash(node /private/tmp/claude-501/-Users-tt-Development-Backend-backend-personal/3bb58e51-8715-4307-a90f-5aaf095ee1ef/scratchpad/test_fingerprint.js)"
+      "Bash(node /private/tmp/claude-501/-Users-tt-Development-Backend-backend-personal/3bb58e51-8715-4307-a90f-5aaf095ee1ef/scratchpad/test_fingerprint.js)",
+      "Bash(grep -iE \"\\\\.pem$|\\\\.key$|private|rsa\")",
+      "Bash(awk -F: '{s+=$2} END {print \"bare verifyToken\\(\\) routes:\", s}')",
+      "Bash(which pandoc *)",
+      "Read(//Applications/**)"
     ],
     "additionalDirectories": [
       "/Users/tt/Downloads"

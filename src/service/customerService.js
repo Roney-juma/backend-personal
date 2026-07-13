@@ -6,6 +6,8 @@ const bcrypt = require('bcrypt')
 const ApiError = require('../utils/ApiError.js');
 const emailService = require("../service/email.service");
 const tokenService = require("../service/token.service");
+const { createResetToken, verifyResetToken, buildResetUrl } = require("../utils/passwordReset");
+const { isLocked, registerFailedAttempt, resetAttempts, AccountLockedError } = require("../utils/accountLockout");
 
 async function createCustomer(cus) {
   const existingGarage = await Garage.findOne({ email: cus.email });
@@ -27,9 +29,17 @@ async function createCustomer(cus) {
 }
 const loginUser = async (email, password) => {
   const user = await Customer.findOne({ email });
-  if (!user || !(await user.isPasswordMatch(password))) {
+  if (!user) {
     throw new Error("Invalid email or password");
   }
+  if (isLocked(user)) {
+    throw new AccountLockedError(user);
+  }
+  if (!(await user.isPasswordMatch(password))) {
+    await registerFailedAttempt(user);
+    throw new Error("Invalid email or password");
+  }
+  await resetAttempts(user);
   const tokens = tokenService.GenerateToken(user);
   return { user, tokens };
 };
@@ -74,21 +84,34 @@ const sendWelcomeEmail = async (customer) => {
   await emailService.sendEmailNotification(customer.email, subject, message);
 };
 
-const resetPassword = async (email, newPassword) => {
+const forgotPassword = async (email) => {
   const user = await Customer.findOne({ email });
-  if (!user) {
-    throw new Error('Invalid request');
+  // Always return the same response so the endpoint cannot be used to enumerate accounts.
+  if (user) {
+    const { rawToken, hashedToken, expires } = await createResetToken();
+    user.resetPasswordToken = hashedToken;
+    user.resetPasswordExpires = expires;
+    await user.save();
+
+    const resetUrl = buildResetUrl(rawToken, email);
+    await emailService.sendEmailNotification(
+      user.email,
+      'Reset your Ave Insurance password',
+      `Dear ${user.firstName || 'Customer'},\n\nWe received a request to reset your password. Use the link below within one hour to set a new password:\n${resetUrl}\n\nIf you did not request this, you can safely ignore this email.`
+    );
+  }
+  return { message: 'If an account exists for that email, a reset link has been sent.' };
+};
+
+const resetPassword = async (email, token, newPassword) => {
+  const user = await Customer.findOne({ email });
+  if (!user || !(await verifyResetToken(token, user))) {
+    throw new Error('Reset token is invalid or has expired');
   }
 
-  // const isTokenValid = await bcrypt.compare(token, user.resetPasswordToken);
-  // if (!isTokenValid || user.resetPasswordExpires < Date.now()) {
-  //     throw new Error('Token is invalid or expired');
-  // }
+  user.password = await bcrypt.hash(newPassword, 10);
 
-  const hashedPassword = await bcrypt.hash(newPassword, 10);
-  user.password = hashedPassword;
-
-  // Clear reset token and expiration
+  // Invalidate the token so it can only be used once.
   user.resetPasswordToken = undefined;
   user.resetPasswordExpires = undefined;
 
@@ -185,6 +208,7 @@ module.exports = {
   getCustomers,
   getCustomerClaims,
   sendWelcomeEmail,
+  forgotPassword,
   resetPassword,
   updateCustomer,
   getCustomerStats,

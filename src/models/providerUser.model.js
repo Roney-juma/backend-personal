@@ -9,6 +9,11 @@ const providerUserSchema = new mongoose.Schema(
         role: { type: mongoose.Schema.Types.ObjectId, ref: 'Role' },
         active: { type: Boolean, default: true },
         lastLogin: { type: Date },
+        failedLoginAttempts: { type: Number, default: 0 },
+        lockUntil: { type: Date },
+        mfaEnabled: { type: Boolean, default: false },
+        mfaSecret: { type: String },
+        mustChangePassword: { type: Boolean, default: false },
         profilePictureUrl: { type: String },
     },
     { timestamps: true }

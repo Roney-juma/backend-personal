@@ -144,4 +144,22 @@ const generateCompanyToken = (company) => {
     return token;
 };
 
-module.exports = { GenerateToken, generate, generatePocToken, generateCompanyToken, generateProviderUserToken };
+// Short-lived token issued after a correct password when MFA is enabled.
+// It only authorizes the second step (submitting a TOTP code) — never API access.
+const generateMfaChallengeToken = (userId, accountType) => {
+    const data = { id: userId, accountType, purpose: 'mfa' };
+    return jwt.sign(
+        { payload: data },
+        {
+            key: privateKey.replace(/\\n/gm, '\n'),
+            passphrase: TokenSecret,
+        },
+        {
+            issuer: TokenIssuer,
+            algorithm: 'RS512',
+            expiresIn: '5m',
+        }
+    );
+};
+
+module.exports = { GenerateToken, generate, generatePocToken, generateCompanyToken, generateProviderUserToken, generateMfaChallengeToken };

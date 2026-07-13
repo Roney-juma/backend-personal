@@ -1,6 +1,7 @@
 const bcrypt = require('bcrypt');
 const ProviderUser = require('../models/providerUser.model');
 const emailService = require('./email.service');
+const { isLocked, lockMinutesRemaining, registerFailedAttempt, resetAttempts } = require('../utils/accountLockout');
 
 const login = async (email, password) => {
     const user = await ProviderUser.findOne({ email }).populate('role');
@@ -13,11 +14,17 @@ const login = async (email, password) => {
         return { error: 'Account is deactivated' };
     }
 
+    if (isLocked(user)) {
+        return { error: `Account temporarily locked due to too many failed attempts. Try again in ${lockMinutesRemaining(user)} minute(s).` };
+    }
+
     const authorized = await bcrypt.compare(password, user.password);
     if (!authorized) {
+        await registerFailedAttempt(user);
         return { error: 'Invalid credentials' };
     }
 
+    await resetAttempts(user);
     user.lastLogin = new Date();
     await user.save();
 
@@ -41,6 +48,8 @@ const createProviderUser = async (data) => {
         email,
         role: role || undefined,
         profilePictureUrl: profilePictureUrl || undefined,
+        // Admin sets the initial password, so require a change on first login.
+        mustChangePassword: true,
     });
 
     const saved = await newUser.save();

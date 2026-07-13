@@ -7,9 +7,16 @@ const login = async (req, res) => {
   try {
     const { email, password } = req.body;
     const user = await assessorService.loginUserWithEmailAndPassword(email, password);
+    if (user.mfaEnabled) {
+      const mfaToken = tokenService.generateMfaChallengeToken(user._id, 'Assessor');
+      return res.status(200).json({ mfaRequired: true, mfaToken });
+    }
     const tokens = tokenService.GenerateToken(user);
     res.status(200).json({ user, tokens });
   } catch (error) {
+    if (error.code === 'ACCOUNT_LOCKED') {
+      return res.status(429).json({ message: error.message });
+    }
     res.status(error.statusCode || 500).json({ message: error.message });
   }
 };
@@ -108,10 +115,24 @@ const submitAssessmentReport = async (req, res) => {
   }
 };
 
+const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+    const response = await assessorService.forgotPassword(email);
+    res.status(200).json(response);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
 const resetPassword = async (req, res) => {
   try {
-    const { email, newPassword } = req.body;
-    const response = await assessorService.resetPassword(email, newPassword, req);
+    const { email, token, newPassword } = req.body;
+    if (!email || !token || !newPassword) {
+      return res.status(400).json({ error: 'Email, token and newPassword are required' });
+    }
+    const response = await assessorService.resetPassword(email, token, newPassword);
     res.status(200).json(response);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -184,6 +205,7 @@ module.exports = {
   placeBid,
   getAssessorBids,
   submitAssessmentReport,
+  forgotPassword,
   resetPassword,
   submitReAssessmentReport,
   rejectReAssessment,

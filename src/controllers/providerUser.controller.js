@@ -10,6 +10,13 @@ const login = async (req, res) => {
             return res.status(401).json({ message: result.error });
         }
 
+        // If MFA is enabled, return a short-lived challenge token instead of access
+        // tokens; the client must complete /provider/mfa/verify-login.
+        if (result.user.mfaEnabled) {
+            const mfaToken = tokenService.generateMfaChallengeToken(result.user._id, 'ProviderUser');
+            return res.status(200).json({ mfaRequired: true, mfaToken });
+        }
+
         const tokens = tokenService.generateProviderUserToken(result.user);
         res.status(200).json({ user: result.user, tokens });
     } catch (error) {

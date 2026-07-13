@@ -25,9 +25,14 @@ const login = async (req, res) => {
   try {
     const { email, password } = req.body;
     const { user, tokens } = await customerService.loginUser(email, password);
+    if (user.mfaEnabled) {
+      const mfaToken = tokenService.generateMfaChallengeToken(user._id, 'Customer');
+      return res.status(200).json({ mfaRequired: true, mfaToken });
+    }
     res.status(200).json({ user, tokens });
   } catch (error) {
-    res.status(401).json({ message: error.message });
+    const status = error.code === 'ACCOUNT_LOCKED' ? 429 : 401;
+    res.status(status).json({ message: error.message });
   }
 };
 
@@ -50,10 +55,24 @@ const getCustomerClaims = async (req, res) => {
   }
 };
 
+const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+    const response = await customerService.forgotPassword(email);
+    res.status(200).json(response);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
 const resetPassword = async (req, res) => {
   try {
-    const { email, newPassword } = req.body;
-    const response = await customerService.resetPassword(email, newPassword);
+    const { email, token, newPassword } = req.body;
+    if (!email || !token || !newPassword) {
+      return res.status(400).json({ error: 'Email, token and newPassword are required' });
+    }
+    const response = await customerService.resetPassword(email, token, newPassword);
     res.status(200).json(response);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -118,6 +137,7 @@ module.exports = {
   login,
   getAllCustomers,
   getCustomerClaims,
+  forgotPassword,
   resetPassword,
   updateCustomer,
   getCustomerStats,
