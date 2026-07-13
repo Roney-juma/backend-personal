@@ -196,11 +196,10 @@ const forgotPassword = async (email) => {
     user.resetPasswordExpires = expires;
     await user.save();
 
-    const resetUrl = buildResetUrl(rawToken, email);
     await emailService.sendEmailNotification(
       user.email,
-      'Reset your Ave Insurance password',
-      `Dear ${user.name || 'Partner'},\n\nWe received a request to reset your password. Use the link below within one hour to set a new password:\n${resetUrl}\n\nIf you did not request this, you can safely ignore this email.`
+      'Your Ave Insurance password reset code',
+      resetEmailBody(user.name, rawToken)
     );
   }
   return { message: 'If an account exists for that email, a reset link has been sent.' };
