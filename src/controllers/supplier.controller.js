@@ -45,9 +45,16 @@ const login = async (req, res) => {
         if (!user) {
             return res.status(401).json({ message: "Invalid email or password" });
         }
+        if (user.mfaEnabled) {
+            const mfaToken = tokenService.generateMfaChallengeToken(user._id, 'Supplier');
+            return res.status(200).json({ mfaRequired: true, mfaToken });
+        }
         const tokens = tokenService.GenerateToken(user);
         res.send({ user, tokens });
     } catch (err) {
+        if (err.code === 'ACCOUNT_LOCKED') {
+            return res.status(429).json({ error: err.message });
+        }
         res.status(500).json({ error: 'Login failed' });
     }
 };
@@ -148,33 +155,24 @@ const repairPartsDelivered = async (req, res) => {
     }
 };
 
-const requestPasswordReset = async (email) => {
-    const user = await supplierService.findByEmail(email);
-    if (!user) {
-        throw new Error('User with this email does not exist');
+const forgotPassword = async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email) return res.status(400).json({ error: 'Email is required' });
+        const response = await supplierService.forgotPassword(email);
+        res.status(200).json(response);
+    } catch (err) {
+        res.status(400).json({ error: err.message });
     }
-
-    const resetToken = crypto.randomBytes(32).toString('hex');
-    const hashedToken = await bcrypt.hash(resetToken, 10);
-
-    user.resetPasswordToken = hashedToken;
-    user.resetPasswordExpires = Date.now() + 3600000;
-    await user.save();
-
-    const resetUrl = `https://your-app.com/reset-password?token=${resetToken}&email=${email}`;
-    await emailService.sendEmailNotification(
-        user.email,
-        'Password Reset Request',
-        `Dear ${user.name},\n\nYou have requested a password reset. Click the link below to reset your password:\n${resetUrl}\n\nIf you did not request this, please ignore this email.`
-    );
-
-    return { message: 'Password reset email sent' };
 };
 
 const resetPassword = async (req, res) => {
     try {
-        const { email, newPassword } = req.body;
-        const response = await supplierService.resetPassword(email, newPassword);
+        const { email, token, newPassword } = req.body;
+        if (!email || !token || !newPassword) {
+            return res.status(400).json({ error: 'Email, token and newPassword are required' });
+        }
+        const response = await supplierService.resetPassword(email, token, newPassword);
         res.status(200).json(response);
     } catch (err) {
         res.status(400).json({ error: err.message });
@@ -204,7 +202,7 @@ module.exports = {
     submitBidForSupply,
     getAllClaimsInGarage,
     repairPartsDelivered,
-    requestPasswordReset,
+    forgotPassword,
     resetPassword,
     updateFcmToken,
 };

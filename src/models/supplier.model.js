@@ -33,6 +33,13 @@ const supplierSchema = new mongoose.Schema({
     required: true,
   },
   partsAvailable: [{ type: String }],
+  resetPasswordToken: { type: String },
+  resetPasswordExpires: { type: Date },
+  failedLoginAttempts: { type: Number, default: 0 },
+  lockUntil: { type: Date },
+  mfaEnabled: { type: Boolean, default: false },
+  mfaSecret: { type: String },
+  mustChangePassword: { type: Boolean, default: false },
   fcmToken: { type: String },
 }, { timestamps: true });
 

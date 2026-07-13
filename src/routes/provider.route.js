@@ -2,16 +2,26 @@ const express = require('express');
 const router = express.Router();
 const providerAuditLogger = require('../middlewheres/providerAuditLogger');
 const verifyProviderToken = require('../middlewheres/verifyProviderToken');
+const authLimiter = require('../middlewheres/authLimiter');
 const providerUserController = require('../controllers/providerUser.controller');
+const mfaController = require('../controllers/mfa.controller');
+const passwordController = require('../controllers/password.controller');
 
-// Public — login does not require an existing token
-router.post('/login', providerUserController.login);
+// Public — login and the MFA second step do not require an existing token
+router.post('/login', authLimiter, providerUserController.login);
+router.post('/mfa/verify-login', authLimiter, mfaController.verifyLogin);
 
 // All routes below are audit-logged and require a valid ProviderUser token
 router.use(providerAuditLogger);
 
+// Multi-factor authentication enrollment (provider portal staff)
+router.post('/mfa/setup',   verifyProviderToken(), mfaController.setup('ProviderUser'));
+router.post('/mfa/enable',  verifyProviderToken(), mfaController.enable('ProviderUser'));
+router.post('/mfa/disable', verifyProviderToken(), mfaController.disable('ProviderUser'));
+router.post('/change-password', verifyProviderToken(), passwordController.changePassword('ProviderUser'));
+
 router.get('/users',                    verifyProviderToken(), providerUserController.getAllUsers);
-router.post('/users',                    providerUserController.createUser);
+router.post('/users',                   verifyProviderToken(), providerUserController.createUser);
 router.get('/users/:id',                verifyProviderToken(), providerUserController.getUserById);
 router.patch('/users/:id',              verifyProviderToken(), providerUserController.updateUser);
 router.patch('/users/:id/deactivate',   verifyProviderToken(), providerUserController.deactivateUser);

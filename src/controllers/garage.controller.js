@@ -30,9 +30,17 @@ const login = async (req, res) => {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
+    if (user.mfaEnabled) {
+      const mfaToken = tokenService.generateMfaChallengeToken(user._id, 'Garage');
+      return res.status(200).json({ mfaRequired: true, mfaToken });
+    }
+
     const tokens = tokenService.GenerateToken(user);
     res.status(200).json({ user, tokens });
   } catch (error) {
+    if (error.code === 'ACCOUNT_LOCKED') {
+      return res.status(429).json({ message: error.message });
+    }
     logger.error('Error during garage login: %s', error.message);
     res.status(500).json({ message: error.message });
   }
@@ -127,10 +135,24 @@ const getGarageBids = async (req, res) => {
   }
 };
 
+const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+    const response = await garageService.forgotPassword(email);
+    res.status(200).json(response);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
 const resetPassword = async (req, res) => {
   try {
-    const { email, newPassword } = req.body;
-    const response = await garageService.resetPassword(email, newPassword);
+    const { email, token, newPassword } = req.body;
+    if (!email || !token || !newPassword) {
+      return res.status(400).json({ error: 'Email, token and newPassword are required' });
+    }
+    const response = await garageService.resetPassword(email, token, newPassword);
     res.status(200).json(response);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -178,6 +200,7 @@ module.exports = {
   placeBid,
   completeRepair,
   getGarageBids,
+  forgotPassword,
   resetPassword,
   getGarageStats,
   getTopGarages,

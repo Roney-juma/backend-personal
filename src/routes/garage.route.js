@@ -1,11 +1,22 @@
 const garageController = require("../controllers/garage.controller")
 const express = require("express")
 const verifyToken = require("../middlewheres/verifyToken");
+const authLimiter = require("../middlewheres/authLimiter");
+const mfaController = require("../controllers/mfa.controller");
+const passwordController = require("../controllers/password.controller");
 
 const router = express.Router();
 
-router.post('/login', garageController.login)
-router.post('/reset-password', garageController.resetPassword);
+router.post('/login', authLimiter, garageController.login)
+router.post('/forgot-password', authLimiter, garageController.forgotPassword);
+router.post('/reset-password', authLimiter, garageController.resetPassword);
+
+// MFA + first-login password change (mobile garage)
+router.post('/mfa/verify-login', authLimiter, mfaController.verifyLogin);
+router.post('/mfa/setup', verifyToken(), mfaController.setup('Garage'));
+router.post('/mfa/enable', verifyToken(), mfaController.enable('Garage'));
+router.post('/mfa/disable', verifyToken(), mfaController.disable('Garage'));
+router.post('/change-password', verifyToken(), passwordController.changePassword('Garage'));
 router.post('/create',verifyToken(), garageController.createGarage)
 router.get('/stats',verifyToken(), garageController.getGarageStats)
 router.get('/topGarages',verifyToken(), garageController.getTopGarages)

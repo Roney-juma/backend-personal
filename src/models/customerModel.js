@@ -50,6 +50,13 @@ const customerSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    resetPasswordToken: { type: String },
+    resetPasswordExpires: { type: Date },
+    failedLoginAttempts: { type: Number, default: 0 },
+    lockUntil: { type: Date },
+    mfaEnabled: { type: Boolean, default: false },
+    mfaSecret: { type: String },
+    mustChangePassword: { type: Boolean, default: false },
     fcmToken: { type: String },
   },
   {

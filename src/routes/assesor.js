@@ -1,13 +1,24 @@
 const assesorController = require("../controllers/assessor.controller")
 const express = require("express")
 const verifyToken = require("../middlewheres/verifyToken");
+const authLimiter = require("../middlewheres/authLimiter");
+const mfaController = require("../controllers/mfa.controller");
+const passwordController = require("../controllers/password.controller");
 
 const router = express.Router();
 
 
 router.post('/create',verifyToken(), assesorController.createAssessor)
-router.post('/login', assesorController.login)
-router.post('/reset-password',verifyToken(), assesorController.resetPassword);
+router.post('/login', authLimiter, assesorController.login)
+router.post('/forgot-password', authLimiter, assesorController.forgotPassword);
+router.post('/reset-password', authLimiter, assesorController.resetPassword);
+
+// MFA + first-login password change (mobile assessor)
+router.post('/mfa/verify-login', authLimiter, mfaController.verifyLogin);
+router.post('/mfa/setup', verifyToken(), mfaController.setup('Assessor'));
+router.post('/mfa/enable', verifyToken(), mfaController.enable('Assessor'));
+router.post('/mfa/disable', verifyToken(), mfaController.disable('Assessor'));
+router.post('/change-password', verifyToken(), passwordController.changePassword('Assessor'));
 router.get('/stats',verifyToken(), assesorController.getAssessorStatistics)
 router.get('/topAssessors',verifyToken(), assesorController.getTopAssessors)
 router.get('/',verifyToken(), assesorController.getAllAssessors)

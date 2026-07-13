@@ -8,9 +8,18 @@ const login = async (req, res) => {
         if (!user) {
             return res.status(401).json({ message: 'Invalid email or password' });
         }
+        // If MFA is enabled, do not issue access tokens yet — return a short-lived
+        // challenge token; the client must complete /users/mfa/verify-login.
+        if (user.mfaEnabled) {
+            const mfaToken = tokenService.generateMfaChallengeToken(user._id, 'User');
+            return res.status(200).json({ mfaRequired: true, mfaToken });
+        }
         const tokens = tokenService.generateProviderUserToken(user);
         res.status(200).json({ user, tokens });
     } catch (error) {
+        if (error.code === 'ACCOUNT_LOCKED') {
+            return res.status(429).json({ message: error.message });
+        }
         res.status(500).json({ message: 'Login failed', error: error.message });
     }
 };

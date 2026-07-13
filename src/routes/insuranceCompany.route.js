@@ -2,10 +2,11 @@ const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/insuranceCompany.controller');
 const verifyProviderToken = require('../middlewheres/verifyProviderToken');
+const authLimiter = require('../middlewheres/authLimiter');
 
 // Public
-router.post('/login', controller.loginCompany);
-router.post('/reset-password', controller.resetCompanyPassword);
+router.post('/login', authLimiter, controller.loginCompany);
+router.post('/reset-password', authLimiter, controller.resetCompanyPassword);
 
 // Protected (platform staff only)
 router.post('/', verifyProviderToken(), controller.createCompany);
