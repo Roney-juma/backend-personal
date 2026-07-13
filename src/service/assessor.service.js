@@ -30,7 +30,8 @@ const createAssessor = async (assessorData, req) => {
   const safeData = { ...assessorData };
   delete safeData.password;
 
-  const newAssessor = await Assessor.create(assessorData);
+  // Admin sets the initial password, so require a change on first login.
+  const newAssessor = await Assessor.create({ ...assessorData, mustChangePassword: true });
   await cache.del('cache:assessors:all', 'cache:stats:assessors', 'cache:assessors:top');
 
   await writeAuditLog(req, {
