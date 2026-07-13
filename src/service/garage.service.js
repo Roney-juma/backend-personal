@@ -26,8 +26,9 @@ const createGarage = async (garage) => {
   const hashedPassword = await bcrypt.hash(plainPassword, 10);
   garage.password = hashedPassword;
 
-  // Create and save the new Garage
-  const newGarage = new Garage(garage);
+  // Create and save the new Garage. Admin sets the initial password, so require
+  // a change on first login (forced-override so the client can't opt out).
+  const newGarage = new Garage({ ...garage, mustChangePassword: true });
   const savedGarage = await newGarage.save();
   await cache.del('cache:stats:garages', 'cache:garages:top');
   await cache.delPattern('cache:garages:all:*');

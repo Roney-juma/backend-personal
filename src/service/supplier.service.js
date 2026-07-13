@@ -43,7 +43,8 @@ const createSupplier = async (supplierData) => {
   if (existingSupplier) {
       throw new ApiError('Email is already registered');
   }
-  const newSupplier = new Supplier(supplierData);
+  // Admin sets the initial password, so require a change on first login.
+  const newSupplier = new Supplier({ ...supplierData, mustChangePassword: true });
   const password = await bcrypt.hash(newSupplier.password, 10);
   newSupplier.password = password;
 
