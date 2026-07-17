@@ -46,7 +46,7 @@ const updateRequest = async (req, res) => {
 // Delete a Repair Request
 const deleteRequest = async (req, res) => {
   try {
-    const deletedRepairRequest = await RepairRequest.findByIdAndDelete(req.params.repairId);
+    const deletedRepairRequest = await RepairRequest.softDeleteById(req.params.repairId);
     if (!deletedRepairRequest) return res.status(404).json({ message: 'Repair request not found' });
     res.status(200).json({ message: 'Repair request deleted successfully' });
   } catch (error) {
