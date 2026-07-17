@@ -2,6 +2,7 @@ const bcrypt = require('bcrypt');
 const InsuranceCompany = require('../models/insuranceCompany.model');
 const emailService = require('./email.service');
 const userService = require('./users.service');
+const rolesService = require('./roles.service');
 
 const createCompany = async (data) => {
   const { companyName, registrationNumber, email, password, phone, address, contactPerson, website, notes } = data;
@@ -27,10 +28,14 @@ const createCompany = async (data) => {
   });
 
   const saved = await company.save();
+
+  // The contact person becomes the company's first (super-admin) user and can log
+  // into the insurer portal to manage the rest of their company's users.
+  const superAdminRole = await rolesService.ensureSuperAdminRole();
   contactPerson.password = password;
-  contactPerson.role = "69df478ce9a1908dd19a7a2a";
+  contactPerson.role = superAdminRole._id;
   contactPerson.company = saved._id;
-  const insuranceUser= await userService.createUser(contactPerson);
+  const insuranceUser = await userService.createUser(contactPerson);
 
 
 

@@ -100,6 +100,7 @@ const generateProviderUserToken = (user) => {
         fullName: user.fullName,
         username: user.username,
         role: user.role,
+        company: user.company,
         phone: user.phone,
         department: user.department,
         position: user.position,
