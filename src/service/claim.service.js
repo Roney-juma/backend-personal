@@ -689,14 +689,16 @@ const awardClaim = async (id, bidId, req) => {
   ]);
 
   // Resolve the plate + assessor name so the audit trail reads in human terms
-  // instead of raw ObjectIds.
+  // instead of raw ObjectIds. Prefer the name captured on the bid (survives an
+  // assessor being deleted), fall back to a live lookup, then the id.
   const assessor = await Assessor.findById(bid.assessorId);
+  const assessorName = bid.assessorDetails?.name || assessor?.name || bid.assessorId;
   const vehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
 
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'Claim',
-    actionDescription: `Awarded claim ${vehicle} to assessor ${assessor?.name || bid.assessorId}`,
+    actionDescription: `Awarded claim ${vehicle} to assessor ${assessorName}`,
     resourceType: 'Claim',
     resourceId: claim._id,
     statusCode: 200,
@@ -787,7 +789,7 @@ const awardBidToGarage = async (id, bidId, req) => {
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'Claim',
-    actionDescription: `Awarded claim ${claim.vehiclesInvolved[0]?.licensePlate || id} to garage ${garage.name || bid.garageId}`,
+    actionDescription: `Awarded claim ${claim.vehiclesInvolved[0]?.licensePlate || id} to garage ${bid.garageDetails?.name || garage.name || bid.garageId}`,
     resourceType: 'Claim',
     resourceId: claim._id,
     statusCode: 200,
@@ -891,7 +893,7 @@ const rejectAssessorBid = async (id, bidId, req) => {
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'Claim',
-    actionDescription: `Rejected assessor ${assessor?.name || bid.assessorId}'s bid on claim ${raVehicle}`,
+    actionDescription: `Rejected assessor ${bid.assessorDetails?.name || assessor?.name || bid.assessorId}'s bid on claim ${raVehicle}`,
     resourceType: 'Claim',
     resourceId: claim._id,
     statusCode: 200,
@@ -946,7 +948,7 @@ const rejectGarageBid = async (id, bidId, req) => {
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'Claim',
-    actionDescription: `Rejected garage ${garage?.name || bid.garageId}'s bid on claim ${rgVehicle}`,
+    actionDescription: `Rejected garage ${bid.garageDetails?.name || garage?.name || bid.garageId}'s bid on claim ${rgVehicle}`,
     resourceType: 'Claim',
     resourceId: claim._id,
     statusCode: 200,

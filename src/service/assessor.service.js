@@ -111,10 +111,34 @@ const deleteAssessor = async (id, req, company) => {
   const assessor = await Assessor.findOne(filter);
   if (!assessor) throw new ApiError(404, 'Assessor not found');
 
+  // Integrity guard: refuse to delete an assessor who is mid-job. A hard delete
+  // would leave a dangling awardedAssessor reference on a live claim (breaking
+  // the claim view, audit trail and notifications).
+  const activeClaims = await Claim.countDocuments({
+    'awardedAssessor.assessorId': id,
+    status: { $nin: ['Completed', 'Rejected'] },
+  });
+  if (activeClaims > 0) {
+    throw new ApiError(
+      409,
+      `Cannot delete this assessor: they are assigned to ${activeClaims} active claim(s). Reassign or complete those claims first.`
+    );
+  }
+
   const start = Date.now();
   const snapshot = assessor.toObject();
   const deletedAssessor = await Assessor.findOneAndDelete(filter);
+
+  // Remove any leftover pending bids so they can't be auto-awarded to a deleted
+  // assessor. Awarded/rejected bids are kept for history (they carry the name).
+  await Claim.updateMany(
+    { 'bids.assessorId': id },
+    { $pull: { bids: { assessorId: id, status: 'pending' } } }
+  );
+
   await cache.del('cache:assessors:all', `cache:assessor:${id}`, 'cache:stats:assessors', 'cache:assessors:top');
+  await cache.del(`cache:assessor:bids:${id}`);
+  await cache.delPattern('cache:assessor:approved-claims:*');
 
   await writeAuditLog(req, {
     action: 'DELETE',
@@ -216,6 +240,7 @@ const placeBid = async (claimId, assessorId, amount, description, timeline, req)
     description,
     timeline,
     assessorDetails: {
+      name: assessor.name,
       pendingWork,
       ratings: assessor.ratings,
       location: assessor.location,
