@@ -652,6 +652,7 @@ const awardClaim = async (id, bidId, req) => {
   // Store awarded assessor details
   claim.awardedAssessor = {
     assessorId: bid.assessorId,
+    name: bid.assessorDetails?.name,
     awardedAmount: bid.amount,
     awardedDate: Date.now(),
   };
@@ -757,6 +758,7 @@ const awardBidToGarage = async (id, bidId, req) => {
 
   claim.awardedGarage = {
     garageId: bid.garageId,
+    name: bid.garageDetails?.name,
     awardedAmount: bid.totalCost,
     awardedDate: Date.now(),
   };

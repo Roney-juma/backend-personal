@@ -118,7 +118,7 @@ const deleteSupplier = async (req, res) => {
         res.status(200).json({ message: 'Supplier deleted successfully' });
     } catch (err) {
         logger.error('Error deleting supplier: %s', err.message);
-        res.status(500).json({ error: 'Server error' });
+        res.status(err.statusCode || 500).json({ error: err.message || 'Server error' });
     }
 };
 

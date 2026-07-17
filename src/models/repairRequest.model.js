@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const softDelete = require('./plugins/softDelete');
 
 const repairRequestSchema = new mongoose.Schema({

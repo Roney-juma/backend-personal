@@ -107,7 +107,27 @@ const updateSupplier = async (supplierId, supplierData, insuranceCompany) => {
 
 const deleteSupplier = async (supplierId, insuranceCompany) => {
   const filter = { _id: supplierId, ...(insuranceCompany ? { insuranceCompany } : {}) };
-  const result = await Supplier.findOneAndDelete(filter);
+
+  // Integrity guard: refuse to delete a supplier engaged on a live claim —
+  // either via an accepted parts bid or an assigned glass repair.
+  const acceptedBids = await SupplyBid.find({ supplierId, status: 'Accepted' }).select('claimId').lean();
+  const claimIds = acceptedBids.map((b) => b.claimId).filter(Boolean);
+  const activeParts = claimIds.length
+    ? await Claim.countDocuments({ _id: { $in: claimIds }, status: { $nin: ['Completed', 'Rejected'] } })
+    : 0;
+  const activeGlass = await Claim.countDocuments({
+    'glassRepair.supplierId': supplierId,
+    status: { $nin: ['Completed', 'Rejected'] },
+  });
+  const activeClaims = activeParts + activeGlass;
+  if (activeClaims > 0) {
+    throw new ApiError(
+      409,
+      `Cannot delete this supplier: they are engaged on ${activeClaims} active claim(s). Complete or reassign those first.`
+    );
+  }
+
+  const result = await Supplier.softDeleteOne(filter);
   await cache.del('cache:suppliers:all', `cache:supplier:${supplierId}`);
   return result;
 };

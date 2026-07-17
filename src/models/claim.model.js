@@ -252,11 +252,13 @@ const claimSchema = new Schema({
   bids: [bidSchema],
   awardedAssessor: {
     assessorId: { type: Schema.Types.ObjectId, ref: 'Assessor' },
+    name: { type: String },
     awardedAmount: { type: Number },
     awardedDate: { type: Date }
   },
   awardedGarage: {
     garageId: { type: Schema.Types.ObjectId, ref: 'Garage' },
+    name: { type: String },
     awardedAmount: { type: Number },
     awardedDate: { type: Date }
   },
