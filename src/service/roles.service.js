@@ -1,7 +1,26 @@
 const role = require('../models/roles.model');
 const logger = require('../middlewheres/logger');
 const mongoose = require('mongoose');
+const permissionsCatalog = require('../role-permissions.json');
 const { ObjectId } = mongoose.Types;
+
+// Name of the role granted to a new company's contact person (the first/super-admin
+// user of that company). It normalizes to "superadmin" in the portals — which they
+// treat as unrestricted — and we also populate every permission so permission-based
+// checks pass regardless.
+const SUPER_ADMIN_ROLE_NAME = 'Super Admin';
+
+const allPermissions = () => Object.values(permissionsCatalog.permissions || {}).flat();
+
+// Idempotently ensure the super-admin role exists and return it. Replaces the
+// previously hardcoded (and unseeded) role ObjectId used at company creation.
+const ensureSuperAdminRole = async () => {
+    return role.findOneAndUpdate(
+        { name: SUPER_ADMIN_ROLE_NAME },
+        { $setOnInsert: { name: SUPER_ADMIN_ROLE_NAME, permissions: allPermissions() } },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+};
 
 const createRole = async (roleData) => {
     try {
@@ -120,5 +139,6 @@ module.exports = {
     getRolesByIds,
     getRolesByUserId,
     getRolesByPermission,
-    createBulkRoles
+    createBulkRoles,
+    ensureSuperAdminRole
 };

@@ -24,9 +24,22 @@ const login = async (req, res) => {
     }
 };
 
+// Resolve the authenticated requester's company id (if any). Company users are
+// scoped to their own company; AVE platform staff have no company.
+const getRequesterCompany = async (req) => {
+    const requester = await userService.getUserById(req.user?.id);
+    const company = requester?.company;
+    return company?._id || company || null;
+};
+
 const createUser = async (req, res) => {
     try {
-        const savedUser = await userService.createUser(req.body);
+        const payload = { ...req.body };
+        // Tenant scoping: a company user may only create users within their own
+        // company, regardless of what the client sends.
+        const requesterCompany = await getRequesterCompany(req);
+        if (requesterCompany) payload.company = requesterCompany;
+        const savedUser = await userService.createUser(payload);
         res.status(201).json(savedUser);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -36,7 +49,11 @@ const createUser = async (req, res) => {
 const getAllUsers = async (req, res) => {
     try {
         const { page, limit, search } = req.query;
-        const users = await userService.getAllUsers({ page, limit, search });
+        // A company user only sees their own company's users; platform staff see all.
+        const requesterCompany = await getRequesterCompany(req);
+        const users = requesterCompany
+            ? await userService.getUsersByCompanyId(requesterCompany, { page, limit, search })
+            : await userService.getAllUsers({ page, limit, search });
         res.status(200).json(users);
     } catch (error) {
         res.status(500).json({ message: error.message });

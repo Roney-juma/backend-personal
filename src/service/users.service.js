@@ -12,8 +12,11 @@ const createUser = async (userData) => {
         throw new Error('User with this email or username already exists');
     }
 
-    // Admin-created accounts use a default temporary password and must change it on first login.
-    const hashedPassword = await bcrypt.hash(password || DEFAULT_TEMP_PASSWORD, 10);
+    // Admin-created accounts use a default temporary password and must change it on
+    // first login. When a caller provides an explicit password (e.g. the company
+    // contact person set up during onboarding), use it so the emailed credential matches.
+    const tempPassword = password || DEFAULT_TEMP_PASSWORD;
+    const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
     const newUser = new User({
         company,
@@ -39,7 +42,7 @@ const createUser = async (userData) => {
 Welcome to Ave Insurance! Your account has been successfully created.
 Here are your login details:
 - Email: ${savedUser.email}
-- Temporary password: ${DEFAULT_TEMP_PASSWORD}
+- Temporary password: ${tempPassword}
 For your security, you will be asked to set a new password the first time you log in.
 If you have any questions, feel free to contact us.
 Best Regards,
@@ -93,7 +96,7 @@ const getUsersByCompanyId = async (companyId, { page = 1, limit = 10, search = '
     }
     const skip = (Number(page) - 1) * Number(limit);
     const [users, total] = await Promise.all([
-        User.find(query).select('-password').skip(skip).limit(Number(limit)).exec(),
+        User.find(query).select('-password').populate('role').skip(skip).limit(Number(limit)).exec(),
         User.countDocuments(query),
     ]);
     return { users, total, page: Number(page), limit: Number(limit), pages: Math.ceil(total / Number(limit)) };
