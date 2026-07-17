@@ -442,7 +442,7 @@ const approveClaim = async (id, req) => {
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'Claim',
-    actionDescription: `Approved ${glass ? 'glass ' : ''}claim ${id}`,
+    actionDescription: `Approved ${glass ? 'glass ' : ''}claim ${claim.vehiclesInvolved[0]?.licensePlate || id}`,
     resourceType: 'Claim',
     resourceId: claim._id,
     statusCode: 200,
@@ -570,7 +570,7 @@ const rejectClaim = async (id, rejectionReason, req) => {
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'Claim',
-    actionDescription: `Rejected claim ${id}`,
+    actionDescription: `Rejected claim ${claim.vehiclesInvolved[0]?.licensePlate || id}`,
     resourceType: 'Claim',
     resourceId: claim._id,
     statusCode: 200,
@@ -688,10 +688,15 @@ const awardClaim = async (id, bidId, req) => {
     cache.delPattern('cache:assessor:approved-claims:*'),
   ]);
 
+  // Resolve the plate + assessor name so the audit trail reads in human terms
+  // instead of raw ObjectIds.
+  const assessor = await Assessor.findById(bid.assessorId);
+  const vehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
+
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'Claim',
-    actionDescription: `Awarded claim ${id} to assessor (bid ${bidId})`,
+    actionDescription: `Awarded claim ${vehicle} to assessor ${assessor?.name || bid.assessorId}`,
     resourceType: 'Claim',
     resourceId: claim._id,
     statusCode: 200,
@@ -699,10 +704,6 @@ const awardClaim = async (id, bidId, req) => {
     responseTimeMs: Date.now() - start,
     changes: { old: { status: 'Approved' }, new: { status: 'Assessment', awardedAssessor: claim.awardedAssessor } },
   });
-
-  // Fetch the awarded assessor's details
-  const assessor = await Assessor.findById(bid.assessorId);
-  const vehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   // Fire-and-forget — response doesn't depend on notification delivery.
   if (assessor && assessor.email) {
     emailService.sendEmailNotification(
@@ -786,7 +787,7 @@ const awardBidToGarage = async (id, bidId, req) => {
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'Claim',
-    actionDescription: `Awarded garage bid for claim ${id} to garage (bid ${selectedBidId})`,
+    actionDescription: `Awarded claim ${claim.vehiclesInvolved[0]?.licensePlate || id} to garage ${garage.name || bid.garageId}`,
     resourceType: 'Claim',
     resourceId: claim._id,
     statusCode: 200,
@@ -884,10 +885,13 @@ const rejectAssessorBid = async (id, bidId, req) => {
   await claim.save();
   await invalidateClaimCache(id);
 
+  const assessor = await Assessor.findById(bid.assessorId);
+  const raVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
+
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'Claim',
-    actionDescription: `Rejected assessor bid ${bidId} on claim ${id}`,
+    actionDescription: `Rejected assessor ${assessor?.name || bid.assessorId}'s bid on claim ${raVehicle}`,
     resourceType: 'Claim',
     resourceId: claim._id,
     statusCode: 200,
@@ -895,9 +899,6 @@ const rejectAssessorBid = async (id, bidId, req) => {
     responseTimeMs: Date.now() - start,
     changes: { bidId, old: { status: 'pending' }, new: { status: 'rejected' } },
   });
-
-  const assessor = await Assessor.findById(bid.assessorId);
-  const raVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   if (assessor && assessor.email) {
     await emailService.sendEmailNotification(
       assessor.email,
@@ -939,10 +940,13 @@ const rejectGarageBid = async (id, bidId, req) => {
   await claim.save();
   await invalidateClaimCache(id);
 
+  const garage = await Garage.findById(bid.garageId);
+  const rgVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
+
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'Claim',
-    actionDescription: `Rejected garage bid ${bidId} on claim ${id}`,
+    actionDescription: `Rejected garage ${garage?.name || bid.garageId}'s bid on claim ${rgVehicle}`,
     resourceType: 'Claim',
     resourceId: claim._id,
     statusCode: 200,
@@ -950,9 +954,6 @@ const rejectGarageBid = async (id, bidId, req) => {
     responseTimeMs: Date.now() - start,
     changes: { bidId, old: { status: 'pending' }, new: { status: 'rejected' } },
   });
-
-  const garage = await Garage.findById(bid.garageId);
-  const rgVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;
   if (garage && garage.email) {
     await emailService.sendEmailNotification(
       garage.email,
@@ -1063,10 +1064,14 @@ const acceptSupplierBid = async (claimId, bidId, req) => {
   const affectedSuppliers = await SupplyBid.find({ claimId }).distinct('supplierId');
   await notifySupplierBidsChanged(affectedSuppliers, claimId);
 
+  // Resolve supplier name + plate so the audit trail is human-readable.
+  const supplier = await Supplier.findById(supplyBid.supplierId);
+  const plate = claim.vehiclesInvolved[0]?.licensePlate || claimId;
+
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'SupplyBid',
-    actionDescription: `Accepted supplier bid ${bidId} for claim ${claimId}`,
+    actionDescription: `Accepted supplier ${supplier?.name || supplyBid.supplierId}'s bid for claim ${plate}`,
     resourceType: 'SupplyBid',
     resourceId: supplyBid._id,
     statusCode: 200,
@@ -1122,10 +1127,13 @@ const awardSupplierBid = async (claimId, bidId, req) => {
     claimId,
   });
 
+  const supplier = await Supplier.findById(supplyBid.supplierId);
+  const plate = claim.vehiclesInvolved[0]?.licensePlate || claimId;
+
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'SupplyBid',
-    actionDescription: `Awarded supplier bid ${bidId} for claim ${claimId}`,
+    actionDescription: `Awarded supplier ${supplier?.name || supplyBid.supplierId}'s bid for claim ${plate}`,
     resourceType: 'SupplyBid',
     resourceId: supplyBid._id,
     statusCode: 200,
@@ -1134,7 +1142,6 @@ const awardSupplierBid = async (claimId, bidId, req) => {
     changes: { old: { status: 'Pending' }, new: { status: 'Accepted' } },
   });
 
-  const supplier = await Supplier.findById(supplyBid.supplierId);
   if (supplier && supplier.email) {
     const emailBody = glass
       ? `Dear ${supplier.name},\n\nCongratulations! Your glass replacement bid for claim ID: ${claimId} has been awarded. Please contact the customer to arrange the replacement.\n\nCustomer: ${claim.claimant?.name}\nPhone: ${claim.claimant?.phone}\nEmail: ${claim.claimant?.email}\n\nBest Regards,\nAdmin Team`
@@ -1173,10 +1180,15 @@ const rejectSupplierBid = async (claimId, bidId, req) => {
     claimId,
   });
 
+  const supplier = await Supplier.findById(supplyBid.supplierId);
+  // This function doesn't otherwise load the claim; pull just the plate for the log.
+  const rsClaim = await Claim.findById(claimId).select('vehiclesInvolved.licensePlate').lean();
+  const rsPlate = rsClaim?.vehiclesInvolved?.[0]?.licensePlate || claimId;
+
   await writeAuditLog(req, {
     action: 'UPDATE',
     module: 'SupplyBid',
-    actionDescription: `Rejected supplier bid ${bidId} for claim ${claimId}`,
+    actionDescription: `Rejected supplier ${supplier?.name || supplyBid.supplierId}'s bid for claim ${rsPlate}`,
     resourceType: 'SupplyBid',
     resourceId: supplyBid._id,
     statusCode: 200,
@@ -1185,7 +1197,6 @@ const rejectSupplierBid = async (claimId, bidId, req) => {
     changes: { old: { status: 'Pending' }, new: { status: 'Rejected' } },
   });
 
-  const supplier = await Supplier.findById(supplyBid.supplierId);
   if (supplier && supplier.email) {
     await emailService.sendEmailNotification(
       supplier.email,
