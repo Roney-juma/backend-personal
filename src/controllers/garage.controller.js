@@ -103,7 +103,7 @@ const deleteGarage = async (req, res) => {
     if (!deletedGarage) return res.status(404).json({ message: 'Garage not found' });
     res.status(200).json({ message: 'Garage deleted successfully' });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(error.statusCode || 500).json({ message: error.message });
   }
 };
 

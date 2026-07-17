@@ -1,6 +1,7 @@
 const Garage = require('../models/garage.model');
 const Claim = require('../models/claim.model');
 const Assessor = require('../models/assessor.model');
+const ApiError = require('../utils/ApiError');
 const customerModel = require("../models/customerModel");
 const bcrypt = require('bcrypt');
 const { createResetToken, verifyResetToken, resetEmailBody } = require("../utils/passwordReset");
@@ -122,7 +123,32 @@ const updateGarage = async (garageId, updateData, company) => {
 
 const deleteGarage = async (garageId, company) => {
   const filter = { _id: garageId, ...(company ? { company } : {}) };
+
+  // Integrity guard: refuse to delete a garage that is mid-repair. A hard delete
+  // would leave a dangling awardedGarage reference on a live claim.
+  const activeClaims = await Claim.countDocuments({
+    'awardedGarage.garageId': garageId,
+    status: { $nin: ['Completed', 'Rejected'] },
+  });
+  if (activeClaims > 0) {
+    throw new ApiError(
+      409,
+      `Cannot delete this garage: it is assigned to ${activeClaims} active claim(s). Reassign or complete those claims first.`
+    );
+  }
+
   const result = await Garage.findOneAndDelete(filter);
+
+  if (result) {
+    // Remove any leftover pending bids so they can't be auto-awarded to a
+    // deleted garage. Awarded/rejected bids are kept for history.
+    await Claim.updateMany(
+      { 'bids.garageId': garageId },
+      { $pull: { bids: { garageId, status: 'pending' } } }
+    );
+    await cache.del(`cache:garage:assessed-claims:${garageId}`, `cache:garage:bids:${garageId}`);
+  }
+
   await cache.del(`cache:garage:${garageId}`, 'cache:stats:garages', 'cache:garages:top');
   await cache.delPattern('cache:garages:all:*');
   return result;
@@ -193,6 +219,7 @@ const placeBid = async (claimId, garageId, description, timeline, parts) => {
     bidderType: 'garage',
     ratings: garage.ratings.averageRating,
     garageDetails: {
+      name: garage.name,
       pendingWork: garage.pendingWork,
       ratings: garage.ratings,
       location: garage.location,
