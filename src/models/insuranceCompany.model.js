@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const softDelete = require('./plugins/softDelete');
 
 const insuranceCompanySchema = new mongoose.Schema(
   {
@@ -49,5 +50,7 @@ const insuranceCompanySchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+insuranceCompanySchema.plugin(softDelete);
 
 module.exports = mongoose.model('InsuranceCompany', insuranceCompanySchema);

@@ -67,7 +67,7 @@ const updateRole = async (roleId, roleData) => {
 }
 const deleteRole = async (roleId) => {
     try {
-        const deletedRole = await role.findByIdAndDelete(roleId);
+        const deletedRole = await role.softDeleteById(roleId);
         if (!deletedRole) {
             throw new Error('Role not found');
         }

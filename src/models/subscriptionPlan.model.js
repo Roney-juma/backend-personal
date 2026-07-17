@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const softDelete = require('./plugins/softDelete');
 
 const subscriptionPlanSchema = new mongoose.Schema(
   {
@@ -20,5 +21,7 @@ const subscriptionPlanSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+subscriptionPlanSchema.plugin(softDelete);
 
 module.exports = mongoose.model('SubscriptionPlan', subscriptionPlanSchema);

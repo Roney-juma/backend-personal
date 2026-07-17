@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const softDelete = require('./plugins/softDelete');
 const bcrypt = require('bcryptjs');
 
 const usersSchema = new mongoose.Schema({
@@ -39,6 +40,8 @@ const usersSchema = new mongoose.Schema({
     ssoTenantId: { type: String },   // Entra tenant id (tid)
     profilePictureUrl: { type: String }
 }, { timestamps: true });
+
+usersSchema.plugin(softDelete);
 
 const Users = mongoose.model('Users', usersSchema);
 module.exports = Users;

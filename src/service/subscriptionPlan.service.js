@@ -32,7 +32,7 @@ const deletePlan = async (id) => {
   const CompanySubscription = require('../models/companySubscription.model');
   const inUse = await CompanySubscription.findOne({ plan: id, status: 'active' });
   if (inUse) throw new Error('Cannot delete a plan that has active subscriptions');
-  return SubscriptionPlan.findByIdAndDelete(id);
+  return SubscriptionPlan.softDeleteById(id);
 };
 
 module.exports = {

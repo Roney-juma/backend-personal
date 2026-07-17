@@ -112,7 +112,7 @@ const updateUser = async (userId, updateData, company) => {
 
 const deleteUser = async (userId, company) => {
     const filter = { _id: userId, ...(company ? { company } : {}) };
-    return User.findOneAndDelete(filter);
+    return User.softDeleteOne(filter);
 };
 
 const resetPassword = async (email, newPassword) => {

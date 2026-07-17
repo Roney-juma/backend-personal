@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
+const softDelete = require('./plugins/softDelete');
 const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
 const { ObjectId } = require("mongodb")
@@ -355,6 +356,8 @@ assessorSchema.methods.isPasswordMatch = async function (password) {
   return data
 };
 
+
+assessorSchema.plugin(softDelete);
 
 const Assessor = mongoose.model('Assessor', assessorSchema);
 module.exports = Assessor;

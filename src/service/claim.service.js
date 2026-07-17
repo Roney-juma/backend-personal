@@ -530,13 +530,13 @@ const deleteClaim = async (id, req) => {
 
     const start = Date.now();
     const snapshot = claim.toObject();
-    await claim.deleteOne();
+    await claim.softDelete();
     await invalidateClaimCache(id);
 
     await writeAuditLog(req, {
       action: 'DELETE',
       module: 'Claim',
-      actionDescription: `Deleted claim ${id}`,
+      actionDescription: `Deleted claim ${claim.vehiclesInvolved[0]?.licensePlate || id}`,
       resourceType: 'Claim',
       resourceId: id,
       statusCode: 200,
