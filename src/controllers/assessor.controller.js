@@ -2,6 +2,7 @@ const assessorService = require("../service/assessor.service");
 const tokenService = require("../service/token.service");
 const emailService = require("../service/email.service");
 const logger = require('../middlewheres/logger');
+const { getRequesterCompany, belongsToCompany } = require('../utils/requesterCompany');
 
 const login = async (req, res) => {
   try {
@@ -24,7 +25,10 @@ const login = async (req, res) => {
 const createAssessor = async (req, res) => {
   try {
     const rawPassword = req.body.password;
-    const newAssessor = await assessorService.createAssessor(req.body, req);
+    // The assessor belongs to the company of the user creating it (ignore any
+    // client-supplied company to prevent spoofing). Platform staff → no company.
+    const company = await getRequesterCompany(req);
+    const newAssessor = await assessorService.createAssessor({ ...req.body, company: company || undefined }, req);
 
     await emailService.sendEmailNotification(
       newAssessor.email,
@@ -41,7 +45,9 @@ const createAssessor = async (req, res) => {
 const getAllAssessors = async (req, res) => {
   try {
     const { page, limit, search } = req.query;
-    const assessors = await assessorService.getAssessors({ page, limit, search });
+    // Company users only see their own company's assessors; platform staff see all.
+    const company = await getRequesterCompany(req);
+    const assessors = await assessorService.getAssessors({ page, limit, search, company });
     res.status(200).json(assessors);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -51,6 +57,11 @@ const getAllAssessors = async (req, res) => {
 const getAssessorById = async (req, res) => {
   try {
     const assessor = await assessorService.getAssessorById(req.params.id);
+    // A company user may only view their own company's assessors.
+    const company = await getRequesterCompany(req);
+    if (!belongsToCompany(assessor.company, company)) {
+      return res.status(404).json({ message: 'Assessor not found' });
+    }
     res.status(200).json(assessor);
   } catch (error) {
     res.status(error.statusCode || 500).json({ message: error.message });
@@ -59,7 +70,8 @@ const getAssessorById = async (req, res) => {
 
 const updateAssessor = async (req, res) => {
   try {
-    const updatedAssessor = await assessorService.updateAssessor(req.params.id, req.body, req);
+    const company = await getRequesterCompany(req);
+    const updatedAssessor = await assessorService.updateAssessor(req.params.id, req.body, req, company);
     res.status(200).json(updatedAssessor);
   } catch (error) {
     res.status(error.statusCode || 500).json({ message: error.message });
@@ -68,7 +80,8 @@ const updateAssessor = async (req, res) => {
 
 const deleteAssessor = async (req, res) => {
   try {
-    await assessorService.deleteAssessor(req.params.id, req);
+    const company = await getRequesterCompany(req);
+    await assessorService.deleteAssessor(req.params.id, req, company);
     res.status(200).json({ message: 'Assessor deleted successfully' });
   } catch (error) {
     res.status(error.statusCode || 500).json({ message: error.message });

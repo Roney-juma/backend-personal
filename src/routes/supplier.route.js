@@ -9,7 +9,7 @@ const router = express.Router();
 
 
 
-router.post('/create',supplierController.createSupplier)
+router.post('/create',verifyToken(), supplierController.createSupplier)
 router.post('/login', authLimiter, supplierController.login)
 router.post('/forgot-password', authLimiter, supplierController.forgotPassword);
 router.post('/reset-password', authLimiter, supplierController.resetPassword);

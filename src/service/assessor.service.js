@@ -48,8 +48,9 @@ const createAssessor = async (assessorData, req) => {
 
   return newAssessor;
 };
-const getAssessors = async ({ page = 1, limit = 10, search = '' } = {}) => {
+const getAssessors = async ({ page = 1, limit = 10, search = '', company } = {}) => {
   const query = {};
+  if (company) query.company = company;
   if (search) {
     query.$or = [
       { name: { $regex: search, $options: 'i' } },
@@ -77,13 +78,17 @@ const getAssessorById = async (id) => {
   }, 1800);
 };
 
-const updateAssessor = async (id, assessorData, req) => {
-  const assessor = await Assessor.findById(id);
+const updateAssessor = async (id, assessorData, req, company) => {
+  // Scope to the requester's company (staff → no scope). Strip company from the
+  // payload so a company user can't reassign an assessor to another tenant.
+  const filter = { _id: id, ...(company ? { company } : {}) };
+  if (company) delete assessorData.company;
+  const assessor = await Assessor.findOne(filter);
   if (!assessor) throw new ApiError(404, 'Assessor not found');
 
   const start = Date.now();
   const oldData = assessor.toObject();
-  const updatedAssessor = await Assessor.findByIdAndUpdate(id, assessorData, { new: true });
+  const updatedAssessor = await Assessor.findOneAndUpdate(filter, assessorData, { new: true });
   await cache.del('cache:assessors:all', `cache:assessor:${id}`, 'cache:stats:assessors', 'cache:assessors:top');
 
   await writeAuditLog(req, {
@@ -101,13 +106,14 @@ const updateAssessor = async (id, assessorData, req) => {
   return updatedAssessor;
 };
 
-const deleteAssessor = async (id, req) => {
-  const assessor = await Assessor.findById(id);
+const deleteAssessor = async (id, req, company) => {
+  const filter = { _id: id, ...(company ? { company } : {}) };
+  const assessor = await Assessor.findOne(filter);
   if (!assessor) throw new ApiError(404, 'Assessor not found');
 
   const start = Date.now();
   const snapshot = assessor.toObject();
-  const deletedAssessor = await Assessor.findByIdAndDelete(id);
+  const deletedAssessor = await Assessor.findOneAndDelete(filter);
   await cache.del('cache:assessors:all', `cache:assessor:${id}`, 'cache:stats:assessors', 'cache:assessors:top');
 
   await writeAuditLog(req, {

@@ -4,10 +4,14 @@ const emailService = require("../service/email.service");
 const logger = require('../middlewheres/logger');
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
+const { getRequesterCompany, belongsToCompany } = require('../utils/requesterCompany');
 
 const createSupplier = async (req, res) => {
     try {
-        const supplier = await supplierService.createSupplier(req.body);
+        // The supplier belongs to the insurance company of the user creating it
+        // (`company` on the body stays as the free-text supplier business name).
+        const insuranceCompany = await getRequesterCompany(req);
+        const supplier = await supplierService.createSupplier({ ...req.body, insuranceCompany: insuranceCompany || undefined });
 
         if (supplier && supplier.email) {
             emailService.sendEmailNotification(
@@ -62,7 +66,9 @@ const login = async (req, res) => {
 const getAllSuppliers = async (req, res) => {
     try {
         const { page, limit, search } = req.query;
-        const suppliers = await supplierService.getAllSuppliers({ page, limit, search });
+        // Company users only see their own company's suppliers; platform staff see all.
+        const insuranceCompany = await getRequesterCompany(req);
+        const suppliers = await supplierService.getAllSuppliers({ page, limit, search, insuranceCompany });
         res.status(200).json(suppliers);
     } catch (err) {
         logger.error('Error fetching suppliers: %s', err.message);
@@ -76,6 +82,11 @@ const getSupplierById = async (req, res) => {
         if (!supplier) {
             return res.status(404).json({ error: 'Supplier not found' });
         }
+        // A company user may only view their own company's suppliers.
+        const insuranceCompany = await getRequesterCompany(req);
+        if (!belongsToCompany(supplier.insuranceCompany, insuranceCompany)) {
+            return res.status(404).json({ error: 'Supplier not found' });
+        }
         res.status(200).json(supplier);
     } catch (err) {
         logger.error('Error fetching supplier: %s', err.message);
@@ -85,7 +96,8 @@ const getSupplierById = async (req, res) => {
 
 const updateSupplier = async (req, res) => {
     try {
-        const supplier = await supplierService.updateSupplier(req.params.id, req.body);
+        const insuranceCompany = await getRequesterCompany(req);
+        const supplier = await supplierService.updateSupplier(req.params.id, req.body, insuranceCompany);
         if (!supplier) {
             return res.status(404).json({ error: 'Supplier not found' });
         }
@@ -98,7 +110,11 @@ const updateSupplier = async (req, res) => {
 
 const deleteSupplier = async (req, res) => {
     try {
-        await supplierService.deleteSupplier(req.params.id);
+        const insuranceCompany = await getRequesterCompany(req);
+        const deleted = await supplierService.deleteSupplier(req.params.id, insuranceCompany);
+        if (!deleted) {
+            return res.status(404).json({ error: 'Supplier not found' });
+        }
         res.status(200).json({ message: 'Supplier deleted successfully' });
     } catch (err) {
         logger.error('Error deleting supplier: %s', err.message);

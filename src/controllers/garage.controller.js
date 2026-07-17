@@ -2,11 +2,15 @@ const garageService = require('../service/garage.service');
 const tokenService = require('../service/token.service');
 const emailService = require('../service/email.service');
 const logger = require('../middlewheres/logger');
+const { getRequesterCompany, belongsToCompany } = require('../utils/requesterCompany');
 
 const createGarage = async (req, res) => {
   try {
     const rawPassword = req.body.password;
-    const newGarage = await garageService.createGarage(req.body);
+    // The garage belongs to the company of the user creating it (ignore any
+    // client-supplied company to prevent spoofing). Platform staff → no company.
+    const company = await getRequesterCompany(req);
+    const newGarage = await garageService.createGarage({ ...req.body, company: company || undefined });
 
     await emailService.sendEmailNotification(
       newGarage.email,
@@ -55,6 +59,10 @@ const getAllGarages = async (req, res) => {
     if (estate) filter.estate = estate;
     if (state) filter.state = state;
 
+    // Company users only see their own company's garages; platform staff see all.
+    const company = await getRequesterCompany(req);
+    if (company) filter.company = company;
+
     const garages = await garageService.getAllGarages(filter, page, limit);
     res.status(200).json(garages);
   } catch (error) {
@@ -66,6 +74,11 @@ const getGarage = async (req, res) => {
   try {
     const garage = await garageService.getGarage(req.params.garageId);
     if (!garage) return res.status(404).json({ message: 'Garage not found' });
+    // A company user may only view their own company's garages.
+    const company = await getRequesterCompany(req);
+    if (!belongsToCompany(garage.company, company)) {
+      return res.status(404).json({ message: 'Garage not found' });
+    }
     res.status(200).json(garage);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -74,7 +87,8 @@ const getGarage = async (req, res) => {
 
 const updateGarage = async (req, res) => {
   try {
-    const updatedGarage = await garageService.updateGarage(req.params.garageId, req.body);
+    const company = await getRequesterCompany(req);
+    const updatedGarage = await garageService.updateGarage(req.params.garageId, req.body, company);
     if (!updatedGarage) return res.status(404).json({ message: 'Garage not found' });
     res.status(200).json(updatedGarage);
   } catch (error) {
@@ -84,7 +98,8 @@ const updateGarage = async (req, res) => {
 
 const deleteGarage = async (req, res) => {
   try {
-    const deletedGarage = await garageService.deleteGarage(req.params.garageId);
+    const company = await getRequesterCompany(req);
+    const deletedGarage = await garageService.deleteGarage(req.params.garageId, company);
     if (!deletedGarage) return res.status(404).json({ message: 'Garage not found' });
     res.status(200).json({ message: 'Garage deleted successfully' });
   } catch (error) {
