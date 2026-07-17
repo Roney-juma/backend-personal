@@ -102,12 +102,17 @@ const getUsersByCompanyId = async (companyId, { page = 1, limit = 10, search = '
     return { users, total, page: Number(page), limit: Number(limit), pages: Math.ceil(total / Number(limit)) };
 };
 
-const updateUser = async (userId, updateData) => {
-    return User.findByIdAndUpdate(userId, updateData, { new: true });
+const updateUser = async (userId, updateData, company) => {
+    // Scope to the requester's company (staff → no scope). Strip company from the
+    // payload so a company user can't move a user to another tenant.
+    const filter = { _id: userId, ...(company ? { company } : {}) };
+    if (company) delete updateData.company;
+    return User.findOneAndUpdate(filter, updateData, { new: true });
 };
 
-const deleteUser = async (userId) => {
-    return User.findByIdAndDelete(userId);
+const deleteUser = async (userId, company) => {
+    const filter = { _id: userId, ...(company ? { company } : {}) };
+    return User.findOneAndDelete(filter);
 };
 
 const resetPassword = async (email, newPassword) => {

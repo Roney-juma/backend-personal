@@ -69,8 +69,9 @@ const createSupplier = async (supplierData) => {
   return saved;
 };
 
-const getAllSuppliers = async ({ page = 1, limit = 10, search = '' } = {}) => {
+const getAllSuppliers = async ({ page = 1, limit = 10, search = '', insuranceCompany } = {}) => {
   const query = {};
+  if (insuranceCompany) query.insuranceCompany = insuranceCompany;
   if (search) {
     query.$or = [
       { name: { $regex: search, $options: 'i' } },
@@ -94,14 +95,19 @@ const getSupplierById = async (supplierId) => {
   return cache.wrap(`cache:supplier:${supplierId}`, () => Supplier.findById(supplierId), 1800);
 };
 
-const updateSupplier = async (supplierId, supplierData) => {
-  const result = await Supplier.findByIdAndUpdate(supplierId, supplierData, { new: true });
+const updateSupplier = async (supplierId, supplierData, insuranceCompany) => {
+  // Scope to the requester's company (staff → no scope). Strip insuranceCompany from
+  // the payload so a company user can't reassign a supplier to another tenant.
+  const filter = { _id: supplierId, ...(insuranceCompany ? { insuranceCompany } : {}) };
+  if (insuranceCompany) delete supplierData.insuranceCompany;
+  const result = await Supplier.findOneAndUpdate(filter, supplierData, { new: true });
   await cache.del('cache:suppliers:all', `cache:supplier:${supplierId}`);
   return result;
 };
 
-const deleteSupplier = async (supplierId) => {
-  const result = await Supplier.findByIdAndDelete(supplierId);
+const deleteSupplier = async (supplierId, insuranceCompany) => {
+  const filter = { _id: supplierId, ...(insuranceCompany ? { insuranceCompany } : {}) };
+  const result = await Supplier.findOneAndDelete(filter);
   await cache.del('cache:suppliers:all', `cache:supplier:${supplierId}`);
   return result;
 };

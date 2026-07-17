@@ -88,6 +88,7 @@ const getAllGarages = async (filter = {}, page = 1, limit = 10) => {
   return cache.wrap(key, async () => {
     try {
       const query = {};
+      if (filter.company) query.company = filter.company;
       if (filter.city) query.location.city = filter.city;
       if (filter.estate) query.location.estate = filter.estate;
       if (filter.state) query.location.state = filter.state;
@@ -108,15 +109,20 @@ const getGarage = async (garageId) => {
   return cache.wrap(`cache:garage:${garageId}`, () => Garage.findById(garageId), 1800);
 };
 
-const updateGarage = async (garageId, updateData) => {
-  const result = await Garage.findByIdAndUpdate(garageId, updateData, { new: true });
+const updateGarage = async (garageId, updateData, company) => {
+  // Scope to the requester's company (staff → no scope). Strip company from the
+  // payload so a company user can't reassign a garage to another tenant.
+  const filter = { _id: garageId, ...(company ? { company } : {}) };
+  if (company) delete updateData.company;
+  const result = await Garage.findOneAndUpdate(filter, updateData, { new: true });
   await cache.del(`cache:garage:${garageId}`, 'cache:stats:garages', 'cache:garages:top');
   await cache.delPattern('cache:garages:all:*');
   return result;
 };
 
-const deleteGarage = async (garageId) => {
-  const result = await Garage.findByIdAndDelete(garageId);
+const deleteGarage = async (garageId, company) => {
+  const filter = { _id: garageId, ...(company ? { company } : {}) };
+  const result = await Garage.findOneAndDelete(filter);
   await cache.del(`cache:garage:${garageId}`, 'cache:stats:garages', 'cache:garages:top');
   await cache.delPattern('cache:garages:all:*');
   return result;

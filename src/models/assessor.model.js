@@ -7,6 +7,8 @@ const Token = require('./token.model')
 
 
 const assessorSchema = new Schema({
+  // Insurance company this assessor belongs to (the company of the user who created it).
+  company: { type: Schema.Types.ObjectId, ref: 'InsuranceCompany', index: true },
   name: { type: String, required: true },
   password: { type: String, required: true },
   email: { type: String, required: true },

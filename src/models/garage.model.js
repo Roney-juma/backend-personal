@@ -3,6 +3,8 @@ const bcrypt = require('bcryptjs');
 const { ObjectId } = require("mongodb")
 
 const garageSchema = new mongoose.Schema({
+  // Insurance company this garage belongs to (the company of the user who created it).
+  company: { type: mongoose.Schema.Types.ObjectId, ref: 'InsuranceCompany', index: true },
   name: { type: String, required: true },
   location: {
     name: String,

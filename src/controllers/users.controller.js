@@ -1,5 +1,6 @@
 const tokenService = require('../service/token.service');
 const userService = require('../service/users.service');
+const { getRequesterCompany, belongsToCompany } = require('../utils/requesterCompany');
 
 const login = async (req, res) => {
     try {
@@ -22,14 +23,6 @@ const login = async (req, res) => {
         }
         res.status(500).json({ message: 'Login failed', error: error.message });
     }
-};
-
-// Resolve the authenticated requester's company id (if any). Company users are
-// scoped to their own company; AVE platform staff have no company.
-const getRequesterCompany = async (req) => {
-    const requester = await userService.getUserById(req.user?.id);
-    const company = requester?.company;
-    return company?._id || company || null;
 };
 
 const createUser = async (req, res) => {
@@ -64,6 +57,11 @@ const getAdminUser = async (req, res) => {
     try {
         const user = await userService.getUserById(req.params.id);
         if (!user) return res.status(404).json({ message: 'User not found' });
+        // A company user may only view their own company's users.
+        const company = await getRequesterCompany(req);
+        if (!belongsToCompany(user.company, company)) {
+            return res.status(404).json({ message: 'User not found' });
+        }
         res.status(200).json(user);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -82,7 +80,8 @@ const getCompanyUsers = async (req, res) => {
 
 const updateAdminUser = async (req, res) => {
     try {
-        const updatedUser = await userService.updateUser(req.params.id, req.body);
+        const company = await getRequesterCompany(req);
+        const updatedUser = await userService.updateUser(req.params.id, req.body, company);
         if (!updatedUser) return res.status(404).json({ message: 'User not found' });
         res.status(200).json(updatedUser);
     } catch (error) {
@@ -92,7 +91,8 @@ const updateAdminUser = async (req, res) => {
 
 const deleteAdminUser = async (req, res) => {
     try {
-        const deletedUser = await userService.deleteUser(req.params.id);
+        const company = await getRequesterCompany(req);
+        const deletedUser = await userService.deleteUser(req.params.id, company);
         if (!deletedUser) return res.status(404).json({ message: 'User not found' });
         res.status(200).json({ message: 'User deleted' });
     } catch (error) {
