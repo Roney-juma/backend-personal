@@ -71,8 +71,10 @@ const getRevenueAnalytics = async () => {
         invoiceCount: { $sum: 1 },
       },
     },
-    { $sort: { '_id.year': 1, '_id.month': 1 } },
+    // Take the most recent 12 months, then re-sort ascending for display.
+    { $sort: { '_id.year': -1, '_id.month': -1 } },
     { $limit: 12 },
+    { $sort: { '_id.year': 1, '_id.month': 1 } },
   ]);
 
   const byCurrency = await Invoice.aggregate([
@@ -105,8 +107,10 @@ const getCompanyAnalytics = async () => {
         count: { $sum: 1 },
       },
     },
-    { $sort: { '_id.year': 1, '_id.month': 1 } },
+    // Take the most recent 12 months, then re-sort ascending for display.
+    { $sort: { '_id.year': -1, '_id.month': -1 } },
     { $limit: 12 },
+    { $sort: { '_id.year': 1, '_id.month': 1 } },
   ]);
 
   return { byStatus, recentlyOnboarded, growthByMonth };
@@ -151,7 +155,7 @@ const getSubscriptionAnalytics = async () => {
 const getRecentActivity = async (limit = 20) => {
   const [recentCompanies, recentInvoices, recentTickets, activityLogs] = await Promise.all([
     InsuranceCompany.find().select('companyName status createdAt').sort({ createdAt: -1 }).limit(5),
-    Invoice.find().populate('company', 'companyName').select('invoiceNumber total status createdAt').sort({ createdAt: -1 }).limit(5),
+    Invoice.find().populate('company', 'companyName').select('invoiceNumber total status issuedDate createdAt').sort({ createdAt: -1 }).limit(5),
     SupportTicket.find().populate('company', 'companyName').select('ticketNumber subject status priority createdAt').sort({ createdAt: -1 }).limit(5),
     CompanyActivity.find().populate('company', 'companyName').sort({ createdAt: -1 }).limit(Number(limit)),
   ]);
