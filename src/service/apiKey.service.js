@@ -59,7 +59,7 @@ const revokeApiKey = async (id, revokedBy) => {
 };
 
 const deleteApiKey = async (id) => {
-  return ApiKey.findByIdAndDelete(id);
+  return ApiKey.softDeleteById(id);
 };
 
 const verifyApiKey = async (rawKey) => {

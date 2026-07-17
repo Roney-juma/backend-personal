@@ -127,7 +127,7 @@ const deleteAssessor = async (id, req, company) => {
 
   const start = Date.now();
   const snapshot = assessor.toObject();
-  const deletedAssessor = await Assessor.findOneAndDelete(filter);
+  const deletedAssessor = await Assessor.softDeleteOne(filter);
 
   // Remove any leftover pending bids so they can't be auto-awarded to a deleted
   // assessor. Awarded/rejected bids are kept for history (they carry the name).

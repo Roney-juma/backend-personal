@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const softDelete = require('./plugins/softDelete');
 const bcrypt = require('bcryptjs');
 const { ObjectId } = require("mongodb")
 
@@ -53,5 +54,7 @@ garageSchema.methods.isPasswordMatch = async function (password) {
   const user = this;
   return bcrypt.compare(password, user.password);
 };
+
+garageSchema.plugin(softDelete);
 
 module.exports = mongoose.model('Garage', garageSchema);

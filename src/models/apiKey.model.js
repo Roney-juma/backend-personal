@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const softDelete = require('./plugins/softDelete');
 
 const apiKeySchema = new mongoose.Schema(
   {
@@ -17,5 +18,7 @@ const apiKeySchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+apiKeySchema.plugin(softDelete);
 
 module.exports = mongoose.model('ApiKey', apiKeySchema);

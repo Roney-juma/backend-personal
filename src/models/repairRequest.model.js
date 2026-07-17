@@ -1,3 +1,5 @@
+const softDelete = require('./plugins/softDelete');
+
 const repairRequestSchema = new mongoose.Schema({
     claimId: { type: mongoose.Schema.Types.ObjectId, ref: 'Claim', required: true },
     garageId: { type: mongoose.Schema.Types.ObjectId, ref: 'Garage', required: true },
@@ -8,5 +10,7 @@ const repairRequestSchema = new mongoose.Schema({
     completedAt: Date,
   }, { timestamps: true });
   
+  repairRequestSchema.plugin(softDelete);
+
   module.exports = mongoose.model('RepairRequest', repairRequestSchema);
   

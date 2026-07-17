@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const softDelete = require('./plugins/softDelete');
 const { ObjectId } = require('mongodb');
 
 const investigatorSchema = new mongoose.Schema({
@@ -31,5 +32,7 @@ const investigatorSchema = new mongoose.Schema({
     }],
   },
 }, { timestamps: true });
+
+investigatorSchema.plugin(softDelete);
 
 module.exports = mongoose.model('Investigator', investigatorSchema);

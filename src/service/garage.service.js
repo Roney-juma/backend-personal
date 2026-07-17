@@ -137,7 +137,7 @@ const deleteGarage = async (garageId, company) => {
     );
   }
 
-  const result = await Garage.findOneAndDelete(filter);
+  const result = await Garage.softDeleteOne(filter);
 
   if (result) {
     // Remove any leftover pending bids so they can't be auto-awarded to a

@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
+const softDelete = require('./plugins/softDelete');
 
 
 const partSchema = new Schema({
@@ -311,6 +312,8 @@ claimSchema.index({ 'awardedAssessor.assessorId': 1 });     // assessor's awarde
 claimSchema.index({ 'awardedGarage.garageId': 1 });         // garage's awarded claims
 claimSchema.index({ 'bids.assessorId': 1 });                // getAssessorBids
 claimSchema.index({ 'bids.garageId': 1 });                  // getGarageBids
+
+claimSchema.plugin(softDelete);
 
 const Claim = mongoose.model('Claim', claimSchema);
 module.exports = Claim;

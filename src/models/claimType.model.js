@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const softDelete = require('./plugins/softDelete');
 
 const claimTypeSchema = new mongoose.Schema({
   name: {
@@ -16,6 +17,8 @@ const claimTypeSchema = new mongoose.Schema({
     default: true,
   },
 }, { timestamps: true });
+
+claimTypeSchema.plugin(softDelete);
 
 const ClaimType = mongoose.model('ClaimType', claimTypeSchema);
 module.exports = ClaimType;

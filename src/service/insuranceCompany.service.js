@@ -114,7 +114,7 @@ const updateCompanyStatus = async (id, status) => {
 };
 
 const deleteCompany = async (id) => {
-  return InsuranceCompany.findByIdAndDelete(id);
+  return InsuranceCompany.softDeleteById(id);
 };
 
 const loginCompany = async (email, password) => {

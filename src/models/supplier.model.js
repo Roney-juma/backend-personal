@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const softDelete = require('./plugins/softDelete');
 const bcrypt = require('bcryptjs');
 const { ObjectId } = require("mongodb")
 
@@ -49,5 +50,7 @@ supplierSchema.methods.isPasswordMatch = async function (password) {
   const user = this;
   return bcrypt.compare(password, user.password);
 };
+
+supplierSchema.plugin(softDelete);
 
 module.exports = mongoose.model('Supplier', supplierSchema);

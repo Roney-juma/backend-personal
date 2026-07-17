@@ -96,7 +96,7 @@ const deleteInvestigator = async (id, req) => {
 
   const snapshot = investigator.toObject();
   const start = Date.now();
-  await Investigator.findByIdAndDelete(id);
+  await Investigator.softDeleteById(id);
 
   await writeAuditLog(req, {
     action: 'DELETE',

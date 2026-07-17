@@ -46,7 +46,7 @@ const updateClaimType = async (id, data) => {
 
 const deleteClaimType = async (id) => {
   try {
-    const claimType = await ClaimType.findByIdAndDelete(id);
+    const claimType = await ClaimType.softDeleteById(id);
     if (!claimType) throw new Error('Claim type not found');
     return claimType;
   } catch (error) {
