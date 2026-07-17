@@ -71,6 +71,31 @@ const getCompanyUsers = async (companyId, options = {}) => {
   return userService.getUsersByCompanyId(companyId, options);
 };
 
+// Get the garages/assessors/suppliers that belong to a company. Reuses each
+// domain service's list function (lazy require to avoid load-order cycles) and
+// normalizes to a consistent { <items>, total, page, limit, pages } shape.
+const getCompanyGarages = async (companyId, { page = 1, limit = 100, search = '' } = {}) => {
+  const garageService = require('./garage.service');
+  const result = await garageService.getAllGarages({ company: companyId }, page, limit);
+  return {
+    garages: result.garages || [],
+    total: result.totalGarages || 0,
+    page: Number(page),
+    limit: Number(limit),
+    pages: result.totalPages || 0,
+  };
+};
+
+const getCompanyAssessors = async (companyId, { page = 1, limit = 100, search = '' } = {}) => {
+  const assessorService = require('./assessor.service');
+  return assessorService.getAssessors({ page, limit, search, company: companyId });
+};
+
+const getCompanySuppliers = async (companyId, { page = 1, limit = 100, search = '' } = {}) => {
+  const supplierService = require('./supplier.service');
+  return supplierService.getAllSuppliers({ page, limit, search, insuranceCompany: companyId });
+};
+
 const getCompanyById = async (id) => {
   return InsuranceCompany.findById(id).select('-password');
 };
@@ -160,5 +185,8 @@ module.exports = {
   loginCompany,
   resetCompanyPassword,
   getCompanyStats,
-  getCompanyUsers 
+  getCompanyUsers,
+  getCompanyGarages,
+  getCompanyAssessors,
+  getCompanySuppliers
 };

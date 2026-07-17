@@ -2,7 +2,7 @@ const assessorService = require("../service/assessor.service");
 const tokenService = require("../service/token.service");
 const emailService = require("../service/email.service");
 const logger = require('../middlewheres/logger');
-const { getRequesterCompany, belongsToCompany } = require('../utils/requesterCompany');
+  const { getRequesterCompany, belongsToCompany } = require('../utils/requesterCompany');
 
 const login = async (req, res) => {
   try {

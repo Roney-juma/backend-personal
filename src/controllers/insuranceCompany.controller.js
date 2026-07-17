@@ -28,6 +28,36 @@ const getCompanyUsers = async (req, res) => {
   }
 };
 
+const getCompanyGarages = async (req, res) => {
+  try {
+    const { page = 1, limit = 100, search = '' } = req.query;
+    const result = await insuranceCompanyService.getCompanyGarages(req.params.id, { page, limit, search });
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const getCompanyAssessors = async (req, res) => {
+  try {
+    const { page = 1, limit = 100, search = '' } = req.query;
+    const result = await insuranceCompanyService.getCompanyAssessors(req.params.id, { page, limit, search });
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const getCompanySuppliers = async (req, res) => {
+  try {
+    const { page = 1, limit = 100, search = '' } = req.query;
+    const result = await insuranceCompanyService.getCompanySuppliers(req.params.id, { page, limit, search });
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 const getCompanyById = async (req, res) => {
   try {
     const company = await insuranceCompanyService.getCompanyById(req.params.id);
@@ -112,5 +142,8 @@ module.exports = {
   loginCompany,
   resetCompanyPassword,
   getCompanyStats,
-  getCompanyUsers
+  getCompanyUsers,
+  getCompanyGarages,
+  getCompanyAssessors,
+  getCompanySuppliers
 };
