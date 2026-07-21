@@ -1,0 +1,35 @@
+name: Deploy to EC2 (staging)
+
+# Staging mirror of deploy.yml. Pushing to `staging` deploys the *second* checkout
+# on the same EC2 box (/home/ubuntu/backend-staging), which runs on its own PORT
+# behind its own nginx vhost (insurance-api-staging.aveafricasolutions.com) and its
+# own .env / MONGO_URI. Production (push to `production`) is untouched.
+on:
+  push:
+    branches:
+      - staging
+
+jobs:
+  deploy:
+    name: SSH & Deploy (staging)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          # Same instance as prod — reuse the existing EC2_* secrets.
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            cd /home/ubuntu/backend-staging
+            git reset --hard
+            git clean -df
+            git pull origin staging
+            npm install --production
+            # startOrReload => starts the staging apps on first deploy, reloads
+            # them (picking up .env changes via --update-env) on every deploy after.
+            pm2 startOrReload ecosystem.staging.config.js --update-env
+            pm2 save
