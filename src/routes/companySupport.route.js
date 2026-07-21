@@ -4,11 +4,11 @@ const verifyToken = require('../middlewheres/verifyToken');
 const SupportTicket = require('../models/supportTicket.model');
 const { getRequesterCompany } = require('../utils/requesterCompany');
 
-// Tickets belong to an InsuranceCompany. Two caller types may touch them:
-// the company-level login (token id IS the company id) and insurer-portal
-// admins (tenant claim in the token, incl. legacy ProviderUser-stamped ones
-// via the DB fallback). Mobile actors and AVE staff are rejected — staff
-// manage tickets through /provider/support instead.
+// Tickets belong to an InsuranceCompany, raised by insurer-portal admins
+// (tenant claim in the token, incl. legacy ProviderUser-stamped ones via the
+// DB fallback). Mobile actors and AVE staff are rejected — staff manage
+// tickets through /provider/support. The 'InsuranceCompany' branch only
+// honors residual tokens from the retired company-level login (≤1d lifetime).
 const resolveTicketCompany = async (req) => {
   const type = req.user?.accountType;
   if (type === 'InsuranceCompany') return req.user.id;

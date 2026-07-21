@@ -1,5 +1,4 @@
 const insuranceCompanyService = require('../service/insuranceCompany.service');
-const tokenService = require('../service/token.service');
 
 const createCompany = async (req, res) => {
   try {
@@ -109,29 +108,6 @@ const deleteCompany = async (req, res) => {
   }
 };
 
-const loginCompany = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ message: 'Email and password are required' });
-    const company = await insuranceCompanyService.loginCompany(email, password);
-    if (!company) return res.status(401).json({ message: 'Invalid email or password' });
-    const token = tokenService.generateCompanyToken(company);
-    res.status(200).json({ company: { ...company.toObject(), password: undefined }, token });
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-};
-
-const resetCompanyPassword = async (req, res) => {
-  try {
-    const { email, newPassword } = req.body;
-    const result = await insuranceCompanyService.resetCompanyPassword(email, newPassword);
-    res.status(200).json(result);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-};
-
 const getCompanyStats = async (req, res) => {
   try {
     const stats = await insuranceCompanyService.getCompanyStats(req.params.id);
@@ -149,8 +125,6 @@ module.exports = {
   updateCompany,
   updateCompanyStatus,
   deleteCompany,
-  loginCompany,
-  resetCompanyPassword,
   getCompanyStats,
   getCompanyUsers,
   getCompanyGarages,

@@ -161,30 +161,6 @@ const generateCompanyUserToken = (user) => {
     return token;
 };
 
-const generateCompanyToken = (company) => {
-    const data = {
-        id: company._id,
-        companyName: company.companyName,
-        email: company.email,
-        status: company.status,
-        registrationNumber: company.registrationNumber,
-        accountType: 'InsuranceCompany',
-    };
-    const token = jwt.sign(
-        { payload: data },
-        {
-            key: privateKey.replace(/\\n/gm, '\n'),
-            passphrase: TokenSecret,
-        },
-        {
-            issuer: TokenIssuer,
-            algorithm: 'RS512',
-            expiresIn: '1d',
-        }
-    );
-    return token;
-};
-
 // Short-lived token issued after a correct password when MFA is enabled.
 // It only authorizes the second step (submitting a TOTP code) — never API access.
 const generateMfaChallengeToken = (userId, accountType) => {
@@ -224,4 +200,4 @@ const generateActivationToken = (customerId, otpCodeId, channel) => {
     );
 };
 
-module.exports = { GenerateToken, generate, generatePocToken, generateCompanyToken, generateProviderUserToken, generateCompanyUserToken, generateMfaChallengeToken, generateActivationToken };
+module.exports = { GenerateToken, generate, generatePocToken, generateProviderUserToken, generateCompanyUserToken, generateMfaChallengeToken, generateActivationToken };

@@ -6,7 +6,9 @@ const insuranceCompanySchema = new mongoose.Schema(
     companyName: { type: String, required: true, unique: true, trim: true },
     registrationNumber: { type: String, required: true, unique: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
-    password: { type: String, required: true },
+    // Company-level login retired — the company's credential is its Super Admin
+    // portal user. Field kept optional so legacy documents still validate.
+    password: { type: String },
     phone: { type: String, trim: true },
     address: {
       street: { type: String },
