@@ -217,6 +217,18 @@ const activateAccount = async ({ activationToken, password }) => {
   await Customer.updateOne({ _id: customer._id }, { $set: update });
   Object.assign(customer, update);
 
+  // One credential per person: the same email may hold accounts at several
+  // insurers, and login only offers the insurer picker when the password
+  // matches all of them — so keep every sibling record's hash in sync.
+  // (Status is NOT touched: an imported record elsewhere still needs its own
+  // OTP activation, and login only matches active records.)
+  if (customer.email) {
+    await Customer.updateMany(
+      { email: customer.email, _id: { $ne: customer._id }, isDeleted: { $ne: true } },
+      { $set: { password: update.password } }
+    );
+  }
+
   // Token carries the tenant claim via customer.company (GenerateToken resolves it).
   const tokens = tokenService.GenerateToken(customer);
 

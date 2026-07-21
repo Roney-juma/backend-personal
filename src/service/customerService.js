@@ -225,6 +225,14 @@ const resetPassword = async (email, token, newPassword) => {
 
   await user.save();
 
+  // One credential per person across insurers: sync the new hash to every
+  // sibling record with this email so the multi-insurer login picker keeps
+  // matching all of them.
+  await Customer.updateMany(
+    { email: user.email, _id: { $ne: user._id }, isDeleted: { $ne: true } },
+    { $set: { password: user.password } }
+  );
+
   return { message: 'Password has been reset successfully' };
 };
 

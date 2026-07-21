@@ -33,6 +33,16 @@ const changePassword = async (accountType, userId, currentPassword, newPassword)
     { $set: { password: hashed, mustChangePassword: false }, $unset: { resetPasswordToken: '', resetPasswordExpires: '' } }
   );
 
+  // Customers may hold accounts at several insurers under one email; keep the
+  // credential identical across them so the multi-insurer login picker keeps
+  // matching all records (one person, one password).
+  if (accountType === 'Customer' && user.email) {
+    await Model.updateMany(
+      { email: user.email, _id: { $ne: user._id }, isDeleted: { $ne: true } },
+      { $set: { password: hashed } }
+    );
+  }
+
   return { message: 'Password changed successfully' };
 };
 
