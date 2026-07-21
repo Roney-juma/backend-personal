@@ -179,7 +179,8 @@ const rejectReAssessment = async (req, res) => {
 
 const getAssessorStatistics = async (req, res) => {
   try {
-    const statistics = await assessorService.getAssessorStatistics(req.params.assessorId);
+    // Company users only see their own company's stats; platform staff see all.
+    const statistics = await assessorService.getAssessorStatistics(await getRequesterCompany(req));
     res.status(200).json(statistics);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -188,7 +189,7 @@ const getAssessorStatistics = async (req, res) => {
 
 const getTopAssessors = async (req, res) => {
   try {
-    const topAssessors = await assessorService.getTopAssessors();
+    const topAssessors = await assessorService.getTopAssessors(await getRequesterCompany(req));
     res.status(200).json(topAssessors);
   } catch (error) {
     res.status(500).json({ message: error.message });

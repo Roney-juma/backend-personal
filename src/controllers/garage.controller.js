@@ -176,7 +176,8 @@ const resetPassword = async (req, res) => {
 
 const getGarageStats = async (req, res) => {
   try {
-    const stats = await garageService.getGarageStats();
+    // Company users only see their own company's stats; platform staff see all.
+    const stats = await garageService.getGarageStats(await getRequesterCompany(req));
     res.status(200).json(stats);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -185,7 +186,7 @@ const getGarageStats = async (req, res) => {
 
 const getTopGarages = async (req, res) => {
   try {
-    const topGarages = await garageService.getTopGarages();
+    const topGarages = await garageService.getTopGarages(await getRequesterCompany(req));
     res.status(200).json(topGarages);
   } catch (error) {
     res.status(500).json({ error: error.message });

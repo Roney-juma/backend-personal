@@ -97,7 +97,17 @@ const migrateRoles = async () => {
     await Role.createIndexes();
     console.log('  ensured compound index { company: 1, name: 1 }');
   }
-  await updateWhereMissing(Role, missing('company'), { $set: { company: null } }, 'roles', 'roles set to global (company: null)');
+  // Legacy roles belong to the original tenant — making them global would show
+  // them to every insurer. Only 'Super Admin' is platform-global (ensured by
+  // rolesService.ensureSuperAdminRole).
+  await updateWhereMissing(
+    Role,
+    { ...missing('company'), name: { $ne: 'Super Admin' } },
+    { $set: { company: defaultCompanyArg ? new mongoose.Types.ObjectId(defaultCompanyArg) : null } },
+    'roles',
+    defaultCompanyArg ? 'legacy roles assigned to default company' : 'roles set to global (company: null) — pass --default-company to scope them'
+  );
+  await updateWhereMissing(Role, { ...missing('company'), name: 'Super Admin' }, { $set: { company: null } }, 'roles', 'Super Admin kept global');
 };
 
 // ── Step 2: customers ───────────────────────────────────────────────────────
@@ -367,6 +377,63 @@ const repairSupportTickets = async (defaultCompanyId) => {
   note('support', 'tickets with unresolvable company (manual review)', unresolvable);
 };
 
+// ── Step 10: investigations + audit logs ────────────────────────────────────
+// Investigation.company derives from its claim; AuditLog.company from the
+// acting insurer-portal user. Logs whose actor isn't a portal user (staff,
+// system, mobile actors) stay null = platform-level.
+const migrateInvestigationsAndAudit = async () => {
+  console.log('\n[10/10] Investigations + audit logs');
+  const Investigation = require('../src/models/investigation.model');
+  const AuditLog = require('../src/models/audit.model');
+
+  // Investigations ← claim.company
+  const claimCompany = new Map();
+  const claimCursor = Claim.collection.find({ company: { $exists: true } }, { projection: { company: 1 } });
+  for await (const c of claimCursor) claimCompany.set(String(c._id), c.company);
+
+  let invSet = 0;
+  let invUnresolved = 0;
+  let ops = [];
+  const flushInv = async () => {
+    if (ops.length && !dryRun) await Investigation.collection.bulkWrite(ops, { ordered: false });
+    ops = [];
+  };
+  const invCursor = Investigation.collection.find(missingOrNull('company'), { projection: { claimId: 1 } });
+  for await (const inv of invCursor) {
+    const company = inv.claimId && claimCompany.get(String(inv.claimId));
+    if (!company) { invUnresolved += 1; continue; }
+    ops.push({ updateOne: { filter: { _id: inv._id }, update: { $set: { company } } } });
+    invSet += 1;
+    if (ops.length >= BATCH) await flushInv();
+  }
+  await flushInv();
+  const verb = dryRun ? 'would set' : 'set';
+  note('investigations', `company from claim (${verb})`, invSet);
+  note('investigations', 'unresolved (claim missing/unstamped)', invUnresolved);
+
+  // Audit logs ← performedBy user's company
+  const userCompany = new Map();
+  const userCursor = Users.collection.find({ company: { $exists: true, $ne: null } }, { projection: { company: 1 } });
+  for await (const u of userCursor) userCompany.set(String(u._id), u.company);
+
+  let logSet = 0;
+  ops = [];
+  const flushLogs = async () => {
+    if (ops.length && !dryRun) await AuditLog.collection.bulkWrite(ops, { ordered: false });
+    ops = [];
+  };
+  const logCursor = AuditLog.collection.find(missingOrNull('company'), { projection: { performedBy: 1 } });
+  for await (const log of logCursor) {
+    const company = log.performedBy && userCompany.get(String(log.performedBy));
+    if (!company) continue; // stays null = platform-level
+    ops.push({ updateOne: { filter: { _id: log._id }, update: { $set: { company } } } });
+    logSet += 1;
+    if (ops.length >= BATCH) await flushLogs();
+  }
+  await flushLogs();
+  note('auditlogs', `company from acting user (${verb})`, logSet);
+};
+
 const reportUsers = async () => {
   console.log('\n[7/8] Users (report only — no writes)');
   const orphans = await Users.collection
@@ -433,6 +500,8 @@ const main = async () => {
     await migrateCustomerAuth();
 
     await repairSupportTickets(defaultCompanyId);
+
+    await migrateInvestigationsAndAudit();
 
     console.log(`\n=== Summary${dryRun ? ' (dry run — no writes performed)' : ''} ===`);
     console.table(summary);

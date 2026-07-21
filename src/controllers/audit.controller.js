@@ -1,5 +1,6 @@
 const auditService = require("../service/audit.service");
 const logger = require('../middlewheres/logger');
+const { getRequesterCompany } = require('../utils/requesterCompany');
 
 const logAudit = async (req, res) => {
   try {
@@ -12,7 +13,10 @@ const logAudit = async (req, res) => {
       populateUser: populateUser === 'true',
     };
 
-    const auditLogs = await auditService.getAuditLogs(filters, options);
+    // Company users only see their own company's logs; platform staff see all.
+    // Resolved server-side — a client-supplied `company` filter is never honoured.
+    const company = await getRequesterCompany(req);
+    const auditLogs = await auditService.getAuditLogs(filters, options, company);
     res.status(200).json(auditLogs);
   } catch (error) {
     logger.error('Error fetching audit logs: %s', error.message);

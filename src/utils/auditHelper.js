@@ -1,5 +1,6 @@
 const AuditLog = require('../models/audit.model');
 const logger = require('../middlewheres/logger');
+const { getRequesterCompany } = require('./requesterCompany');
 
 const SENSITIVE_FIELDS = new Set(['password', 'newPassword', 'currentPassword', 'token', 'secret', 'apiKey', 'refreshToken']);
 
@@ -68,6 +69,11 @@ async function writeAuditLog(req, opts) {
 
     const user = req?.user ?? null;
 
+    // Tenant stamp: any requester carrying a company claim (company admin or
+    // mobile actor) files the entry under that tenant; platform staff and
+    // system/unauthenticated actions stay null (platform-level).
+    const company = user ? await getRequesterCompany(req) : null;
+
     const performedByName =
       user?.name ??
       user?.fullName ??
@@ -85,6 +91,7 @@ async function writeAuditLog(req, opts) {
       performedByName,
       performedByEmail: user?.email ?? null,
       performedByRole:  user?.role_ID ?? null,
+      company,
 
       // Action metadata
       action,

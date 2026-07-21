@@ -7,6 +7,9 @@ const auditLogSchema = new mongoose.Schema({
         performedByEmail: { type: String, default: null },
         performedByRole:  { type: mongoose.Schema.Types.ObjectId, ref: 'Role', default: null },
 
+        // Tenant the actor belongs to (null = platform staff / system / unauthenticated)
+        company:          { type: mongoose.Schema.Types.ObjectId, ref: 'InsuranceCompany', default: null },
+
         // What was done
         action:           { type: String, required: true },  // CREATE, READ, UPDATE, DELETE, LOGIN, REVOKE, etc.
         actionDescription:{ type: String },                  // human-readable: "Updated company status to suspended"
@@ -51,6 +54,7 @@ const auditLogSchema = new mongoose.Schema({
 
 // Indexes optimised for the most common query patterns
 auditLogSchema.index({ createdAt: -1 });
+auditLogSchema.index({ company: 1, createdAt: -1 });
 auditLogSchema.index({ performedBy: 1, createdAt: -1 });
 auditLogSchema.index({ module: 1, createdAt: -1 });
 auditLogSchema.index({ action: 1, createdAt: -1 });

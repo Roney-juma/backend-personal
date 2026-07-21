@@ -4,6 +4,16 @@ const tokenService = require("../service/token.service");
 const logger = require('../middlewheres/logger');
 const { getRequesterCompany } = require('../utils/requesterCompany');
 
+// Requester-company scoping applies only to insurer-portal audiences (company
+// admins and AVE platform staff — staff resolve to null → global scope). Mobile
+// customers share some of these routes but are identified by their own ids, so
+// their queries are never requester-scoped.
+const portalCompany = async (req) => {
+  const type = req.user?.accountType;
+  if (type !== 'CompanyUser' && type !== 'ProviderUser') return null;
+  return getRequesterCompany(req);
+};
+
 // Activation-flow errors carry statusCode + a machine-readable code (contract §2).
 const respondActivationError = (res, error) => {
   const body = { message: error.message };
@@ -102,7 +112,8 @@ const activateAccount = async (req, res) => {
 
 const getAllCustomers = async (req, res) => {
   try {
-    const customers = await customerService.getCustomers();
+    // Company users only see their own company's customers; platform staff see all.
+    const customers = await customerService.getCustomers(await portalCompany(req));
     res.status(200).json(customers);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -112,7 +123,13 @@ const getAllCustomers = async (req, res) => {
 const getCustomerClaims = async (req, res) => {
   try {
     const customerId = req.params.customerId;
-    const claims = await customerService.getCustomerClaims(customerId);
+    // Mobile customers may only read their own claims; portal users only their
+    // company's customers (staff → global).
+    if (req.user?.accountType === 'Customer' && String(req.user.id) !== String(customerId)) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+    const company = await portalCompany(req);
+    const claims = await customerService.getCustomerClaims(customerId, company);
     res.status(200).json(claims);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -148,7 +165,15 @@ const updateCustomer = async (req, res) => {
   try {
     const customerId = req.params.customerId;
     const customer = req.body;
-    const updatedCustomer = await customerService.updateCustomer(customerId, customer);
+    // Mobile customers may only update their own record (their token is never
+    // requester-scoped, so pin the id instead).
+    if (req.user?.accountType === 'Customer' && String(req.user.id) !== String(customerId)) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+    const company = await portalCompany(req);
+    const updatedCustomer = await customerService.updateCustomer(customerId, customer, company);
+    // Cross-tenant ids 404 like missing ones.
+    if (!updatedCustomer) return res.status(404).json({ error: 'Customer not found' });
     res.status(200).json(updatedCustomer);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -157,7 +182,7 @@ const updateCustomer = async (req, res) => {
 // customerStats
 const getCustomerStats = async (req, res) => {
   try {
-    const stats = await customerService.getCustomerStats();
+    const stats = await customerService.getCustomerStats(await portalCompany(req));
     res.status(200).json(stats);
   } catch (error) {
     res.status(500).json({ error: error.message });

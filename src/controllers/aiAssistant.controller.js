@@ -5,6 +5,7 @@ const { renderIntakePage } = require('../ai/intakePage');
 const claimService = require('../service/claim.service');
 const Customer = require('../models/customerModel');
 const logger = require('../middlewheres/logger');
+const { getRequesterCompany } = require('../utils/requesterCompany');
 
 /**
  * GET /ai/claim-intake/:token
@@ -182,8 +183,13 @@ const staffAssistant = async (req, res) => {
     if (!userMessage || typeof userMessage !== 'string') {
       return res.status(400).json({ message: 'userMessage is required' });
     }
+    // Tenant scope for the read-only tools: company users (and any actor token
+    // carrying a company claim) only query their own company's data; AVE
+    // platform staff resolve to null → global scope.
+    const company = await getRequesterCompany(req);
     const result = await runStaffAssistant({
       user: req.user,
+      company,
       messages: Array.isArray(messages) ? messages : [],
       userMessage,
     });

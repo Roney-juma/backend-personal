@@ -4,6 +4,10 @@ const { Schema } = mongoose;
 const investigationSchema = new Schema({
   claimId: { type: Schema.Types.ObjectId, ref: 'Claim', required: true },
 
+  // Tenant owner — copied from the flagged claim at creation so listings can be
+  // scoped without joining through the claim.
+  company: { type: Schema.Types.ObjectId, ref: 'InsuranceCompany', index: true },
+
   // Set on fraud flag (Step 1)
   flaggedBy: {
     type: Schema.Types.ObjectId,

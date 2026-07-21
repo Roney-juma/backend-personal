@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Assessor = require('../models/assessor.model');
 const Garage = require('../models/garage.model');
 const bcrypt = require('bcrypt');
@@ -32,7 +33,9 @@ const createAssessor = async (assessorData, req) => {
 
   // Admin sets the initial password, so require a change on first login.
   const newAssessor = await Assessor.create({ ...assessorData, mustChangePassword: true });
-  await cache.del('cache:assessors:all', 'cache:stats:assessors', 'cache:assessors:top');
+  await cache.del('cache:assessors:all');
+  await cache.delPattern('cache:stats:assessors:*');
+  await cache.delPattern('cache:assessors:top:*');
 
   await writeAuditLog(req, {
     action: 'CREATE',
@@ -89,7 +92,9 @@ const updateAssessor = async (id, assessorData, req, company) => {
   const start = Date.now();
   const oldData = assessor.toObject();
   const updatedAssessor = await Assessor.findOneAndUpdate(filter, assessorData, { new: true });
-  await cache.del('cache:assessors:all', `cache:assessor:${id}`, 'cache:stats:assessors', 'cache:assessors:top');
+  await cache.del('cache:assessors:all', `cache:assessor:${id}`);
+  await cache.delPattern('cache:stats:assessors:*');
+  await cache.delPattern('cache:assessors:top:*');
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -136,7 +141,9 @@ const deleteAssessor = async (id, req, company) => {
     { $pull: { bids: { assessorId: id, status: 'pending' } } }
   );
 
-  await cache.del('cache:assessors:all', `cache:assessor:${id}`, 'cache:stats:assessors', 'cache:assessors:top');
+  await cache.del('cache:assessors:all', `cache:assessor:${id}`);
+  await cache.delPattern('cache:stats:assessors:*');
+  await cache.delPattern('cache:assessors:top:*');
   await cache.del(`cache:assessor:bids:${id}`);
   await cache.delPattern('cache:assessor:approved-claims:*');
 
@@ -619,17 +626,20 @@ const rejectRepair = async (claimId, rejectionReason, req) => {
   return claim;
 };
 // Assessor statistics for the admin dashboard
-const getAssessorStatistics = async () => {
-  return cache.wrap('cache:stats:assessors', async () => {
-    const totalAssessors = await Assessor.countDocuments();
-    const busyAssessors = await Assessor.countDocuments({ "ratings.totalRatings": { $gt: 0 } });
+const getAssessorStatistics = async (company) => {
+  return cache.wrap(`cache:stats:assessors:${company || 'all'}`, async () => {
+    const scope = company ? { company } : {};
+    const totalAssessors = await Assessor.countDocuments(scope);
+    const busyAssessors = await Assessor.countDocuments({ ...scope, "ratings.totalRatings": { $gt: 0 } });
     const freeAssessors = totalAssessors - busyAssessors;
     return { totalAssessors, busyAssessors, freeAssessors };
   }, 1800);
 };
 
-const getTopAssessors = async () => {
-  return cache.wrap('cache:assessors:top', () => Assessor.aggregate([
+const getTopAssessors = async (company) => {
+  return cache.wrap(`cache:assessors:top:${company || 'all'}`, () => Assessor.aggregate([
+    // Aggregations don't cast — the tenant $match needs an explicit ObjectId.
+    ...(company ? [{ $match: { company: new mongoose.Types.ObjectId(String(company)) } }] : []),
     {
       $lookup: {
         from: 'claims',
