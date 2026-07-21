@@ -40,7 +40,7 @@ const runStageCheck = async (claimId, stage) => {
 
   const analysis = await AiAnalysis.create({
     claimId: claim._id,
-    companyId: claim.customerId,
+    company: claim.company,
     kind: 'vehicle_continuity',
     stage,
     signals,

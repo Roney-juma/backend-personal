@@ -94,15 +94,19 @@ const GROUPINGS = {
 
 /**
  * Roll up usage for a period.
- * @param {Object} opts { from?: Date, to?: Date, groupBy?: 'day'|'month'|'feature'|'model'|'claim'|'action' }
+ * @param {Object} opts { from?: Date, to?: Date, groupBy?: 'day'|'month'|'feature'|'model'|'claim'|'action', company?: string }
  */
-const usageReport = async ({ from, to, groupBy = 'day' } = {}) => {
+const usageReport = async ({ from, to, groupBy = 'day', company } = {}) => {
   const groupExpr = GROUPINGS[groupBy];
   if (!groupExpr && groupBy !== 'action') {
     throw new Error(`Unsupported groupBy "${groupBy}" — use one of: ${Object.keys(GROUPINGS).join(', ')}, action`);
   }
 
   const match = {};
+  if (company) {
+    if (!mongoose.Types.ObjectId.isValid(company)) throw new Error(`Invalid company "${company}"`);
+    match.company = new mongoose.Types.ObjectId(company);
+  }
   if (from || to) {
     match.createdAt = {};
     if (from) match.createdAt.$gte = from;

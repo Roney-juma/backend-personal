@@ -115,8 +115,10 @@ const deleteUser = async (userId, company) => {
     return User.softDeleteOne(filter);
 };
 
-const resetPassword = async (email, newPassword) => {
-    const user = await User.findOne({ email });
+const resetPassword = async (email, newPassword, company) => {
+    // Scope by the requester's company so an insurer admin can't reset a user
+    // belonging to another tenant (platform staff pass no company → global).
+    const user = await User.findOne({ email, ...(company ? { company } : {}) });
     if (!user) throw new Error('User not found');
 
     user.password = await bcrypt.hash(newPassword, 10);

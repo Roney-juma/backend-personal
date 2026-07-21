@@ -22,8 +22,9 @@ const claimCost = async (req, res) => {
 };
 
 /**
- * GET /ai/usage/report?from=2026-07-01&to=2026-07-31&groupBy=day
+ * GET /ai/usage/report?from=2026-07-01&to=2026-07-31&groupBy=day&company=<id>
  * groupBy: day | month | feature | model | claim
+ * company: optional InsuranceCompany id to scope the (staff-wide) report to one tenant.
  */
 const report = async (req, res) => {
   try {
@@ -38,10 +39,11 @@ const report = async (req, res) => {
       from: parseDate(req.query.from, false),
       to: parseDate(req.query.to, true),
       groupBy,
+      company: req.query.company,
     });
     res.status(200).json(result);
   } catch (err) {
-    const client = /Unsupported groupBy|Invalid date/.test(err.message);
+    const client = /Unsupported groupBy|Invalid date|Invalid company/.test(err.message);
     if (!client) logger.error(`aiUsage report error: ${err.message}`);
     res.status(client ? 400 : 500).json({ message: client ? err.message : 'Could not load AI usage report' });
   }

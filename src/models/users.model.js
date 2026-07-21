@@ -9,9 +9,10 @@ const usersSchema = new mongoose.Schema({
         required: true, 
         unique: true 
     },
-    password: { 
-        type: String, 
-        required: true 
+    password: {
+        // Not required for SSO (Entra) accounts, which have no local password.
+        type: String,
+        required: function () { return this.authProvider !== 'entra'; },
     },
     fullName: { 
         type: String,
@@ -33,6 +34,10 @@ const usersSchema = new mongoose.Schema({
     mfaEnabled: { type: Boolean, default: false },
     mfaSecret: { type: String },
     mustChangePassword: { type: Boolean, default: false },
+    // Identity provider: 'local' (email+password) or 'entra' (Microsoft Entra SSO).
+    authProvider: { type: String, enum: ['local', 'entra'], default: 'local' },
+    ssoObjectId: { type: String },   // Entra object id (oid) — stable per-user identifier
+    ssoTenantId: { type: String },   // Entra tenant id (tid)
     profilePictureUrl: { type: String }
 }, { timestamps: true });
 

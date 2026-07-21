@@ -73,7 +73,7 @@ const run = async (claimId) => {
     // ── Stage 5: Persist ─────────────────────────────────────────────────────
     const analysis = await AiAnalysis.create({
       claimId: claim._id,
-      companyId: claim.customerId, // approximate; adjust if companyId is tracked
+      company: claim.company,
       signals,
       score,
       band,

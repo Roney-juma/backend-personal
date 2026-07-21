@@ -1,11 +1,14 @@
 const express = require('express');
 const claimTypeController = require('../controllers/claimType.controller');
 const verifyToken = require('../middlewheres/verifyToken');
+const optionalToken = require('../middlewheres/optionalToken');
 
 const router = express.Router();
 
 // Reads are public — claim types are reference data (e.g. for populating claim forms).
-router.get('/', claimTypeController.getAllClaimTypes);
+// optionalToken lets authenticated callers (mobile app, insurer portal) get a
+// tenant-scoped list (global + their company) while anonymous callers see everything.
+router.get('/', optionalToken(), claimTypeController.getAllClaimTypes);
 router.get('/:id', claimTypeController.getClaimTypeById);
 
 // Mutations remain authenticated (admin).

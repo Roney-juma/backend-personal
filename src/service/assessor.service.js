@@ -182,10 +182,11 @@ const getApprovedClaims = async (assessorId) => {
       throw new Error('Assessor location coordinates are missing');
     }
 
-    const claims = await Claim.find({
-      status: 'Approved',
-      awardedAssessor: { $exists: false }
-    }).lean();
+    // Tenant scope: assessors attached to an insurer only see that insurer's
+    // claims. Legacy assessors without a company keep the old global feed.
+    const claimFilter = { status: 'Approved', awardedAssessor: { $exists: false } };
+    if (assessor.company) claimFilter.company = assessor.company;
+    const claims = await Claim.find(claimFilter).lean();
     const nearbyClaims = claims.filter((claim) => {
       const { latitude, longitude } = claim.incidentDetails;
       if (!latitude || !longitude) return false;
@@ -227,6 +228,13 @@ const placeBid = async (claimId, assessorId, amount, description, timeline, req)
 
   const assessor = await Assessor.findById(assessorId);
   if (!assessor) throw new ApiError(404, 'Assessor not found');
+
+  // Cross-tenant guard: an assessor may not bid on another insurer's claim.
+  // Legacy actors/claims without a company are exempt.
+  if (claim.company && assessor.company && String(claim.company) !== String(assessor.company)) {
+    throw new ApiError(403, 'You cannot bid on a claim belonging to another insurance company');
+  }
+
   const pendingWork = await Claim.countDocuments({
     'awardedAssessor.assessorId': assessorId,
     status: { $ne: 'Completed' },

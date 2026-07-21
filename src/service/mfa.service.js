@@ -91,7 +91,10 @@ const verifyLoginChallenge = async (mfaToken, code) => {
     throw new Error('Invalid verification code');
   }
 
-  return user;
+  // Return the accountType from the challenge token so the caller can mint the
+  // matching access token (customer/garage tokens must never come out stamped
+  // as portal tokens).
+  return { user, accountType: payload.accountType };
 };
 
 module.exports = { beginEnrollment, confirmEnrollment, disable, verifyLoginChallenge };

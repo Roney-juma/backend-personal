@@ -151,6 +151,15 @@ const submitBidForSupply = async (claimId, supplierId, parts) => {
       return { error: 'You have already submitted a bid for this claim' };
   }
 
+  // Cross-tenant guard: a supplier may not bid on another insurer's claim.
+  // Legacy actors/claims without a company are exempt.
+  if (claim.company) {
+      const bidder = await Supplier.findById(supplierId).select('insuranceCompany').lean();
+      if (bidder?.insuranceCompany && String(claim.company) !== String(bidder.insuranceCompany)) {
+          return { error: 'You cannot bid on a claim belonging to another insurance company' };
+      }
+  }
+
   const isGlass = claim.status === 'GlassApproved';
   const normalizedParts = isGlass
     ? parts.map(p => ({
@@ -186,11 +195,17 @@ const submitBidForSupply = async (claimId, supplierId, parts) => {
 };
 
 
-const getClaimsInGarage = async () => {
-  return cache.wrap('cache:claims:in-garage', () =>
+// Tenant scope: suppliers attached to an insurer only see that insurer's claims;
+// legacy suppliers without one (or an unresolvable requester) keep the global feed.
+// Cache key varies by tenant so companies never share entries.
+const getClaimsInGarage = async (supplierId) => {
+  const supplier = supplierId ? await Supplier.findById(supplierId).select('insuranceCompany').lean() : null;
+  const company = supplier?.insuranceCompany;
+  return cache.wrap(`cache:claims:in-garage:${company || 'all'}`, () =>
     Claim.find({
       status: { $in: ['Assessed', 'GlassApproved'] },
       supplierBids: { $not: { $elemMatch: { status: 'Accepted' } } },
+      ...(company ? { company } : {}),
     }).lean(),
   300);
 };

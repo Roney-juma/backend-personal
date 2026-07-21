@@ -38,6 +38,13 @@ const verifyProviderToken = (roles = []) => (req, res, next) => {
                 return res.status(403).json({ message: 'Forbidden: provider access only' });
             }
 
+            // Defense in depth: staff tokens never carry a tenant claim. A token
+            // stamped ProviderUser that HAS one is a legacy insurer-admin token
+            // (issued before the CompanyUser split) — reject it.
+            if (user.company) {
+                return res.status(403).json({ message: 'Forbidden: provider access only' });
+            }
+
             req.user = user;
 
             if (roles.length && !roles.includes(req.user.role_ID)) {

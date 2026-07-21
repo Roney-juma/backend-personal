@@ -15,7 +15,7 @@ const login = async (req, res) => {
             const mfaToken = tokenService.generateMfaChallengeToken(user._id, 'User');
             return res.status(200).json({ mfaRequired: true, mfaToken });
         }
-        const tokens = tokenService.generateProviderUserToken(user);
+        const tokens = tokenService.generateCompanyUserToken(user);
         res.status(200).json({ user, tokens });
     } catch (error) {
         if (error.code === 'ACCOUNT_LOCKED') {
@@ -70,7 +70,11 @@ const getAdminUser = async (req, res) => {
 // Get comany Users
 const getCompanyUsers = async (req, res) => {
     try {
-        const users = await userService.getUsersByCompanyId(req.params.id);
+        // A company user may only list their own company, whatever id is in the
+        // URL; platform staff may pass any company id.
+        const requesterCompany = await getRequesterCompany(req);
+        const companyId = requesterCompany ? String(requesterCompany) : req.params.id;
+        const users = await userService.getUsersByCompanyId(companyId);
         res.status(200).json(users);
     }
     catch (error) {
@@ -103,7 +107,8 @@ const deleteAdminUser = async (req, res) => {
 const resetPassword = async (req, res) => {
     try {
         const { email, newPassword } = req.body;
-        const response = await userService.resetPassword(email, newPassword);
+        const company = await getRequesterCompany(req);
+        const response = await userService.resetPassword(email, newPassword, company);
         res.status(200).json(response);
     } catch (error) {
         res.status(400).json({ error: error.message });

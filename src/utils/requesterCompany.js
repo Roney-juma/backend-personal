@@ -1,10 +1,12 @@
 const userService = require('../service/users.service');
 
 // Resolve the InsuranceCompany id the authenticated requester belongs to, if any.
-// Company (provider) users are scoped to their own company; AVE platform staff have
-// no company and therefore get global scope. Prefers the value carried in the JWT
-// payload (generateProviderUserToken now includes `company`); falls back to a DB
-// lookup for older tokens issued before that field was added.
+// Insurer-portal admins (accountType 'CompanyUser') and mobile actors (Customer/
+// Garage/Assessor/Supplier) carry the tenant in the JWT `company` claim; AVE
+// platform staff (accountType 'ProviderUser') have no company and get global
+// scope. The DB fallback covers legacy insurer-admin tokens that were stamped
+// ProviderUser without a company claim (issued before the CompanyUser split) —
+// for genuine staff the lookup misses the Users collection and yields null.
 const getRequesterCompany = async (req) => {
     const fromToken = req.user?.company;
     if (fromToken) return fromToken._id || fromToken;

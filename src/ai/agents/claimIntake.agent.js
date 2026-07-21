@@ -185,7 +185,7 @@ async function runClaimIntake({ customer, token, fileClaim = null, messages = []
   // chosen id is required + validated). Falls back to [] if the load fails.
   let claimTypes = [];
   try {
-    claimTypes = await claimTypeService.getAllClaimTypes(true);
+    claimTypes = await claimTypeService.getAllClaimTypes(true, customer && customer.company);
   } catch (err) {
     logger.warn(`[ai] claim-intake could not load claim types: ${err.message}`);
   }
@@ -199,6 +199,7 @@ async function runClaimIntake({ customer, token, fileClaim = null, messages = []
     stage: 'intake',
     sessionKey,
     customerId: customer && customer._id,
+    company: customer && customer.company,
   };
 
   let status = 'collecting';

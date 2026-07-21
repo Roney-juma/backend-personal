@@ -165,7 +165,11 @@ const getAssessedClaims = async (garageId) => {
       throw new Error('garage location coordinates are missing');
     }
 
-    const claims = await Claim.find({ status: 'Garage', awardedGarage: { $exists: false } });
+    // Tenant scope: garages attached to an insurer only see that insurer's
+    // claims. Legacy garages without a company keep the old global feed.
+    const claimFilter = { status: 'Garage', awardedGarage: { $exists: false } };
+    if (garage.company) claimFilter.company = garage.company;
+    const claims = await Claim.find(claimFilter);
     const nearbyClaims = claims.filter((claim) => {
       const { latitude, longitude } = claim.incidentDetails;
       if (!latitude || !longitude) return false;
@@ -212,6 +216,12 @@ const placeBid = async (claimId, garageId, description, timeline, parts) => {
   }
   const totalCost = parts.reduce((total, part) => total + part.cost, 0);
   const garage = await Garage.findById(garageId);
+
+  // Cross-tenant guard: a garage may not bid on another insurer's claim.
+  // Legacy actors/claims without a company are exempt.
+  if (claim.company && garage?.company && String(claim.company) !== String(garage.company)) {
+    throw new ApiError(403, 'You cannot bid on a claim belonging to another insurance company');
+  }
 
   const acceptedSupplyBid = await SupplyBid.findOne({ claimId, status: 'Accepted' });
 

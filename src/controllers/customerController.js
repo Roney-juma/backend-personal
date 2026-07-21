@@ -1,10 +1,33 @@
 const customerService = require("../service/customerService");
+const activationService = require("../service/activation.service");
 const tokenService = require("../service/token.service");
 const logger = require('../middlewheres/logger');
+const { getRequesterCompany } = require('../utils/requesterCompany');
+
+// Activation-flow errors carry statusCode + a machine-readable code (contract §2).
+const respondActivationError = (res, error) => {
+  const body = { message: error.message };
+  if (error.code) body.code = error.code;
+  res.status(error.statusCode || 400).json(body);
+};
 
 const createCustomer = async (req, res) => {
   try {
-    const customerCreated = await customerService.createCustomer(req.body);
+    // Registration is public (no req.user), but when the insurer portal creates a
+    // customer the requester's company overrides any client-supplied tenant.
+    const isPortalUser = req.user?.accountType === 'CompanyUser' || req.user?.accountType === 'ProviderUser';
+
+    // Contract §5: open self-registration is deprecated behind a flag (default
+    // enabled). When flipped off, the public endpoint points users at the
+    // book-activation flow. Portal-created customers are unaffected.
+    if (process.env.OPEN_REGISTRATION_ENABLED === 'false' && !isPortalUser) {
+      return res.status(410).json({
+        code: 'REGISTRATION_CLOSED',
+        message: 'Open registration is closed. Please verify your account with your insurer in the app to activate it.',
+      });
+    }
+    const requesterCompany = isPortalUser ? await getRequesterCompany(req) : null;
+    const customerCreated = await customerService.createCustomer(req.body, requesterCompany);
 
     if (customerCreated && customerCreated.email) {
       await customerService.sendWelcomeEmail(customerCreated);
@@ -23,8 +46,14 @@ const createCustomer = async (req, res) => {
 
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const { user, tokens } = await customerService.loginUser(email, password);
+    const { email, password, companyId } = req.body;
+    const result = await customerService.loginUser(email, password, companyId);
+    // Multi-insurer: password matched records at more than one insurer — the
+    // app shows a picker and repeats login with companyId (contract §3).
+    if (result.selectCompany) {
+      return res.status(200).json(result);
+    }
+    const { user, tokens } = result;
     if (user.mfaEnabled) {
       const mfaToken = tokenService.generateMfaChallengeToken(user._id, 'Customer');
       return res.status(200).json({ mfaRequired: true, mfaToken });
@@ -33,6 +62,41 @@ const login = async (req, res) => {
   } catch (error) {
     const status = error.code === 'ACCOUNT_LOCKED' ? 429 : 401;
     res.status(status).json({ message: error.message });
+  }
+};
+
+// --- Mobile account activation (contract §2) ---
+
+const verifyAccount = async (req, res) => {
+  try {
+    const { companyId, email, phone } = req.body;
+    const result = await activationService.verifyAccount({ companyId, email, phone, ipAddress: req.ip });
+    res.status(200).json(result);
+  } catch (error) {
+    respondActivationError(res, error);
+  }
+};
+
+const confirmVerifyAccount = async (req, res) => {
+  try {
+    const { companyId, email, phone, code } = req.body;
+    const result = await activationService.confirmVerification({ companyId, email, phone, code });
+    res.status(200).json(result);
+  } catch (error) {
+    respondActivationError(res, error);
+  }
+};
+
+const activateAccount = async (req, res) => {
+  try {
+    const { activationToken, password } = req.body;
+    if (!activationToken) {
+      return res.status(401).json({ code: 'INVALID_ACTIVATION_TOKEN', message: 'Activation token is required' });
+    }
+    const result = await activationService.activateAccount({ activationToken, password });
+    res.status(201).json(result);
+  } catch (error) {
+    respondActivationError(res, error);
   }
 };
 
@@ -135,6 +199,9 @@ const requestAccountDeletion = async (req, res) => {
 module.exports = {
   createCustomer,
   login,
+  verifyAccount,
+  confirmVerifyAccount,
+  activateAccount,
   getAllCustomers,
   getCustomerClaims,
   forgotPassword,
