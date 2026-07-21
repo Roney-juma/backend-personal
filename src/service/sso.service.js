@@ -100,6 +100,8 @@ const completeLogin = async (params, { codeVerifier, state, nonce }) => {
   });
   const claims = tokenSet.claims();
   const user = await provisionUser(claims);
+  // The portal derives permissions from role.name / role.permissions.
+  await user.populate('role');
   // SSO provisions insurer-portal Users — mint a company-user (tenant) token.
   const tokens = tokenService.generateCompanyUserToken(user);
   logger.info('Entra SSO login', { email: user.email, oid: claims.oid });

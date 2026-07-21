@@ -68,6 +68,7 @@ const getAllUsers = async ({ page = 1, limit = 10, search = '' } = {}) => {
 
     const [users, total] = await Promise.all([
         User.find(query)
+            .select('-password -mfaSecret') // .lean() bypasses the model's toJSON transform
             .populate('role')
             .populate('company')
             .skip(skip)
@@ -143,6 +144,9 @@ const loginUserWithEmailAndPassword = async (email, password) => {
     }
 
     await resetAttempts(user);
+    // The portal derives nav/permissions from role.name and role.permissions,
+    // so the login response must carry the full role, not just its id.
+    await user.populate('role');
     return user;
 };
 

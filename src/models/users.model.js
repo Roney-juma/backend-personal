@@ -43,5 +43,18 @@ const usersSchema = new mongoose.Schema({
 
 usersSchema.plugin(softDelete);
 
+// Credential material must never leave the API when a user document is
+// serialized (login/MFA/SSO responses, user lists). Queries using .lean()
+// bypass this transform and must exclude these fields with .select().
+usersSchema.set('toJSON', {
+    transform: (_doc, ret) => {
+        delete ret.password;
+        delete ret.mfaSecret;
+        delete ret.failedLoginAttempts;
+        delete ret.lockUntil;
+        return ret;
+    },
+});
+
 const Users = mongoose.model('Users', usersSchema);
 module.exports = Users;

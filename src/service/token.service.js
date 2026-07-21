@@ -138,7 +138,8 @@ const generateCompanyUserToken = (user) => {
         email: user.email,
         fullName: user.fullName,
         username: user.username,
-        role: user.role,
+        // Login now populates role — keep the claim an id either way.
+        role: user.role?._id || user.role,
         company: user.company?._id || user.company,
         phone: user.phone,
         department: user.department,
