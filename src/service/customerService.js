@@ -10,6 +10,7 @@ const tokenService = require("../service/token.service");
 const { createResetToken, verifyResetToken, resetEmailBody } = require("../utils/passwordReset");
 const { isLocked, registerFailedAttempt, resetAttempts, AccountLockedError } = require("../utils/accountLockout");
 const { assertValidPassword } = require("../utils/passwordPolicy");
+const { belongsToCompany } = require("../utils/requesterCompany");
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -44,15 +45,12 @@ async function createCustomer(cus, requesterCompany) {
   if (!cus.email || !String(cus.email).trim()) {
     throw new Error('Email is required');
   }
+  // Cross-actor check stays global: an email that logs in as a garage or
+  // assessor can never also be a customer login.
   const existingGarage = await Garage.findOne({ email: cus.email });
-  const existingCustomer = await Customer.findOne({ email: cus.email });
   const existingAssessor = await Assessor.findOne({ email: cus.email });
-  if (existingGarage || existingCustomer || existingAssessor) {
+  if (existingGarage || existingAssessor) {
     throw new Error('We already have this Email in the System');
-  }
-
-  if (existingCustomer) {
-    throw new Error('Customer already exists');
   }
 
   assertValidPassword(cus.password);
@@ -61,6 +59,17 @@ async function createCustomer(cus, requesterCompany) {
 
   // Overwrites any client-supplied value that failed validation above.
   cus.company = await resolveCustomerCompany(cus, requesterCompany);
+
+  // Customer uniqueness is per insurer (multi-insurer contract: the same email
+  // may hold one account with each insurer — login shows a company picker).
+  // `?? null` so records with no resolved tenant still collide with each other.
+  const existingCustomer = await Customer.findOne({
+    email: cus.email,
+    company: cus.company ?? null,
+  });
+  if (existingCustomer) {
+    throw new Error('Customer already exists');
+  }
 
   // Mirror the primary policy into the policies array (the book-import shape),
   // so self-registered customers look the same as imported ones downstream.
@@ -138,13 +147,16 @@ const loginUser = async (email, password, companyId) => {
   throw new Error("Invalid email or password");
 };
 
-const getCustomers = async () => {
-  return await Customer.find().lean();
+const getCustomers = async (company) => {
+  const query = {};
+  if (company) query.company = company;
+  return await Customer.find(query).lean();
 };
 
-const getCustomerClaims = async (customerId) => {
+const getCustomerClaims = async (customerId, company) => {
   const customer = await Customer.findById(customerId);
-  if (!customer) {
+  // Cross-tenant ids read as missing ones (company falsy → no requester scope).
+  if (!customer || !belongsToCompany(customer.company, company)) {
     throw new Error('Customer not found');
   }
 
@@ -215,14 +227,20 @@ const resetPassword = async (email, token, newPassword) => {
 };
 
 // update customer
-const updateCustomer = async (customerId, customer) => {
-  return await Customer.findByIdAndUpdate
-    (customerId, customer, { new: true });
+const updateCustomer = async (customerId, customer, company) => {
+  // Scope to the requester's company (staff → no scope) so cross-tenant updates
+  // miss. Strip company from the payload so a company user can't reassign a
+  // customer to another tenant.
+  const filter = { _id: customerId, ...(company ? { company } : {}) };
+  if (company) delete customer.company;
+  return await Customer.findOneAndUpdate(filter, customer, { new: true });
 };
 
-const getCustomerStats = async () => {
-  const customersCount = await Customer.countDocuments();
+const getCustomerStats = async (company) => {
+  const scope = company ? { company } : {};
+  const customersCount = await Customer.countDocuments(scope);
   const newCustomersCount = await Customer.countDocuments({
+    ...scope,
     createdAt: { $gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) }
   });
   const recurringCustomersCount = customersCount - newCustomersCount;
