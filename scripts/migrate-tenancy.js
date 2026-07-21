@@ -324,6 +324,49 @@ const migrateCustomerAuth = async () => {
   }
 };
 
+// ── Step 9: support tickets mis-stamped with a user id as company ───────────
+// The company support routes previously set company = req.user.id, which for
+// insurer-portal admins is the USER id, not the company. Re-stamp those from
+// the user's company; report anything unresolvable.
+const repairSupportTickets = async (defaultCompanyId) => {
+  console.log('\n[9/9] Support tickets — repair company refs');
+  const SupportTicket = require('../src/models/supportTicket.model');
+
+  const companyIds = new Set(
+    (await InsuranceCompany.collection.find({}, { projection: { _id: 1 } }).toArray())
+      .map((c) => String(c._id))
+  );
+
+  let repaired = 0;
+  let defaulted = 0;
+  let unresolvable = 0;
+  const cursor = SupportTicket.collection.find({}, { projection: { company: 1, ticketNumber: 1 } });
+  for await (const t of cursor) {
+    if (!t.company || companyIds.has(String(t.company))) continue;
+    const user = await Users.collection.findOne(
+      { _id: t.company },
+      { projection: { company: 1 } }
+    );
+    const target = user?.company || defaultCompanyId;
+    if (target) {
+      if (!dryRun) {
+        await SupportTicket.collection.updateOne(
+          { _id: t._id },
+          { $set: { company: target } }
+        );
+      }
+      if (user?.company) repaired += 1; else defaulted += 1;
+    } else {
+      unresolvable += 1;
+      console.log(`    unresolvable ticket ${t.ticketNumber || t._id}: company ${t.company} is neither a company nor a known user`);
+    }
+  }
+  const verb = dryRun ? 'would repair' : 'repaired';
+  note('support', `tickets re-stamped from creator's company (${verb})`, repaired);
+  note('support', `orphaned tickets assigned to default company (${verb})`, defaulted);
+  note('support', 'tickets with unresolvable company (manual review)', unresolvable);
+};
+
 const reportUsers = async () => {
   console.log('\n[7/8] Users (report only — no writes)');
   const orphans = await Users.collection
@@ -388,6 +431,8 @@ const main = async () => {
     await reportUsers();
 
     await migrateCustomerAuth();
+
+    await repairSupportTickets(defaultCompanyId);
 
     console.log(`\n=== Summary${dryRun ? ' (dry run — no writes performed)' : ''} ===`);
     console.table(summary);
