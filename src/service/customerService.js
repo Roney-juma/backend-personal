@@ -1,4 +1,5 @@
 const Customer = require("../models/customerModel.js");
+const InsuranceCompany = require('../models/insuranceCompany.model');
 const Garage = require('../models/garage.model');
 const Assessor = require('../models/assessor.model.js');
 const Claim = require('../models/claim.model');
@@ -10,7 +11,39 @@ const { createResetToken, verifyResetToken, resetEmailBody } = require("../utils
 const { isLocked, registerFailedAttempt, resetAttempts, AccountLockedError } = require("../utils/accountLockout");
 const { assertValidPassword } = require("../utils/passwordPolicy");
 
-async function createCustomer(cus) {
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Resolve the tenant for a new customer. A portal admin's own company always wins
+// over anything client-supplied. Otherwise a body `company` id is honoured when it
+// points at an existing, non-suspended InsuranceCompany, then the free-text
+// `Insurer` name is matched case-insensitively against companyName. Registration
+// never fails on an unresolvable tenant — `company` is simply left unset.
+const resolveCustomerCompany = async (cus, requesterCompany) => {
+  if (requesterCompany) return requesterCompany;
+
+  if (cus.company) {
+    const byId = await InsuranceCompany.findOne({ _id: cus.company, status: { $ne: 'suspended' } })
+      .select('_id')
+      .catch(() => null); // invalid ObjectId — ignore rather than fail
+    if (byId) return byId._id;
+  }
+
+  if (cus.Insurer && cus.Insurer.trim()) {
+    const byName = await InsuranceCompany.findOne({
+      companyName: new RegExp(`^${escapeRegex(cus.Insurer.trim())}$`, 'i'),
+    }).select('_id');
+    if (byName) return byName._id;
+  }
+
+  return undefined;
+};
+
+async function createCustomer(cus, requesterCompany) {
+  // Schema-level email is optional (phone-only imported book records), so
+  // self/admin registration enforces it here.
+  if (!cus.email || !String(cus.email).trim()) {
+    throw new Error('Email is required');
+  }
   const existingGarage = await Garage.findOne({ email: cus.email });
   const existingCustomer = await Customer.findOne({ email: cus.email });
   const existingAssessor = await Assessor.findOne({ email: cus.email });
@@ -26,24 +59,83 @@ async function createCustomer(cus) {
   const password = await bcrypt.hash(cus.password, 10);
   cus.password = password;
 
+  // Overwrites any client-supplied value that failed validation above.
+  cus.company = await resolveCustomerCompany(cus, requesterCompany);
+
+  // Mirror the primary policy into the policies array (the book-import shape),
+  // so self-registered customers look the same as imported ones downstream.
+  if (!Array.isArray(cus.policies) || !cus.policies.length) {
+    cus.policies = [{ policyNumber: cus.policyNumber, policyType: cus.policyType }];
+  }
+
   // Create new customer
   return await Customer.create(cus);
 }
-const loginUser = async (email, password) => {
-  const user = await Customer.findOne({ email });
-  if (!user) {
+// Multi-insurer aware login (contract §3). The same email can now exist once
+// per insurer, so all non-deleted records are candidates; an optional companyId
+// (sent by the app after the company picker) narrows to one. Only `active`
+// records can match — imported/invited ones have no credential and
+// isPasswordMatch is false for them anyway. The company list is only revealed
+// AFTER password verification.
+const loginUser = async (email, password, companyId) => {
+  const query = {
+    email: String(email || '').trim().toLowerCase(),
+    isDeleted: { $ne: true },
+  };
+  if (companyId) query.company = companyId;
+
+  const candidates = await Customer.find(query).populate('company', 'companyName logo');
+  if (!candidates.length) {
     throw new Error("Invalid email or password");
   }
-  if (isLocked(user)) {
-    throw new AccountLockedError(user);
+
+  // Preserve the exact single-record behaviour: a locked account rejects
+  // before any password check.
+  if (candidates.length === 1 && isLocked(candidates[0])) {
+    throw new AccountLockedError(candidates[0]);
   }
-  if (!(await user.isPasswordMatch(password))) {
-    await registerFailedAttempt(user);
-    throw new Error("Invalid email or password");
+
+  // Lockout stays per record: locked candidates are never password-checked
+  // (their counters don't move), unlocked ones each keep their own counters.
+  const activeCandidates = candidates.filter((c) => c.status === 'active');
+  const lockedBefore = activeCandidates.filter((c) => isLocked(c));
+  const checkable = activeCandidates.filter((c) => !isLocked(c));
+  const matches = [];
+  for (const candidate of checkable) {
+    if (await candidate.isPasswordMatch(password)) matches.push(candidate);
   }
-  await resetAttempts(user);
-  const tokens = tokenService.GenerateToken(user);
-  return { user, tokens };
+
+  if (matches.length === 1) {
+    const user = matches[0];
+    await resetAttempts(user);
+    const tokens = tokenService.GenerateToken(user);
+    return { user, tokens };
+  }
+
+  if (matches.length > 1) {
+    // Same password at several insurers — app shows a picker, then repeats
+    // login with companyId. No tokens are issued yet.
+    return {
+      selectCompany: true,
+      companies: matches.map((c) => ({
+        companyId: c.company?._id || c.company || null,
+        companyName: c.company?.companyName,
+        logo: c.company?.logo,
+      })),
+    };
+  }
+
+  // Zero matches: every checked (active, unlocked) record takes a failed attempt.
+  for (const candidate of checkable) {
+    await registerFailedAttempt(candidate);
+  }
+  // As before: a lock is only reported when the account was already locked
+  // coming into this request (an attempt that just triggered the lock still
+  // reads as invalid credentials, matching the previous single-record flow).
+  if (activeCandidates.length && lockedBefore.length === activeCandidates.length) {
+    throw new AccountLockedError(lockedBefore[0]);
+  }
+  throw new Error("Invalid email or password");
 };
 
 const getCustomers = async () => {

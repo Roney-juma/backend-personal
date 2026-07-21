@@ -23,6 +23,10 @@ const aiUsageSchema = new Schema({
   cacheWriteTokens: { type: Number, default: 0 },
   usd: { type: Number, default: 0 }, // canonical cost — KES is a snapshot at today's rate
   kes: { type: Number, default: 0 },
+  // Tenant the spend belongs to (for per-company AI budgets). Stamped from the
+  // claim/customer in scope at call time; backfilled onto intake-session rows
+  // when the claim is filed.
+  company: { type: Schema.Types.ObjectId, ref: 'InsuranceCompany', index: true },
   claimId: { type: Schema.Types.ObjectId, ref: 'Claim', index: true, default: null },
   customerId: { type: Schema.Types.ObjectId, ref: 'Customer' },
   userId: { type: Schema.Types.ObjectId }, // staff identity (staff-assistant calls)

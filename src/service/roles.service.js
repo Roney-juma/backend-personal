@@ -12,38 +12,52 @@ const SUPER_ADMIN_ROLE_NAME = 'Super Admin';
 
 const allPermissions = () => Object.values(permissionsCatalog.permissions || {}).flat();
 
-// Idempotently ensure the super-admin role exists and return it. Replaces the
-// previously hardcoded (and unseeded) role ObjectId used at company creation.
+// Tenant read scope: a company user sees global roles (company: null) plus their
+// own company's roles; platform staff (company falsy) see everything.
+const readScope = (company) =>
+    company ? { $or: [{ company: null }, { company }] } : {};
+
+// Tenant write scope: a company user may only mutate roles owned by their own
+// company — global roles (like Super Admin) are staff-managed only.
+const writeScope = (company) => (company ? { company } : {});
+
+// Idempotently ensure the (global) super-admin role exists and return it. Replaces
+// the previously hardcoded (and unseeded) role ObjectId used at company creation.
 const ensureSuperAdminRole = async () => {
     return role.findOneAndUpdate(
-        { name: SUPER_ADMIN_ROLE_NAME },
-        { $setOnInsert: { name: SUPER_ADMIN_ROLE_NAME, permissions: allPermissions() } },
+        { name: SUPER_ADMIN_ROLE_NAME, company: null },
+        { $setOnInsert: { name: SUPER_ADMIN_ROLE_NAME, company: null, permissions: allPermissions() } },
         { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 };
 
-const createRole = async (roleData) => {
+const createRole = async (roleData, company) => {
     try {
-        const newRole = new role(roleData);
+        // A company user's roles always belong to their own company, regardless of
+        // what the client sends; staff may create global or any-company roles.
+        const data = { ...roleData };
+        if (company) data.company = company;
+        const newRole = new role(data);
         await newRole.save();
         return newRole;
     } catch (error) {
         logger.error('Error creating role:', error);
         throw error;
     }
-    }
-const getAllRoles = async () => {
+};
+
+const getAllRoles = async (company) => {
     try {
-        const roles = await role.find();
-        return roles;
+        return await role.find(readScope(company));
     } catch (error) {
         logger.error('Error fetching roles:', error);
         throw error;
     }
-}
-const getRoleById = async (roleId) => {
+};
+
+const getRoleById = async (roleId, company) => {
     try {
-        const roleData = await role.findById(roleId);
+        const roleData = await role.findOne({ _id: roleId, ...readScope(company) });
         if (!roleData) {
             throw new Error('Role not found');
         }
@@ -52,10 +66,19 @@ const getRoleById = async (roleId) => {
         logger.error('Error fetching role:', error);
         throw error;
     }
-}
-const updateRole = async (roleId, roleData) => {
+};
+
+const updateRole = async (roleId, roleData, company) => {
     try {
-        const updatedRole = await role.findByIdAndUpdate(roleId, roleData, { new: true });
+        // Strip company from the payload so a role can't be moved between tenants
+        // or turned global by a company user.
+        const data = { ...roleData };
+        if (company) delete data.company;
+        const updatedRole = await role.findOneAndUpdate(
+            { _id: roleId, ...writeScope(company) },
+            data,
+            { new: true }
+        );
         if (!updatedRole) {
             throw new Error('Role not found');
         }
@@ -64,10 +87,11 @@ const updateRole = async (roleId, roleData) => {
         logger.error('Error updating role:', error);
         throw error;
     }
-}
-const deleteRole = async (roleId) => {
+};
+
+const deleteRole = async (roleId, company) => {
     try {
-        const deletedRole = await role.softDeleteById(roleId);
+        const deletedRole = await role.softDeleteOne({ _id: roleId, ...writeScope(company) });
         if (!deletedRole) {
             throw new Error('Role not found');
         }
@@ -76,10 +100,13 @@ const deleteRole = async (roleId) => {
         logger.error('Error deleting role:', error);
         throw error;
     }
-}
-const getRoleByName = async (roleName) => {
+};
+
+const getRoleByName = async (roleName, company) => {
     try {
-        const roleData = await role.findOne({ name: roleName });
+        // Prefer the tenant's own role over a same-named global one.
+        const roles = await role.find({ name: roleName, ...readScope(company) });
+        const roleData = roles.find(r => r.company) || roles[0];
         if (!roleData) {
             throw new Error('Role not found');
         }
@@ -88,46 +115,54 @@ const getRoleByName = async (roleName) => {
         logger.error('Error fetching role:', error);
         throw error;
     }
-}
-const getRolesByIds = async (roleIds) => {
+};
+
+const getRolesByIds = async (roleIds, company) => {
     try {
-        const roles = await role.find({ _id: { $in: roleIds.map(id => ObjectId(id)) } });
-        return roles;
+        return await role.find({ _id: { $in: roleIds.map(id => ObjectId(id)) }, ...readScope(company) });
     } catch (error) {
         logger.error('Error fetching roles:', error);
         throw error;
     }
-}
-const getRolesByUserId = async (userId) => {
+};
+
+const getRolesByUserId = async (userId, company) => {
     try {
-        const roles = await role.find({ users: userId });
-        return roles;
+        return await role.find({ users: userId, ...readScope(company) });
     } catch (error) {
         logger.error('Error fetching roles:', error);
         throw error;
     }
-}
-const getRolesByPermission = async (permission) => {
+};
+
+const getRolesByPermission = async (permission, company) => {
     try {
-        const roles = await role.find({ permissions: permission });
-        return roles;
+        return await role.find({ permissions: permission, ...readScope(company) });
     } catch (error) {
         logger.error('Error fetching roles:', error);
         throw error;
     }
-}
-// Create Bulk Roles
-const createBulkRoles = async (rolesData) => {
+};
+
+// Create Bulk Roles (staff seeding, or a company seeding its own set)
+const createBulkRoles = async (rolesData, company) => {
     try {
-        const bulkOps = rolesData.map(role => ({ updateOne: { filter: { name: role.name }, update: { $setOnInsert: role }, upsert: true } }));
-        const result = await role.bulkWrite(bulkOps);
-        return result;
-        } catch (error) {
+        const bulkOps = rolesData.map(r => {
+            const data = { ...r, ...(company ? { company } : { company: r.company ?? null }) };
+            return {
+                updateOne: {
+                    filter: { name: data.name, company: data.company },
+                    update: { $setOnInsert: data },
+                    upsert: true,
+                },
+            };
+        });
+        return await role.bulkWrite(bulkOps);
+    } catch (error) {
         logger.error('Error creating bulk roles:', error);
         throw error;
     }
-    }
-
+};
 
 module.exports = {
     createRole,

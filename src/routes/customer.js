@@ -11,6 +11,12 @@ const router = express.Router();
 
 router.post("/register", customerController.createCustomer)
 router.post("/login", authLimiter, customerController.login)
+
+// Mobile account activation — book-verified "registration" (public, rate-limited)
+router.post("/verify-account", authLimiter, customerController.verifyAccount)
+router.post("/verify-account/confirm", authLimiter, customerController.confirmVerifyAccount)
+router.post("/activate", authLimiter, customerController.activateAccount)
+
 router.post('/forgot-password', authLimiter, customerController.forgotPassword);
 router.post('/reset-password', authLimiter, customerController.resetPassword);
 

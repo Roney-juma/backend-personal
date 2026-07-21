@@ -1,8 +1,14 @@
 const claimTypeService = require('../service/claimType.service');
+const { getRequesterCompany } = require('../utils/requesterCompany');
 
 const createClaimType = async (req, res) => {
   try {
-    const claimType = await claimTypeService.createClaimType(req.body);
+    const company = await getRequesterCompany(req);
+    const data = { ...req.body };
+    // Company users always create for their own tenant; staff may pass a
+    // company explicitly or omit it to create a global type.
+    if (company) data.company = company;
+    const claimType = await claimTypeService.createClaimType(data);
     res.status(201).json(claimType);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -12,7 +18,8 @@ const createClaimType = async (req, res) => {
 const getAllClaimTypes = async (req, res) => {
   try {
     const activeOnly = req.query.active === 'true';
-    const claimTypes = await claimTypeService.getAllClaimTypes(activeOnly);
+    const company = await getRequesterCompany(req);
+    const claimTypes = await claimTypeService.getAllClaimTypes(activeOnly, company);
     res.status(200).json(claimTypes);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -30,16 +37,20 @@ const getClaimTypeById = async (req, res) => {
 
 const updateClaimType = async (req, res) => {
   try {
-    const claimType = await claimTypeService.updateClaimType(req.params.id, req.body);
+    const company = await getRequesterCompany(req);
+    const claimType = await claimTypeService.updateClaimType(req.params.id, req.body, company);
     res.status(200).json(claimType);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    // Cross-tenant (or missing) targets surface as not found, never as forbidden.
+    const notFound = error.message === 'Claim type not found';
+    res.status(notFound ? 404 : 400).json({ message: error.message });
   }
 };
 
 const deleteClaimType = async (req, res) => {
   try {
-    await claimTypeService.deleteClaimType(req.params.id);
+    const company = await getRequesterCompany(req);
+    await claimTypeService.deleteClaimType(req.params.id, company);
     res.status(200).json({ message: 'Claim type deleted successfully' });
   } catch (error) {
     res.status(404).json({ message: error.message });

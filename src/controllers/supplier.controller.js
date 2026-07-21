@@ -152,7 +152,12 @@ const submitBidForSupply = async (req, res) => {
 
 const getAllClaimsInGarage = async (req, res) => {
     try {
-        const claims = await supplierService.getClaimsInGarage();
+        // This is the supplier app's bidding feed — the requester's own supplier id
+        // scopes it to their insurer. Portal staff (Company/Provider users) keep the
+        // unscoped feed; ids that don't resolve to a supplier fall back to global.
+        const type = req.user?.accountType;
+        const supplierId = type === 'CompanyUser' || type === 'ProviderUser' ? null : req.user?.id;
+        const claims = await supplierService.getClaimsInGarage(supplierId);
         console.log('Claims in garage:', claims);
         res.json(claims);
     } catch (err) {

@@ -58,6 +58,15 @@ const getCompanySuppliers = async (req, res) => {
   }
 };
 
+const listPublicCompanies = async (req, res) => {
+  try {
+    const companies = await insuranceCompanyService.getPublicCompanies();
+    res.status(200).json(companies);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 const getCompanyById = async (req, res) => {
   try {
     const company = await insuranceCompanyService.getCompanyById(req.params.id);
@@ -135,6 +144,7 @@ const getCompanyStats = async (req, res) => {
 module.exports = {
   createCompany,
   getAllCompanies,
+  listPublicCompanies,
   getCompanyById,
   updateCompany,
   updateCompanyStatus,

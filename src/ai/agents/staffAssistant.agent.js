@@ -54,6 +54,8 @@ async function runStaffAssistant({ user, messages = [], userMessage }) {
   const usageMeta = {
     feature: FEATURES.STAFF_ASSISTANT,
     userId: user && (user.id || user._id),
+    // CompanyUser tokens carry the tenant; platform staff have none (global spend).
+    company: user && user.company && (user.company._id || user.company),
     sessionKey: user && (user.id || user._id) ? `staff:${user.id || user._id}` : undefined,
   };
 

@@ -71,7 +71,7 @@ const run = async (claim) => {
       maxTokens: 512,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userMessage }],
-      meta: { feature: FEATURES.NARRATIVE_ANALYSIS, stage: 'fraud', claimId: claim._id, customerId: claim.customerId },
+      meta: { feature: FEATURES.NARRATIVE_ANALYSIS, stage: 'fraud', claimId: claim._id, customerId: claim.customerId, company: claim.company },
     });
     tracker.record(resp);
     tracker.flush();

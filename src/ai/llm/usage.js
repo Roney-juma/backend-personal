@@ -15,7 +15,7 @@ const logger = require('../../middlewheres/logger');
 
 /**
  * @param {Object} response  Raw Anthropic message response (model + usage).
- * @param {Object} [meta]    { feature, stage, claimId, customerId, userId, sessionKey }
+ * @param {Object} [meta]    { feature, stage, claimId, customerId, userId, sessionKey, company }
  */
 const recordUsage = (response, meta = {}) => {
   try {
@@ -31,6 +31,7 @@ const recordUsage = (response, meta = {}) => {
       cacheWriteTokens: u.cache_creation_input_tokens || 0,
       usd,
       kes: usd * USD_TO_KES,
+      company: meta.company || undefined,
       claimId: meta.claimId || null,
       customerId: meta.customerId || undefined,
       userId: meta.userId || undefined,
@@ -44,7 +45,15 @@ const recordUsage = (response, meta = {}) => {
 /** Attach a freshly filed claim to all usage rows from its intake session. */
 const attributeSessionToClaim = (sessionKey, claimId) => {
   if (!sessionKey || !claimId) return;
-  AiUsage.updateMany({ sessionKey, claimId: null }, { $set: { claimId } })
+  // Resolve the claim's tenant so pre-claim session rows pick up the company
+  // alongside the claimId (required lazily to avoid a model load cycle).
+  const Claim = require('../../models/claim.model');
+  Claim.findById(claimId).select('company').lean()
+    .then((claim) => {
+      const update = { claimId };
+      if (claim && claim.company) update.company = claim.company;
+      return AiUsage.updateMany({ sessionKey, claimId: null }, { $set: update });
+    })
     .catch((err) => logger.warn(`[ai-usage] claim attribution failed: ${err.message}`));
 };
 

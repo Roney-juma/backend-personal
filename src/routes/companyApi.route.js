@@ -15,6 +15,52 @@ const InsuranceCompany = require('../models/insuranceCompany.model');
 const CompanySubscription = require('../models/companySubscription.model');
 const Invoice = require('../models/invoice.model');
 const ApiKey = require('../models/apiKey.model');
+const customerImportService = require('../service/customerImport.service');
+
+// ── Book import (docs/Mobile-Activation-API.md §4) ────────────────────────────
+
+// Batch import/merge of the insurer's policy book. Row-level validation:
+// a failed row never aborts the batch. `dryRun: true` validates and simulates
+// without writing.
+router.post('/customers/batch', verifyApiKey(['customers:write']), async (req, res) => {
+  try {
+    const { dryRun = false, customers } = req.body || {};
+    if (!Array.isArray(customers) || customers.length === 0) {
+      return res.status(400).json({ message: '`customers` must be a non-empty array' });
+    }
+    if (customers.length > customerImportService.MAX_BATCH_SIZE) {
+      return res.status(413).json({
+        message: `Too many customers: max ${customerImportService.MAX_BATCH_SIZE} per call`,
+      });
+    }
+    const result = await customerImportService.importBatch({
+      company: req.company,
+      customers,
+      dryRun: Boolean(dryRun),
+      performedBy: `apikey:${req.apiKey.keyName}`,
+      ipAddress: req.ip,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Rollback: deletes only that batch's customers still at status 'imported'
+// with no claims; reports deleted vs retained counts.
+router.delete('/customers/batch/:batchId', verifyApiKey(['customers:write']), async (req, res) => {
+  try {
+    const result = await customerImportService.rollbackBatch({
+      company: req.company,
+      batchId: req.params.batchId,
+      performedBy: `apikey:${req.apiKey.keyName}`,
+      ipAddress: req.ip,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
 // ── Company profile ───────────────────────────────────────────────────────────
 

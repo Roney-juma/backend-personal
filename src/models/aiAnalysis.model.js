@@ -12,6 +12,9 @@ const signalSchema = new Schema({
 
 const aiAnalysisSchema = new Schema({
   claimId: { type: Schema.Types.ObjectId, ref: 'Claim', required: true, index: true },
+  // Tenant the analysis belongs to, copied from claim.company at creation time.
+  company: { type: Schema.Types.ObjectId, ref: 'InsuranceCompany', index: true },
+  // Legacy field — old documents hold the claim's customerId here by mistake.
   companyId: { type: Schema.Types.ObjectId },
   // 'fraud' = the filing-time pipeline (default); 'vehicle_continuity' = a
   // cross-stage same-vehicle check tied to a specific lifecycle `stage`.

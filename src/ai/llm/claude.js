@@ -25,7 +25,7 @@ const AGENT_MODEL = process.env.ANTHROPIC_MODEL_AGENT || 'claude-opus-4-8';
  * @param {string}   [opts.model]    Override the model id.
  * @param {number}   [opts.maxTokens]
  * @param {Object}   [opts.meta]     Usage attribution, persisted to AiUsage:
- *                                   { feature, stage, claimId, customerId, userId, sessionKey }
+ *                                   { feature, stage, claimId, customerId, userId, sessionKey, company }
  * @returns the raw Anthropic message response.
  */
 const complete = async ({ system, messages, tools, toolChoice, model, maxTokens = 1024, meta }) => {

@@ -79,6 +79,9 @@ const bidSchema = new Schema({
 });
 
 const claimSchema = new Schema({
+  // Tenant scope — stamped from the claimant customer's `company` at creation.
+  // Unset on legacy claims filed before multi-tenancy; those stay globally visible.
+  company: { type: Schema.Types.ObjectId, ref: 'InsuranceCompany', index: true },
   customerId: { type: Schema.Types.ObjectId, ref: 'Customer', required: true },
   claimTypeId: { type: Schema.Types.ObjectId, ref: 'ClaimType', required: false },
   claimant: {
@@ -307,6 +310,7 @@ const claimSchema = new Schema({
 // (by status, customer, awarded assessor/garage, or nested bids) is a full collection
 // scan that degrades linearly as claims grow.
 claimSchema.index({ status: 1, createdAt: -1 });            // status lists, newest-first
+claimSchema.index({ company: 1, status: 1 });               // tenant-scoped portal lists/stats
 claimSchema.index({ customerId: 1 });                       // claims by customer
 claimSchema.index({ 'claimant.email': 1 });                 // customer portal lookups
 claimSchema.index({ claimTypeId: 1 });                      // glass vs motor filtering

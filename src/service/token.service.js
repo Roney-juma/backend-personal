@@ -6,6 +6,12 @@ const { readPrivateKey } = require('../config/keys');
 const privateKey = readPrivateKey();
 
 const GenerateToken = (user) => {
+    // Tenant claim: customers/garages/assessors use `company`, suppliers use
+    // `insuranceCompany`. A supplier's `company` is its free-text business name
+    // (and suppliers have no accountType field), so only ObjectId values — never
+    // strings — are accepted as the tenant ref.
+    const tenantRef = [user.insuranceCompany, user.company]
+        .find(v => v && typeof v === 'object');
     const data = {
         id: user._id,
         firstName: user.firstName,
@@ -16,6 +22,7 @@ const GenerateToken = (user) => {
         phone: user.phone,
         is_deleted: user.is_deleted,
         accountType: user.accountType,
+        company: tenantRef ? (tenantRef._id || tenantRef) : undefined,
     };
 
     // const encryptedData = Encrypt(JSON.stringify(data));
@@ -93,6 +100,8 @@ const generatePocToken = (user) => {
     );
     return token;
 };
+// Platform staff (ProviderUser model) ONLY. Never carries a company claim —
+// verifyProviderToken rejects any token that has one.
 const generateProviderUserToken = (user) => {
     const data = {
         id: user._id,
@@ -100,11 +109,41 @@ const generateProviderUserToken = (user) => {
         fullName: user.fullName,
         username: user.username,
         role: user.role,
-        company: user.company,
         phone: user.phone,
         department: user.department,
         position: user.position,
         accountType: 'ProviderUser',
+    };
+    const token = jwt.sign(
+        { payload: data },
+        {
+            key: privateKey.replace(/\\n/gm, '\n'),
+            passphrase: TokenSecret,
+        },
+        {
+            issuer: TokenIssuer,
+            algorithm: 'RS512',
+            expiresIn: '1d',
+        }
+    );
+    return token;
+};
+
+// Insurer-portal admins (Users model). Distinct accountType so provider-only
+// middleware can tell an insurer admin from AVE platform staff, and always
+// carries the tenant (`company`) claim used to scope every query.
+const generateCompanyUserToken = (user) => {
+    const data = {
+        id: user._id,
+        email: user.email,
+        fullName: user.fullName,
+        username: user.username,
+        role: user.role,
+        company: user.company?._id || user.company,
+        phone: user.phone,
+        department: user.department,
+        position: user.position,
+        accountType: 'CompanyUser',
     };
     const token = jwt.sign(
         { payload: data },
@@ -163,4 +202,25 @@ const generateMfaChallengeToken = (userId, accountType) => {
     );
 };
 
-module.exports = { GenerateToken, generate, generatePocToken, generateCompanyToken, generateProviderUserToken, generateMfaChallengeToken };
+// Short-lived single-purpose token minted after a correct activation OTP
+// (contract §2.2). Only authorizes POST /customers/activate — never API access.
+// Carries the consumed otpCode _id so activation can enforce single use by
+// atomically deleting that document, plus the delivery channel so activation
+// knows whether to flip emailVerified.
+const generateActivationToken = (customerId, otpCodeId, channel) => {
+    const data = { id: customerId, otp: otpCodeId, channel, purpose: 'activation' };
+    return jwt.sign(
+        { payload: data },
+        {
+            key: privateKey.replace(/\\n/gm, '\n'),
+            passphrase: TokenSecret,
+        },
+        {
+            issuer: TokenIssuer,
+            algorithm: 'RS512',
+            expiresIn: '10m',
+        }
+    );
+};
+
+module.exports = { GenerateToken, generate, generatePocToken, generateCompanyToken, generateProviderUserToken, generateCompanyUserToken, generateMfaChallengeToken, generateActivationToken };

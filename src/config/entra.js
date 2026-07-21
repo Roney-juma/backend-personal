@@ -6,7 +6,7 @@ const entraConfig = {
   clientId: process.env.ENTRA_CLIENT_ID,
   clientSecret: process.env.ENTRA_CLIENT_SECRET,
   // Where Entra redirects back to (must match the app registration's redirect URI).
-  redirectUri: process.env.ENTRA_REDIRECT_URI, // e.g. https://insurance-api.aveafricasolutions.com/auth/sso/entra/callback
+  redirectUri: process.env.ENTRA_REDIRECT_URI, // e.g. https://insurance-api.aveafrica.com/auth/sso/entra/callback
   // Where the backend sends the browser after issuing the app token (the portal).
   postLoginRedirect: process.env.ENTRA_POST_LOGIN_REDIRECT, // e.g. https://admin.aveafrica.com/sso/callback
   // Optional guardrails for just-in-time provisioning.

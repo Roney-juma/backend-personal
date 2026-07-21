@@ -96,6 +96,15 @@ const getCompanySuppliers = async (companyId, { page = 1, limit = 100, search = 
   return supplierService.getAllSuppliers({ page, limit, search, insuranceCompany: companyId });
 };
 
+// Public directory for the mobile app's company picker — active companies only,
+// and only the fields safe to expose without auth (no emails/phones).
+const getPublicCompanies = async () => {
+  return InsuranceCompany.find({ status: 'active' })
+    .select('_id companyName logo')
+    .sort({ companyName: 1 })
+    .lean();
+};
+
 const getCompanyById = async (id) => {
   return InsuranceCompany.findById(id).select('-password');
 };
@@ -178,6 +187,7 @@ const getCompanyStats = async (id) => {
 module.exports = {
   createCompany,
   getAllCompanies,
+  getPublicCompanies,
   getCompanyById,
   updateCompany,
   updateCompanyStatus,

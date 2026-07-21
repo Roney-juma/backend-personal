@@ -1,10 +1,15 @@
 const roleService = require('../service/roles.service');
 const logger = require('../middlewheres/logger');
+const { getRequesterCompany } = require('../utils/requesterCompany');
+
+// Every handler resolves the requester's tenant: company users see global roles
+// plus their own company's and may only mutate their own; platform staff
+// (no company) have global scope.
 
 const createRole = async (req, res) => {
     try {
-        const roleData = req.body;
-        const newRole = await roleService.createRole(roleData);
+        const company = await getRequesterCompany(req);
+        const newRole = await roleService.createRole(req.body, company);
         res.status(201).json(newRole);
     } catch (error) {
         logger.error('Error creating role:', error);
@@ -13,7 +18,8 @@ const createRole = async (req, res) => {
 }
 const getAllRoles = async (req, res) => {
     try {
-        const roles = await roleService.getAllRoles();
+        const company = await getRequesterCompany(req);
+        const roles = await roleService.getAllRoles(company);
         res.status(200).json(roles);
     } catch (error) {
         logger.error('Error fetching roles:', error);
@@ -22,8 +28,8 @@ const getAllRoles = async (req, res) => {
 }
 const getRoleById = async (req, res) => {
     try {
-        const roleId = req.params.id;
-        const roleData = await roleService.getRoleById(roleId);
+        const company = await getRequesterCompany(req);
+        const roleData = await roleService.getRoleById(req.params.id, company);
         res.status(200).json(roleData);
     } catch (error) {
         logger.error('Error fetching role:', error);
@@ -32,9 +38,8 @@ const getRoleById = async (req, res) => {
 }
 const updateRole = async (req, res) => {
     try {
-        const roleId = req.params.id;
-        const roleData = req.body;
-        const updatedRole = await roleService.updateRole(roleId, roleData);
+        const company = await getRequesterCompany(req);
+        const updatedRole = await roleService.updateRole(req.params.id, req.body, company);
         res.status(200).json(updatedRole);
     }
     catch (error) {
@@ -44,8 +49,8 @@ const updateRole = async (req, res) => {
 }
 const deleteRole = async (req, res) => {
     try {
-        const roleId = req.params.id;
-        const deletedRole = await roleService.deleteRole(roleId);
+        const company = await getRequesterCompany(req);
+        const deletedRole = await roleService.deleteRole(req.params.id, company);
         res.status(200).json(deletedRole);
     }
     catch (error) {
@@ -55,8 +60,8 @@ const deleteRole = async (req, res) => {
 }
 const getRolesByPermission = async (req, res) => {
     try {
-        const permission = req.params.permission;
-        const roles = await roleService.getRolesByPermission(permission);
+        const company = await getRequesterCompany(req);
+        const roles = await roleService.getRolesByPermission(req.params.permission, company);
         res.status(200).json(roles);
     }
     catch (error) {
@@ -66,9 +71,9 @@ const getRolesByPermission = async (req, res) => {
 }
 const getRolesByIds = async (req, res) => {
     try {
-        const ids = req.params.ids;
-        const roleIds = ids.split(',').map(id => id.trim());
-        const roles = await roleService.getRolesByIds(roleIds);
+        const company = await getRequesterCompany(req);
+        const roleIds = req.params.ids.split(',').map(id => id.trim());
+        const roles = await roleService.getRolesByIds(roleIds, company);
         res.status(200).json(roles);
     }
     catch (error) {
@@ -78,8 +83,8 @@ const getRolesByIds = async (req, res) => {
 }
 const getRolesByUserId = async (req, res) => {
     try {
-        const userId = req.params.userId;
-        const roles = await roleService.getRolesByUserId(userId);
+        const company = await getRequesterCompany(req);
+        const roles = await roleService.getRolesByUserId(req.params.userId, company);
         res.status(200).json(roles);
     }
     catch (error) {
@@ -89,8 +94,8 @@ const getRolesByUserId = async (req, res) => {
 }
 const getRoleByName = async (req, res) => {
     try {
-        const roleName = req.params.name;
-        const roleData = await roleService.getRoleByName(roleName);
+        const company = await getRequesterCompany(req);
+        const roleData = await roleService.getRoleByName(req.params.name, company);
         res.status(200).json(roleData);
     }
     catch (error) {
@@ -101,8 +106,8 @@ const getRoleByName = async (req, res) => {
 
 const createBulkRoles = async (req, res) => {
     try {
-        const roles = req.body.roles;
-        const createdRoles = await roleService.createBulkRoles(roles);
+        const company = await getRequesterCompany(req);
+        const createdRoles = await roleService.createBulkRoles(req.body.roles, company);
         res.status(201).json(createdRoles);
     }
     catch (error) {
@@ -123,4 +128,3 @@ module.exports = {
     getRoleByName,
     createBulkRoles
     };
-

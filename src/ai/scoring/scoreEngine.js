@@ -49,7 +49,7 @@ const aggregate = async (signals, claim, stage = 'fraud') => {
           role: 'user',
           content: `Claim: ${vehicle}\nRisk score: ${score}/100 (${band})\n\nSignals:\n${sigSummary}\n\nWrite the reasoning summary.`,
         }],
-        meta: { feature: FEATURES.FRAUD_REASONING, stage, claimId: claim._id, customerId: claim.customerId },
+        meta: { feature: FEATURES.FRAUD_REASONING, stage, claimId: claim._id, customerId: claim.customerId, company: claim.company },
       });
 
       tracker.record(resp);
