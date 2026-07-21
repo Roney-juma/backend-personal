@@ -331,9 +331,21 @@ const submitAssessmentReport = async (claimId, assessmentReport, req) => {
   const claim = await Claim.findById(claimId);
   if (!claim) throw new ApiError(404, 'Claim not found');
 
-  const parts = assessmentReport.parts.map((part) => {
-    return { partName: part, cost: '' };
-  });
+  // The formal report document (PDF/Word, uploaded via /images/upload-document)
+  // is mandatory — mirrors the investigator's comprehensiveReport.
+  if (!assessmentReport?.reportDocument?.url || typeof assessmentReport.reportDocument.url !== 'string') {
+    throw new ApiError(400, 'Assessment report document is required (reportDocument.url)');
+  }
+  assessmentReport.reportDocument.uploadedAt = new Date();
+
+  // Accept both shapes: legacy clients send plain strings, current ones
+  // send { partName, cost } (previously objects got mangled into
+  // { partName: {…}, cost: '' }, forcing display-side workarounds).
+  const parts = (assessmentReport.parts || []).map((part) =>
+    part && typeof part === 'object'
+      ? { partName: part.partName ?? part.name ?? '', cost: part.cost ?? '' }
+      : { partName: part, cost: '' }
+  );
   assessmentReport.parts = parts;
 
   const start = Date.now();
