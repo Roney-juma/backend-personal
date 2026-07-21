@@ -3,6 +3,7 @@ const activationService = require("../service/activation.service");
 const tokenService = require("../service/token.service");
 const logger = require('../middlewheres/logger');
 const { getRequesterCompany } = require('../utils/requesterCompany');
+const { writeAuditLog } = require('../utils/auditHelper');
 
 // Requester-company scoping applies only to insurer-portal audiences (company
 // admins and AVE platform staff — staff resolve to null → global scope). Mobile
@@ -41,6 +42,21 @@ const createCustomer = async (req, res) => {
 
     if (customerCreated && customerCreated.email) {
       await customerService.sendWelcomeEmail(customerCreated);
+    }
+
+    // Audit only portal-created customers — public self-registration is not an
+    // admin action and would pollute the tenant's audit report.
+    if (isPortalUser) {
+      await writeAuditLog(req, {
+        action: 'CREATE',
+        module: 'Customer',
+        actionDescription: `Created customer ${customerCreated.firstName} ${customerCreated.lastName} (${customerCreated.email})`,
+        resourceType: 'Customer',
+        resourceId: customerCreated._id,
+        statusCode: 201,
+        success: true,
+        changes: { old: null, new: { firstName: customerCreated.firstName, lastName: customerCreated.lastName, email: customerCreated.email } },
+      });
     }
 
     res.status(201).json(customerCreated); // Resource created
@@ -174,6 +190,19 @@ const updateCustomer = async (req, res) => {
     const updatedCustomer = await customerService.updateCustomer(customerId, customer, company);
     // Cross-tenant ids 404 like missing ones.
     if (!updatedCustomer) return res.status(404).json({ error: 'Customer not found' });
+    // Audit only portal-side edits — a mobile customer updating their own
+    // profile is not an admin action.
+    if (req.user?.accountType === 'CompanyUser' || req.user?.accountType === 'ProviderUser') {
+      await writeAuditLog(req, {
+        action: 'UPDATE',
+        module: 'Customer',
+        actionDescription: `Updated customer ${updatedCustomer.firstName} ${updatedCustomer.lastName} (${updatedCustomer.email})`,
+        resourceType: 'Customer',
+        resourceId: updatedCustomer._id,
+        statusCode: 200,
+        success: true,
+      });
+    }
     res.status(200).json(updatedCustomer);
   } catch (error) {
     res.status(500).json({ error: error.message });

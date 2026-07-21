@@ -2,7 +2,7 @@ const AuditLog = require('../models/audit.model');
 const logger = require('../middlewheres/logger');
 const { getRequesterCompany } = require('./requesterCompany');
 
-const SENSITIVE_FIELDS = new Set(['password', 'newPassword', 'currentPassword', 'token', 'secret', 'apiKey', 'refreshToken']);
+const SENSITIVE_FIELDS = new Set(['password', 'newPassword', 'currentPassword', 'token', 'secret', 'apiKey', 'refreshToken', 'code', 'mfaToken', 'activationToken']);
 
 function sanitizeBody(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return body;

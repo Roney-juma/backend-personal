@@ -1,6 +1,7 @@
 const roleService = require('../service/roles.service');
 const logger = require('../middlewheres/logger');
 const { getRequesterCompany } = require('../utils/requesterCompany');
+const { writeAuditLog } = require('../utils/auditHelper');
 
 // Every handler resolves the requester's tenant: company users see global roles
 // plus their own company's and may only mutate their own; platform staff
@@ -10,6 +11,16 @@ const createRole = async (req, res) => {
     try {
         const company = await getRequesterCompany(req);
         const newRole = await roleService.createRole(req.body, company);
+        await writeAuditLog(req, {
+            action: 'CREATE',
+            module: 'Role',
+            actionDescription: `Created role ${newRole.name}`,
+            resourceType: 'Role',
+            resourceId: newRole._id,
+            statusCode: 201,
+            success: true,
+            changes: { old: null, new: { name: newRole.name, permissions: newRole.permissions } },
+        });
         res.status(201).json(newRole);
     } catch (error) {
         logger.error('Error creating role:', error);
@@ -40,6 +51,15 @@ const updateRole = async (req, res) => {
     try {
         const company = await getRequesterCompany(req);
         const updatedRole = await roleService.updateRole(req.params.id, req.body, company);
+        await writeAuditLog(req, {
+            action: 'UPDATE',
+            module: 'Role',
+            actionDescription: `Updated role ${updatedRole.name}`,
+            resourceType: 'Role',
+            resourceId: updatedRole._id,
+            statusCode: 200,
+            success: true,
+        });
         res.status(200).json(updatedRole);
     }
     catch (error) {
@@ -51,6 +71,15 @@ const deleteRole = async (req, res) => {
     try {
         const company = await getRequesterCompany(req);
         const deletedRole = await roleService.deleteRole(req.params.id, company);
+        await writeAuditLog(req, {
+            action: 'DELETE',
+            module: 'Role',
+            actionDescription: `Deleted role ${deletedRole.name}`,
+            resourceType: 'Role',
+            resourceId: deletedRole._id,
+            statusCode: 200,
+            success: true,
+        });
         res.status(200).json(deletedRole);
     }
     catch (error) {

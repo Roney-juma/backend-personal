@@ -5,6 +5,7 @@ const logger = require('../middlewheres/logger');
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const { getRequesterCompany, belongsToCompany } = require('../utils/requesterCompany');
+const { writeAuditLog } = require('../utils/auditHelper');
 
 const createSupplier = async (req, res) => {
     try {
@@ -31,6 +32,17 @@ const createSupplier = async (req, res) => {
                 Admin Team`
             );
         }
+
+        await writeAuditLog(req, {
+            action: 'CREATE',
+            module: 'Supplier',
+            actionDescription: `Created supplier ${supplier.name} (${supplier.email})`,
+            resourceType: 'Supplier',
+            resourceId: supplier._id,
+            statusCode: 201,
+            success: true,
+            changes: { old: null, new: { name: supplier.name, email: supplier.email } },
+        });
 
         res.status(201).json(supplier);
     } catch (err) {
@@ -101,6 +113,15 @@ const updateSupplier = async (req, res) => {
         if (!supplier) {
             return res.status(404).json({ error: 'Supplier not found' });
         }
+        await writeAuditLog(req, {
+            action: 'UPDATE',
+            module: 'Supplier',
+            actionDescription: `Updated supplier ${supplier.name}`,
+            resourceType: 'Supplier',
+            resourceId: supplier._id,
+            statusCode: 200,
+            success: true,
+        });
         res.status(200).json(supplier);
     } catch (err) {
         logger.error('Error updating supplier: %s', err.message);
@@ -115,6 +136,15 @@ const deleteSupplier = async (req, res) => {
         if (!deleted) {
             return res.status(404).json({ error: 'Supplier not found' });
         }
+        await writeAuditLog(req, {
+            action: 'DELETE',
+            module: 'Supplier',
+            actionDescription: `Deleted supplier ${deleted.name} (${deleted.email})`,
+            resourceType: 'Supplier',
+            resourceId: deleted._id,
+            statusCode: 200,
+            success: true,
+        });
         res.status(200).json({ message: 'Supplier deleted successfully' });
     } catch (err) {
         logger.error('Error deleting supplier: %s', err.message);

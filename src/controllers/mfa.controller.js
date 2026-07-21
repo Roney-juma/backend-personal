@@ -1,5 +1,6 @@
 const mfaService = require('../service/mfa.service');
 const tokenService = require('../service/token.service');
+const { writeAuditLog } = require('../utils/auditHelper');
 
 // For setup/enable/disable the account type is bound at the route layer (not read
 // from the token): 'User' = insurer portal (ave_frontend), 'ProviderUser' =
@@ -21,6 +22,19 @@ const enable = (accountType) => async (req, res) => {
     const { code } = req.body;
     if (!code) return res.status(400).json({ message: 'Verification code is required' });
     const result = await mfaService.confirmEnrollment(accountType, req.user.id, code);
+    // Audit only insurer-portal admins ('User') — mobile actor self-service
+    // toggles would just be noise in the tenant's admin audit report.
+    if (accountType === 'User') {
+      await writeAuditLog(req, {
+        action: 'UPDATE',
+        module: 'Auth',
+        actionDescription: 'Enabled MFA',
+        resourceType: 'User',
+        resourceId: req.user.id,
+        statusCode: 200,
+        success: true,
+      });
+    }
     res.status(200).json(result);
   } catch (err) {
     res.status(400).json({ message: err.message });
@@ -33,6 +47,18 @@ const disable = (accountType) => async (req, res) => {
     const { code } = req.body;
     if (!code) return res.status(400).json({ message: 'Verification code is required' });
     const result = await mfaService.disable(accountType, req.user.id, code);
+    // Audit only insurer-portal admins ('User') — see enable() above.
+    if (accountType === 'User') {
+      await writeAuditLog(req, {
+        action: 'UPDATE',
+        module: 'Auth',
+        actionDescription: 'Disabled MFA',
+        resourceType: 'User',
+        resourceId: req.user.id,
+        statusCode: 200,
+        success: true,
+      });
+    }
     res.status(200).json(result);
   } catch (err) {
     res.status(400).json({ message: err.message });

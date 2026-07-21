@@ -1,5 +1,6 @@
 const claimTypeService = require('../service/claimType.service');
 const { getRequesterCompany } = require('../utils/requesterCompany');
+const { writeAuditLog } = require('../utils/auditHelper');
 
 const createClaimType = async (req, res) => {
   try {
@@ -9,6 +10,16 @@ const createClaimType = async (req, res) => {
     // company explicitly or omit it to create a global type.
     if (company) data.company = company;
     const claimType = await claimTypeService.createClaimType(data);
+    await writeAuditLog(req, {
+      action: 'CREATE',
+      module: 'ClaimType',
+      actionDescription: `Created claim type ${claimType.name}`,
+      resourceType: 'ClaimType',
+      resourceId: claimType._id,
+      statusCode: 201,
+      success: true,
+      changes: { old: null, new: { name: claimType.name } },
+    });
     res.status(201).json(claimType);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -39,6 +50,15 @@ const updateClaimType = async (req, res) => {
   try {
     const company = await getRequesterCompany(req);
     const claimType = await claimTypeService.updateClaimType(req.params.id, req.body, company);
+    await writeAuditLog(req, {
+      action: 'UPDATE',
+      module: 'ClaimType',
+      actionDescription: `Updated claim type ${claimType.name}`,
+      resourceType: 'ClaimType',
+      resourceId: claimType._id,
+      statusCode: 200,
+      success: true,
+    });
     res.status(200).json(claimType);
   } catch (error) {
     // Cross-tenant (or missing) targets surface as not found, never as forbidden.
@@ -50,7 +70,16 @@ const updateClaimType = async (req, res) => {
 const deleteClaimType = async (req, res) => {
   try {
     const company = await getRequesterCompany(req);
-    await claimTypeService.deleteClaimType(req.params.id, company);
+    const deleted = await claimTypeService.deleteClaimType(req.params.id, company);
+    await writeAuditLog(req, {
+      action: 'DELETE',
+      module: 'ClaimType',
+      actionDescription: `Deleted claim type ${deleted.name}`,
+      resourceType: 'ClaimType',
+      resourceId: deleted._id,
+      statusCode: 200,
+      success: true,
+    });
     res.status(200).json({ message: 'Claim type deleted successfully' });
   } catch (error) {
     res.status(404).json({ message: error.message });
