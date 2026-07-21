@@ -160,7 +160,9 @@ const getCustomerClaims = async (customerId, company) => {
     throw new Error('Customer not found');
   }
 
-  const claims = await Claim.find({ 'claimant.email': customer.email }).lean();
+  // Claims are matched by claimant email, which can exist at several insurers
+  // (multi-insurer contract) — keep the requester's tenant scope on the claims too.
+  const claims = await Claim.find({ 'claimant.email': customer.email, ...(company ? { company } : {}) }).lean();
   if (claims.length === 0) {
     throw new Error('No claims found for this customer');
   }
