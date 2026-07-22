@@ -18,7 +18,9 @@ router.post('/create', claimController.createClaim)
 // Claim lists/aggregates are portal features — actor apps use their own
 // id-scoped feeds. Portal-gating keeps legacy actor tokens (no company claim,
 // which would resolve to global scope) away from cross-tenant lists.
-router.get('/', requirePortalUser, claimController.getClaims)
+// NOTE: the assessor mobile app uses this as its claims feed — must stay open
+// to actor tokens. Tenant scoping happens in the controller (company claim).
+router.get('/', claimController.getClaims)
 router.get('/count', requirePortalUser, claimController.countClaimsByStatus)
 router.get('/total-cost', requirePortalUser, claimController.getClaimsTotalCost)
 router.post('/generate-claim-link', requirePortalUser, claimController.generateClaimLinkController);
@@ -34,7 +36,8 @@ router.get('/assessed/:id', claimController.getAssessedClaimById);
 // router.get('/assessed/repair/:id', claimController.getAssessedRepairClaimById);
 router.get('/supplier-bids/:claimId', claimController.getSupplierBidsForClaim)
 router.post('/acceptSupplier/:claimId/:bidId', requirePortalUser, claimController.acceptSupplierBid)
-router.post('/awardClaimToGarage/:claimId/:garageId', requirePortalUser, claimController.awardClaimToGarage);
+// NOTE: the customer mobile app uses this to pick a garage for their own claim.
+router.post('/awardClaimToGarage/:claimId/:garageId', claimController.awardClaimToGarage);
 router.post('/rejectAssessorBid/:id', requirePortalUser, claimController.rejectAssessorBid);
 router.post('/rejectGarageBid/:id', requirePortalUser, claimController.rejectGarageBid);
 router.post('/awardSupplier/:claimId/:bidId', requirePortalUser, claimController.awardSupplierBid);
