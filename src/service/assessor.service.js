@@ -269,6 +269,10 @@ const placeBid = async (claimId, assessorId, amount, description, timeline, req)
   await claim.save();
   await cache.del(`cache:assessor:bids:${assessorId}`);
   await cache.delPattern('cache:claims:*');
+  // The assessor's "available claims" list is cached separately (5-min TTL) and
+  // isn't covered by the patterns above, so a just-bid claim would linger in it.
+  // Clear it so the claim disappears from the bidder's available list immediately.
+  await cache.del(`cache:assessor:approved-claims:${assessorId}`);
 
   await writeAuditLog(req, {
     action: 'CREATE',
