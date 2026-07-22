@@ -1,6 +1,7 @@
 const assessorService = require("../service/assessor.service");
 const tokenService = require("../service/token.service");
 const emailService = require("../service/email.service");
+const { DEFAULT_TEMP_PASSWORD } = require('../constants/userDefaults');
 const logger = require('../middlewheres/logger');
   const { getRequesterCompany, belongsToCompany } = require('../utils/requesterCompany');
 
@@ -24,11 +25,13 @@ const login = async (req, res) => {
 
 const createAssessor = async (req, res) => {
   try {
-    const rawPassword = req.body.password;
+    // Resolve the credential HERE so the welcome email always carries the real
+    // value — the portal may omit password, in which case the default applies.
+    const rawPassword = req.body.password || DEFAULT_TEMP_PASSWORD;
     // The assessor belongs to the company of the user creating it (ignore any
     // client-supplied company to prevent spoofing). Platform staff → no company.
     const company = await getRequesterCompany(req);
-    const newAssessor = await assessorService.createAssessor({ ...req.body, company: company || undefined }, req);
+    const newAssessor = await assessorService.createAssessor({ ...req.body, password: rawPassword, company: company || undefined }, req);
 
     await emailService.sendEmailNotification(
       newAssessor.email,

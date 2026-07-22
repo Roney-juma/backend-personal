@@ -144,6 +144,17 @@ const loginUserWithEmailAndPassword = async (email, password) => {
     }
 
     await resetAttempts(user);
+
+    // Tenant lifecycle: users of a suspended/pending/soft-deleted company must
+    // not log in. (softDelete query middleware hides deleted companies from
+    // populate, so a live user with an unresolvable company is also blocked.)
+    if (user.company) {
+        await user.populate('company', 'status');
+        if (!user.company || user.company.status !== 'active') {
+            throw new Error('Your company account is not active. Please contact support.');
+        }
+    }
+
     // The portal derives nav/permissions from role.name and role.permissions,
     // so the login response must carry the full role, not just its id.
     await user.populate('role');

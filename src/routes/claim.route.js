@@ -15,15 +15,18 @@ router.use(verifyToken())
 // routes (create, resubmit, self-repair opt-in/submit, glass complete, reads
 // used by the app) stay open to any authenticated token.
 router.post('/create', claimController.createClaim)
-router.get('/', claimController.getClaims)
-router.get('/count', claimController.countClaimsByStatus)
-router.get('/total-cost', claimController.getClaimsTotalCost)
+// Claim lists/aggregates are portal features — actor apps use their own
+// id-scoped feeds. Portal-gating keeps legacy actor tokens (no company claim,
+// which would resolve to global scope) away from cross-tenant lists.
+router.get('/', requirePortalUser, claimController.getClaims)
+router.get('/count', requirePortalUser, claimController.countClaimsByStatus)
+router.get('/total-cost', requirePortalUser, claimController.getClaimsTotalCost)
 router.post('/generate-claim-link', requirePortalUser, claimController.generateClaimLinkController);
 router.post('/generate-ai-claim-link', requirePortalUser, claimController.generateAiClaimLinkController);
 router.patch('/approve/:id', requirePortalUser, claimController.approveClaim)
 router.delete('/delete/:id', requirePortalUser, claimController.deleteClaim)
 router.patch('/reject/:id', requirePortalUser, claimController.rejectClaim)
-router.get('/awarded', claimController.getAwardedClaims)
+router.get('/awarded', requirePortalUser, claimController.getAwardedClaims)
 router.get('/bids/:id', claimController.getBidsByClaim)
 router.get('/garageBids/:id', claimController.getGarageBidsByClaim)
 router.get('/assessed', claimController.garageFindsAssessedClaimsForRepair);
@@ -40,7 +43,7 @@ router.post('/rejectSupplierBid/:claimId/:bidId', requirePortalUser, claimContro
 router.patch('/resubmit/:id', claimController.resubmitRejectedClaim);
 
 // Self-repair routes — must be declared before /:id to avoid route shadowing
-router.get('/self-repair', claimController.getSelfRepairClaims);
+router.get('/self-repair', requirePortalUser, claimController.getSelfRepairClaims);
 router.post('/self-repair/opt-in/:id', claimController.optInSelfRepair);
 router.patch('/self-repair/submit/:id', claimController.submitSelfRepair);
 router.patch('/self-repair/call-re-assessment/:id', claimController.callForSelfRepairReAssessment);
@@ -56,7 +59,7 @@ router.patch('/self-repair/pay/:id', requirePortalUser, claimController.payFinal
 router.patch('/complete-claim/:id', requirePortalUser, claimController.completeReAssessment);
 
 // Glass / motor glass claim routes — before wildcard /:id
-router.get('/glass', claimController.getGlassClaims);
+router.get('/glass', requirePortalUser, claimController.getGlassClaims);
 router.patch('/glass/approve/:id', requirePortalUser, claimController.approveGlassClaim);
 router.post('/glass/assign-supplier/:id', requirePortalUser, claimController.assignGlassSupplier);
 router.patch('/glass/complete/:id', claimController.completeGlassRepair);

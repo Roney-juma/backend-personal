@@ -93,7 +93,7 @@ const loginUser = async (email, password, companyId) => {
   };
   if (companyId) query.company = companyId;
 
-  const candidates = await Customer.find(query).populate('company', 'companyName logo');
+  const candidates = await Customer.find(query).populate('company', 'companyName logo status');
   if (!candidates.length) {
     throw new Error("Invalid email or password");
   }
@@ -106,7 +106,11 @@ const loginUser = async (email, password, companyId) => {
 
   // Lockout stays per record: locked candidates are never password-checked
   // (their counters don't move), unlocked ones each keep their own counters.
-  const activeCandidates = candidates.filter((c) => c.status === 'active');
+  // Tenant lifecycle: records under a suspended/inactive insurer can't log in
+  // (legacy records with no company are unaffected).
+  const activeCandidates = candidates.filter(
+    (c) => c.status === 'active' && (!c.company || c.company.status === 'active')
+  );
   const lockedBefore = activeCandidates.filter((c) => isLocked(c));
   const checkable = activeCandidates.filter((c) => !isLocked(c));
   const matches = [];

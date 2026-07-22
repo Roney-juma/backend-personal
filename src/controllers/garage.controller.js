@@ -3,15 +3,18 @@ const tokenService = require('../service/token.service');
 const emailService = require('../service/email.service');
 const logger = require('../middlewheres/logger');
 const { getRequesterCompany, belongsToCompany } = require('../utils/requesterCompany');
+const { DEFAULT_TEMP_PASSWORD } = require('../constants/userDefaults');
 const { writeAuditLog } = require('../utils/auditHelper');
 
 const createGarage = async (req, res) => {
   try {
-    const rawPassword = req.body.password;
+    // Resolve the credential HERE so the welcome email always carries the real
+    // value — the portal may omit password, in which case the default applies.
+    const rawPassword = req.body.password || DEFAULT_TEMP_PASSWORD;
     // The garage belongs to the company of the user creating it (ignore any
     // client-supplied company to prevent spoofing). Platform staff → no company.
     const company = await getRequesterCompany(req);
-    const newGarage = await garageService.createGarage({ ...req.body, company: company || undefined });
+    const newGarage = await garageService.createGarage({ ...req.body, password: rawPassword, company: company || undefined });
 
     await emailService.sendEmailNotification(
       newGarage.email,

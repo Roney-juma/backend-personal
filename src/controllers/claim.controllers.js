@@ -6,13 +6,13 @@ const Claim = require('../models/claim.model');
 const AiAnalysis = require('../models/aiAnalysis.model');
 const { getRequesterCompany, belongsToCompany } = require('../utils/requesterCompany');
 
-// Requester-company scoping applies only to insurer-portal audiences (company
-// admins and AVE platform staff — staff resolve to null → global scope). Mobile
-// actors (Customer/Garage/Assessor/Supplier tokens) share these routes but are
-// identified by their own ids, so their queries are never requester-scoped.
+// Resolve the requester's tenant for claim access. Portal admins carry a
+// company claim (or resolve via the legacy DB fallback); AVE staff resolve to
+// null → global scope. Mobile actor tokens (Customer/Garage/Assessor/Supplier)
+// also carry their insurer's company claim now, so they are scoped to their
+// own tenant too — an actor must never see another insurer's claims. Legacy
+// actor tokens without the claim resolve to null (expire within 2 days).
 const portalCompany = async (req) => {
-  const type = req.user?.accountType;
-  if (type !== 'CompanyUser' && type !== 'ProviderUser') return null;
   return getRequesterCompany(req);
 };
 

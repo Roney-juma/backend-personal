@@ -5,6 +5,7 @@ const logger = require('../middlewheres/logger');
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const { getRequesterCompany, belongsToCompany } = require('../utils/requesterCompany');
+const { DEFAULT_TEMP_PASSWORD } = require('../constants/userDefaults');
 const { writeAuditLog } = require('../utils/auditHelper');
 
 const createSupplier = async (req, res) => {
@@ -12,7 +13,10 @@ const createSupplier = async (req, res) => {
         // The supplier belongs to the insurance company of the user creating it
         // (`company` on the body stays as the free-text supplier business name).
         const insuranceCompany = await getRequesterCompany(req);
-        const supplier = await supplierService.createSupplier({ ...req.body, insuranceCompany: insuranceCompany || undefined });
+        // Resolve the credential HERE so the welcome email always carries the
+        // real value — the portal may omit password, then the default applies.
+        const rawPassword = req.body.password || DEFAULT_TEMP_PASSWORD;
+        const supplier = await supplierService.createSupplier({ ...req.body, password: rawPassword, insuranceCompany: insuranceCompany || undefined });
 
         if (supplier && supplier.email) {
             emailService.sendEmailNotification(
@@ -24,7 +28,7 @@ const createSupplier = async (req, res) => {
 
                 Your login credentials are as follows:
                 Username: ${supplier.email}
-                Password: ${req.body.password}
+                Password: ${rawPassword}
 
                 Please keep this information secure.
 

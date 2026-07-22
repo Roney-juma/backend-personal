@@ -32,8 +32,11 @@ const verifyApiKey = (requiredPermissions = []) => async (req, res, next) => {
       return res.status(401).json({ message: 'Invalid or expired API key' });
     }
 
-    if (apiKey.company?.status === 'suspended') {
-      return res.status(403).json({ message: 'Your company account is suspended' });
+    // Hard-deny anything but a live, active company. A soft-deleted company
+    // populates as null here — without this check its leftover keys would
+    // authenticate with req.company = null, i.e. GLOBAL scope.
+    if (!apiKey.company || apiKey.company.status !== 'active') {
+      return res.status(403).json({ message: 'Your company account is not active' });
     }
 
     if (requiredPermissions.length > 0) {
