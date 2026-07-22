@@ -237,6 +237,10 @@ const placeBid = async (claimId, garageId, description, timeline, parts) => {
   await claim.save();
   await cache.del(`cache:garage:bids:${garageId}`);
   await cache.delPattern('cache:claims:*');
+  // The garage's "available claims" list is cached separately (see getAssessedClaims)
+  // and isn't covered above, so a just-bid claim would linger in it. Clear it so the
+  // claim disappears from the bidder's available list immediately.
+  await cache.del(`cache:garage:assessed-claims:${garageId}`);
 
   // Fire-and-forget — response doesn't depend on notification delivery.
   if (garage && garage.email) {
