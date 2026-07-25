@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Garage = require('../models/garage.model');
 const Claim = require('../models/claim.model');
 const Assessor = require('../models/assessor.model');
@@ -32,7 +33,8 @@ const createGarage = async (garage) => {
   // a change on first login (forced-override so the client can't opt out).
   const newGarage = new Garage({ ...garage, mustChangePassword: true });
   const savedGarage = await newGarage.save();
-  await cache.del('cache:stats:garages', 'cache:garages:top');
+  await cache.delPattern('cache:stats:garages:*');
+  await cache.delPattern('cache:garages:top:*');
   await cache.delPattern('cache:garages:all:*');
 
   if (savedGarage && savedGarage.email) {
@@ -116,7 +118,9 @@ const updateGarage = async (garageId, updateData, company) => {
   const filter = { _id: garageId, ...(company ? { company } : {}) };
   if (company) delete updateData.company;
   const result = await Garage.findOneAndUpdate(filter, updateData, { new: true });
-  await cache.del(`cache:garage:${garageId}`, 'cache:stats:garages', 'cache:garages:top');
+  await cache.del(`cache:garage:${garageId}`);
+  await cache.delPattern('cache:stats:garages:*');
+  await cache.delPattern('cache:garages:top:*');
   await cache.delPattern('cache:garages:all:*');
   return result;
 };
@@ -149,7 +153,9 @@ const deleteGarage = async (garageId, company) => {
     await cache.del(`cache:garage:assessed-claims:${garageId}`, `cache:garage:bids:${garageId}`);
   }
 
-  await cache.del(`cache:garage:${garageId}`, 'cache:stats:garages', 'cache:garages:top');
+  await cache.del(`cache:garage:${garageId}`);
+  await cache.delPattern('cache:stats:garages:*');
+  await cache.delPattern('cache:garages:top:*');
   await cache.delPattern('cache:garages:all:*');
   return result;
 };
@@ -165,7 +171,11 @@ const getAssessedClaims = async (garageId) => {
       throw new Error('garage location coordinates are missing');
     }
 
-    const claims = await Claim.find({ status: 'Garage', awardedGarage: { $exists: false } });
+    // Tenant scope: garages attached to an insurer only see that insurer's
+    // claims. Legacy garages without a company keep the old global feed.
+    const claimFilter = { status: 'Garage', awardedGarage: { $exists: false } };
+    if (garage.company) claimFilter.company = garage.company;
+    const claims = await Claim.find(claimFilter);
     const nearbyClaims = claims.filter((claim) => {
       const { latitude, longitude } = claim.incidentDetails;
       if (!latitude || !longitude) return false;
@@ -212,6 +222,12 @@ const placeBid = async (claimId, garageId, description, timeline, parts) => {
   }
   const totalCost = parts.reduce((total, part) => total + part.cost, 0);
   const garage = await Garage.findById(garageId);
+
+  // Cross-tenant guard: a garage may not bid on another insurer's claim.
+  // Legacy actors/claims without a company are exempt.
+  if (claim.company && garage?.company && String(claim.company) !== String(garage.company)) {
+    throw new ApiError(403, 'You cannot bid on a claim belonging to another insurance company');
+  }
 
   const acceptedSupplyBid = await SupplyBid.findOne({ claimId, status: 'Accepted' });
 
@@ -412,19 +428,23 @@ const resetPassword = async (email, token, newPassword) => {
 };
 
 // Garage stats include  count, pendingWork and averageRating
-const getGarageStats = async () => {
-  return cache.wrap('cache:stats:garages', async () => {
-    const garagesCount = await Garage.countDocuments();
-    const pendingWorkCount = await Garage.countDocuments({ pendingWork: { $gt: 0 } });
+const getGarageStats = async (company) => {
+  return cache.wrap(`cache:stats:garages:${company || 'all'}`, async () => {
+    const scope = company ? { company } : {};
+    const garagesCount = await Garage.countDocuments(scope);
+    const pendingWorkCount = await Garage.countDocuments({ ...scope, pendingWork: { $gt: 0 } });
     const averageRating = await Garage.aggregate([
+      // Aggregations don't cast — the tenant $match needs an explicit ObjectId.
+      ...(company ? [{ $match: { company: new mongoose.Types.ObjectId(String(company)) } }] : []),
       { $group: { _id: null, averageRating: { $avg: '$ratings.averageRating' } } },
     ]);
     return { garagesCount, pendingWorkCount, averageRating: averageRating[0]?.averageRating || 0 };
   }, 1800);
 };
 // Top 10 garages with highest number of claims awarded
-const getTopGarages = async () => {
-  return cache.wrap('cache:garages:top', () => Garage.aggregate([
+const getTopGarages = async (company) => {
+  return cache.wrap(`cache:garages:top:${company || 'all'}`, () => Garage.aggregate([
+    ...(company ? [{ $match: { company: new mongoose.Types.ObjectId(String(company)) } }] : []),
     {
       $lookup: {
         from: 'claims',

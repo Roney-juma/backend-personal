@@ -68,6 +68,7 @@ const getAllUsers = async ({ page = 1, limit = 10, search = '' } = {}) => {
 
     const [users, total] = await Promise.all([
         User.find(query)
+            .select('-password -mfaSecret') // .lean() bypasses the model's toJSON transform
             .populate('role')
             .populate('company')
             .skip(skip)
@@ -115,8 +116,10 @@ const deleteUser = async (userId, company) => {
     return User.softDeleteOne(filter);
 };
 
-const resetPassword = async (email, newPassword) => {
-    const user = await User.findOne({ email });
+const resetPassword = async (email, newPassword, company) => {
+    // Scope by the requester's company so an insurer admin can't reset a user
+    // belonging to another tenant (platform staff pass no company → global).
+    const user = await User.findOne({ email, ...(company ? { company } : {}) });
     if (!user) throw new Error('User not found');
 
     user.password = await bcrypt.hash(newPassword, 10);
@@ -141,6 +144,20 @@ const loginUserWithEmailAndPassword = async (email, password) => {
     }
 
     await resetAttempts(user);
+
+    // Tenant lifecycle: users of a suspended/pending/soft-deleted company must
+    // not log in. (softDelete query middleware hides deleted companies from
+    // populate, so a live user with an unresolvable company is also blocked.)
+    if (user.company) {
+        await user.populate('company', 'status');
+        if (!user.company || user.company.status !== 'active') {
+            throw new Error('Your company account is not active. Please contact support.');
+        }
+    }
+
+    // The portal derives nav/permissions from role.name and role.permissions,
+    // so the login response must carry the full role, not just its id.
+    await user.populate('role');
     return user;
 };
 

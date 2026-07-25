@@ -1,6 +1,6 @@
 const { AuditLog } = require('../models');
 
-module.exports.getAuditLogs = async (filters = {}, options = {}) => {
+module.exports.getAuditLogs = async (filters = {}, options = {}, company = null) => {
   try {
     const {
       action,
@@ -24,6 +24,9 @@ module.exports.getAuditLogs = async (filters = {}, options = {}) => {
     } = options;
 
     const query = {};
+
+    // Tenant scope resolved from the requester, never from client filters.
+    if (company) query.company = company;
 
     if (action)      query.action      = action;
     if (module)      query.module      = module;

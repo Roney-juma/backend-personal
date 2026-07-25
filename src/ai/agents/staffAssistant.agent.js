@@ -43,17 +43,20 @@ const textOf = (content) =>
 /**
  * @param {Object} params
  * @param {Object} params.user        req.user (staff identity)
+ * @param {*}      [params.company]   requester's InsuranceCompany id (null = platform staff, global scope)
  * @param {Array}  params.messages    prior Anthropic-format history (may be [])
  * @param {string} params.userMessage new question this turn
  * @returns {Object} { messages, reply }
  */
-async function runStaffAssistant({ user, messages = [], userMessage }) {
+async function runStaffAssistant({ user, company = null, messages = [], userMessage }) {
   const system = buildSystem(user);
   const working = [...messages, { role: 'user', content: userMessage }];
   const cost = new CostTracker(FEATURES.STAFF_ASSISTANT);
   const usageMeta = {
     feature: FEATURES.STAFF_ASSISTANT,
     userId: user && (user.id || user._id),
+    // CompanyUser tokens carry the tenant; platform staff have none (global spend).
+    company: user && user.company && (user.company._id || user.company),
     sessionKey: user && (user.id || user._id) ? `staff:${user.id || user._id}` : undefined,
   };
 
@@ -69,7 +72,7 @@ async function runStaffAssistant({ user, messages = [], userMessage }) {
 
     const toolResults = [];
     for (const blk of response.content.filter((b) => b.type === 'tool_use')) {
-      const result = await executeTool(blk);
+      const result = await executeTool(blk, company);
       toolResults.push({
         type: 'tool_result',
         tool_use_id: blk.id,

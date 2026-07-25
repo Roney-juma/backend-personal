@@ -13,6 +13,7 @@ const supplierService = require('../../service/supplier.service');
 const investigatorService = require('../../service/investigator.service');
 const Claim = require('../../models/claim.model');
 const Customer = require('../../models/customerModel');
+const { belongsToCompany } = require('../../utils/requesterCompany');
 
 const CLAIM_STATUSES = [
   'Pending', 'Approved', 'Rejected', 'Resubmitted', 'Assessment', 'Assessed',
@@ -90,16 +91,20 @@ const TOOLS = [
 ];
 
 // ---------- executor ----------
-async function executeTool(block) {
+// `company` is the requester's tenant (null = platform staff → global scope):
+// list/stat tools filter by it, single-record tools 404 cross-tenant ids.
+async function executeTool(block, company = null) {
   const a = block.input || {};
   try {
     switch (block.name) {
       case 'get_claim': {
         const c = await claimService.getClaimById(a.claimId);
+        if (!c || !belongsToCompany(c.company, company)) return fail('Claim not found');
         return ok(claimDetail(c));
       }
       case 'search_claims': {
         const filter = {};
+        if (company) filter.company = company;
         if (a.status) filter.status = a.status;
         if (a.customerEmail) filter['claimant.email'] = a.customerEmail;
         if (a.customerName) filter['claimant.name'] = new RegExp(a.customerName, 'i');
@@ -110,8 +115,12 @@ async function executeTool(block) {
         return ok({ count: rows.length, claims: rows.map(claimRow) });
       }
       case 'count_claims_by_status':
-        return ok(await claimService.countClaimsByStatus());
+        return ok(await claimService.countClaimsByStatus(company));
       case 'claim_bids': {
+        if (company) {
+          const c = await Claim.findById(a.claimId).select('company').lean();
+          if (!c || !belongsToCompany(c.company, company)) return fail('Claim not found');
+        }
         const out = {};
         try { out.assessor = (await claimService.getBidsByClaim(a.claimId))?.bids?.map((b) => ({ amount: b.amount, status: b.status, rating: b.ratings })) || []; } catch (e) { out.assessor = []; }
         try { out.garage = (await claimService.getGarageBidsByClaim(a.claimId))?.map((b) => ({ amount: b.amount, status: b.status, rating: b.ratings })) || []; } catch (e) { out.garage = []; }
@@ -119,55 +128,57 @@ async function executeTool(block) {
         return ok(out);
       }
       case 'claim_payment_totals':
-        return ok(await claimService.getPaymentTotals());
+        return ok(await claimService.getPaymentTotals(company));
       case 'find_customer': {
         const or = [];
         if (a.email) or.push({ email: new RegExp(`^${a.email}$`, 'i') });
         if (a.phone) or.push({ phone: a.phone });
         if (a.name) or.push({ firstName: new RegExp(a.name, 'i') }, { lastName: new RegExp(a.name, 'i') });
         if (or.length === 0) return fail('Provide email, phone, or name.');
-        const rows = await Customer.find({ $or: or })
+        const rows = await Customer.find({ $or: or, ...(company ? { company } : {}) })
           .select('firstName lastName email phone policyNumber policyType').limit(5).lean();
         return ok({ count: rows.length, customers: rows.map((c) => ({ id: c._id, name: `${c.firstName || ''} ${c.lastName || ''}`.trim(), email: c.email, phone: c.phone, policyNumber: c.policyNumber, policyType: c.policyType })) });
       }
       case 'customer_claims': {
         let claims = [];
-        try { claims = await customerService.getCustomerClaims(a.customerId); } catch (e) { claims = []; }
+        try { claims = await customerService.getCustomerClaims(a.customerId, company); } catch (e) { claims = []; }
         return ok({ count: claims.length, claims: cap(claims).map(claimRow) });
       }
       case 'customer_stats':
-        return ok(await customerService.getCustomerStats());
+        return ok(await customerService.getCustomerStats(company));
       case 'assessor_stats':
-        return ok(await assessorService.getAssessorStatistics());
+        return ok(await assessorService.getAssessorStatistics(company));
       case 'top_assessors':
-        return ok(await assessorService.getTopAssessors());
+        return ok(await assessorService.getTopAssessors(company));
       case 'get_assessor': {
         const x = await assessorService.getAssessorById(a.assessorId);
+        if (!x || !belongsToCompany(x.company, company)) return fail('Assessor not found');
         return ok({ id: x._id, name: x.name, email: x.email, rating: x.ratings?.averageRating, city: x.location?.city, pendingWork: x.pendingWork });
       }
       case 'garage_stats':
-        return ok(await garageService.getGarageStats());
+        return ok(await garageService.getGarageStats(company));
       case 'top_garages':
-        return ok(await garageService.getTopGarages());
+        return ok(await garageService.getTopGarages(company));
       case 'list_garages': {
-        const r = await garageService.getAllGarages({ city: a.city }, 1, Math.min(a.limit || 20, 50));
+        const filter = { ...(a.city ? { city: a.city } : {}), ...(company ? { company } : {}) };
+        const r = await garageService.getAllGarages(filter, 1, Math.min(a.limit || 20, 50));
         const list = r?.garages || r || [];
         return ok({ count: list.length, garages: cap(list).map((g) => ({ id: g._id, name: g.name, city: g.location?.city, rating: g.ratings?.averageRating, pendingWork: g.pendingWork })) });
       }
       case 'list_suppliers': {
-        const r = await supplierService.getAllSuppliers({ page: 1, limit: Math.min(a.limit || 20, 50) });
+        const r = await supplierService.getAllSuppliers({ page: 1, limit: Math.min(a.limit || 20, 50), insuranceCompany: company || undefined });
         const list = r?.suppliers || r || [];
         return ok({ count: list.length, suppliers: cap(list).map((s) => ({ id: s._id, name: s.name, email: s.email })) });
       }
 
       case 'investigator_stats':
-        return ok(await investigatorService.getInvestigatorStats());
+        return ok(await investigatorService.getInvestigatorStats(company));
       case 'list_investigations': {
-        const list = await investigatorService.getAllInvestigations();
+        const list = await investigatorService.getAllInvestigations(company);
         return ok({ count: (list || []).length, investigations: cap(list).map((i) => ({ id: i._id, claimId: i.claimId?._id || i.claimId, status: i.status, investigator: i.investigatorId?.name })) });
       }
       case 'get_investigation': {
-        const i = await investigatorService.getInvestigationById(a.investigationId);
+        const i = await investigatorService.getInvestigationById(a.investigationId, company);
         return ok({ id: i._id, claimId: i.claimId?._id || i.claimId, status: i.status, conclusion: i.report?.conclusion, investigator: i.investigatorId?.name });
       }
       default:

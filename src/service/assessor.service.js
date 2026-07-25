@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Assessor = require('../models/assessor.model');
 const Garage = require('../models/garage.model');
 const bcrypt = require('bcrypt');
@@ -32,7 +33,9 @@ const createAssessor = async (assessorData, req) => {
 
   // Admin sets the initial password, so require a change on first login.
   const newAssessor = await Assessor.create({ ...assessorData, mustChangePassword: true });
-  await cache.del('cache:assessors:all', 'cache:stats:assessors', 'cache:assessors:top');
+  await cache.del('cache:assessors:all');
+  await cache.delPattern('cache:stats:assessors:*');
+  await cache.delPattern('cache:assessors:top:*');
 
   await writeAuditLog(req, {
     action: 'CREATE',
@@ -89,7 +92,9 @@ const updateAssessor = async (id, assessorData, req, company) => {
   const start = Date.now();
   const oldData = assessor.toObject();
   const updatedAssessor = await Assessor.findOneAndUpdate(filter, assessorData, { new: true });
-  await cache.del('cache:assessors:all', `cache:assessor:${id}`, 'cache:stats:assessors', 'cache:assessors:top');
+  await cache.del('cache:assessors:all', `cache:assessor:${id}`);
+  await cache.delPattern('cache:stats:assessors:*');
+  await cache.delPattern('cache:assessors:top:*');
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -136,7 +141,9 @@ const deleteAssessor = async (id, req, company) => {
     { $pull: { bids: { assessorId: id, status: 'pending' } } }
   );
 
-  await cache.del('cache:assessors:all', `cache:assessor:${id}`, 'cache:stats:assessors', 'cache:assessors:top');
+  await cache.del('cache:assessors:all', `cache:assessor:${id}`);
+  await cache.delPattern('cache:stats:assessors:*');
+  await cache.delPattern('cache:assessors:top:*');
   await cache.del(`cache:assessor:bids:${id}`);
   await cache.delPattern('cache:assessor:approved-claims:*');
 
@@ -182,10 +189,11 @@ const getApprovedClaims = async (assessorId) => {
       throw new Error('Assessor location coordinates are missing');
     }
 
-    const claims = await Claim.find({
-      status: 'Approved',
-      awardedAssessor: { $exists: false }
-    }).lean();
+    // Tenant scope: assessors attached to an insurer only see that insurer's
+    // claims. Legacy assessors without a company keep the old global feed.
+    const claimFilter = { status: 'Approved', awardedAssessor: { $exists: false } };
+    if (assessor.company) claimFilter.company = assessor.company;
+    const claims = await Claim.find(claimFilter).lean();
     const nearbyClaims = claims.filter((claim) => {
       const { latitude, longitude } = claim.incidentDetails;
       if (!latitude || !longitude) return false;
@@ -227,6 +235,13 @@ const placeBid = async (claimId, assessorId, amount, description, timeline, req)
 
   const assessor = await Assessor.findById(assessorId);
   if (!assessor) throw new ApiError(404, 'Assessor not found');
+
+  // Cross-tenant guard: an assessor may not bid on another insurer's claim.
+  // Legacy actors/claims without a company are exempt.
+  if (claim.company && assessor.company && String(claim.company) !== String(assessor.company)) {
+    throw new ApiError(403, 'You cannot bid on a claim belonging to another insurance company');
+  }
+
   const pendingWork = await Claim.countDocuments({
     'awardedAssessor.assessorId': assessorId,
     status: { $ne: 'Completed' },
@@ -320,9 +335,21 @@ const submitAssessmentReport = async (claimId, assessmentReport, req) => {
   const claim = await Claim.findById(claimId);
   if (!claim) throw new ApiError(404, 'Claim not found');
 
-  const parts = assessmentReport.parts.map((part) => {
-    return { partName: part, cost: '' };
-  });
+  // The formal report document (PDF/Word, uploaded via /images/upload-document)
+  // is mandatory — mirrors the investigator's comprehensiveReport.
+  if (!assessmentReport?.reportDocument?.url || typeof assessmentReport.reportDocument.url !== 'string') {
+    throw new ApiError(400, 'Assessment report document is required (reportDocument.url)');
+  }
+  assessmentReport.reportDocument.uploadedAt = new Date();
+
+  // Accept both shapes: legacy clients send plain strings, current ones
+  // send { partName, cost } (previously objects got mangled into
+  // { partName: {…}, cost: '' }, forcing display-side workarounds).
+  const parts = (assessmentReport.parts || []).map((part) =>
+    part && typeof part === 'object'
+      ? { partName: part.partName ?? part.name ?? '', cost: part.cost ?? '' }
+      : { partName: part, cost: '' }
+  );
   assessmentReport.parts = parts;
 
   const start = Date.now();
@@ -615,17 +642,20 @@ const rejectRepair = async (claimId, rejectionReason, req) => {
   return claim;
 };
 // Assessor statistics for the admin dashboard
-const getAssessorStatistics = async () => {
-  return cache.wrap('cache:stats:assessors', async () => {
-    const totalAssessors = await Assessor.countDocuments();
-    const busyAssessors = await Assessor.countDocuments({ "ratings.totalRatings": { $gt: 0 } });
+const getAssessorStatistics = async (company) => {
+  return cache.wrap(`cache:stats:assessors:${company || 'all'}`, async () => {
+    const scope = company ? { company } : {};
+    const totalAssessors = await Assessor.countDocuments(scope);
+    const busyAssessors = await Assessor.countDocuments({ ...scope, "ratings.totalRatings": { $gt: 0 } });
     const freeAssessors = totalAssessors - busyAssessors;
     return { totalAssessors, busyAssessors, freeAssessors };
   }, 1800);
 };
 
-const getTopAssessors = async () => {
-  return cache.wrap('cache:assessors:top', () => Assessor.aggregate([
+const getTopAssessors = async (company) => {
+  return cache.wrap(`cache:assessors:top:${company || 'all'}`, () => Assessor.aggregate([
+    // Aggregations don't cast — the tenant $match needs an explicit ObjectId.
+    ...(company ? [{ $match: { company: new mongoose.Types.ObjectId(String(company)) } }] : []),
     {
       $lookup: {
         from: 'claims',

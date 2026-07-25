@@ -7,6 +7,7 @@ const emailService = require('./email.service');
 const whatsappService = require('./whatsapp.service');
 const notificationService = require('./notification.service');
 const { writeAuditLog } = require('../utils/auditHelper');
+const { belongsToCompany } = require('../utils/requesterCompany');
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://avics.aveafrica.com';
 
@@ -48,6 +49,7 @@ const createInvestigator = async (data, req) => {
 
 const getAllInvestigators = async (filter = {}, page = 1, limit = 10) => {
   const query = {};
+  if (filter.company) query.company = filter.company;
   if (filter.city) query['location.city'] = new RegExp(filter.city, 'i');
   if (filter.specialization) query.specializations = filter.specialization;
   if (filter.name) query.name = new RegExp(filter.name, 'i');
@@ -61,19 +63,24 @@ const getAllInvestigators = async (filter = {}, page = 1, limit = 10) => {
   return { investigators, total, page: Number(page), limit: Number(limit), pages: Math.ceil(total / limit) };
 };
 
-const getInvestigatorById = async (id) => {
+const getInvestigatorById = async (id, company) => {
   const investigator = await Investigator.findById(id);
-  if (!investigator) throw new ApiError(404, 'Investigator not found');
+  // Cross-tenant ids 404 like missing ones.
+  if (!investigator || !belongsToCompany(investigator.company, company)) throw new ApiError(404, 'Investigator not found');
   return investigator;
 };
 
-const updateInvestigator = async (id, data, req) => {
-  const investigator = await Investigator.findById(id);
+const updateInvestigator = async (id, data, req, company) => {
+  // Scope to the requester's company (staff → no scope). Strip company from the
+  // payload so a company user can't reassign an investigator to another tenant.
+  const filter = { _id: id, ...(company ? { company } : {}) };
+  if (company) delete data.company;
+  const investigator = await Investigator.findOne(filter);
   if (!investigator) throw new ApiError(404, 'Investigator not found');
 
   const start = Date.now();
   const oldData = investigator.toObject();
-  const updated = await Investigator.findByIdAndUpdate(id, data, { new: true });
+  const updated = await Investigator.findOneAndUpdate(filter, data, { new: true });
 
   await writeAuditLog(req, {
     action: 'UPDATE',
@@ -90,8 +97,8 @@ const updateInvestigator = async (id, data, req) => {
   return updated;
 };
 
-const deleteInvestigator = async (id, req) => {
-  const investigator = await Investigator.findById(id);
+const deleteInvestigator = async (id, req, company) => {
+  const investigator = await Investigator.findOne({ _id: id, ...(company ? { company } : {}) });
   if (!investigator) throw new ApiError(404, 'Investigator not found');
 
   const snapshot = investigator.toObject();
@@ -111,20 +118,22 @@ const deleteInvestigator = async (id, req) => {
   });
 };
 
-const getInvestigatorStats = async () => {
-  const total = await Investigator.countDocuments();
-  const active = await Investigator.countDocuments({ pendingInvestigations: { $gt: 0 } });
-  const activeInvestigations = await Investigation.countDocuments({ status: { $in: ['Pending', 'Appointed', 'In Progress'] } });
-  const submitted = await Investigation.countDocuments({ status: 'Submitted' });
+const getInvestigatorStats = async (company) => {
+  const scope = company ? { company } : {};
+  const total = await Investigator.countDocuments(scope);
+  const active = await Investigator.countDocuments({ ...scope, pendingInvestigations: { $gt: 0 } });
+  const activeInvestigations = await Investigation.countDocuments({ ...scope, status: { $in: ['Pending', 'Appointed', 'In Progress'] } });
+  const submitted = await Investigation.countDocuments({ ...scope, status: 'Submitted' });
   return { total, active, idle: total - active, activeInvestigations, awaitingReview: submitted };
 };
 
 // ─── Investigation workflow ───────────────────────────────────────────────────
 
 // Step 1 — Insurance company flags a claim as suspected fraud and opens an investigation
-const flagClaimAsFraud = async (claimId, reason, flaggedBy, flaggedByType, req) => {
+const flagClaimAsFraud = async (claimId, reason, flaggedBy, flaggedByType, req, company) => {
   const claim = await Claim.findById(claimId);
-  if (!claim) throw new ApiError(404, 'Claim not found');
+  // Cross-tenant claims 404 like missing ones (company falsy → staff, global scope).
+  if (!claim || !belongsToCompany(claim.company, company)) throw new ApiError(404, 'Claim not found');
 
   const allowedStatuses = flaggedByType === 'system'
     ? ['Pending', 'Approved', 'Assessed', 'Garage', 'Resubmitted', 'SelfRepair']
@@ -141,6 +150,9 @@ const flagClaimAsFraud = async (claimId, reason, flaggedBy, flaggedByType, req) 
 
   const investigation = await Investigation.create({
     claimId,
+    // Tenant owner comes from the claim, never the requester — a system flag has
+    // no requester and staff flags must still land in the claim's tenant.
+    company: claim.company,
     flaggedBy,
     flaggedByType,
     reason,
@@ -213,13 +225,15 @@ The AVE Insurance Team`
 };
 
 // Step 2 — Appoint an investigator to an existing (Pending) investigation and send them the secure link
-const appointInvestigator = async (investigationId, investigatorId, req) => {
+const appointInvestigator = async (investigationId, investigatorId, req, company) => {
   const investigation = await Investigation.findById(investigationId).populate('claimId');
-  if (!investigation) throw new ApiError(404, 'Investigation not found');
+  // Cross-tenant investigations 404 like missing ones.
+  if (!investigation || !belongsToCompany(investigation.company, company)) throw new ApiError(404, 'Investigation not found');
   if (investigation.status !== 'Pending') throw new ApiError(400, 'An investigator can only be appointed to a Pending investigation');
   if (investigation.investigatorId) throw new ApiError(400, 'An investigator has already been appointed to this investigation');
 
-  const investigator = await Investigator.findById(investigatorId);
+  // A company user can only appoint their own company's investigators.
+  const investigator = await Investigator.findOne({ _id: investigatorId, ...(company ? { company } : {}) });
   if (!investigator) throw new ApiError(404, 'Investigator not found');
 
   const start = Date.now();
@@ -421,9 +435,10 @@ const submitInvestigationReport = async (investigationId, token, report, req) =>
 
 // Admin makes the final decision on a claim after reviewing the investigation report
 // decision: 'reject' | 'clear' | 'inconclusive'
-const reviewInvestigationReport = async (investigationId, decision, reviewNotes, reviewedBy, req) => {
+const reviewInvestigationReport = async (investigationId, decision, reviewNotes, reviewedBy, req, company) => {
   const investigation = await Investigation.findById(investigationId);
-  if (!investigation) throw new ApiError(404, 'Investigation not found');
+  // Cross-tenant investigations 404 like missing ones.
+  if (!investigation || !belongsToCompany(investigation.company, company)) throw new ApiError(404, 'Investigation not found');
   if (investigation.status !== 'Submitted') throw new ApiError(400, 'Only submitted investigations can have a final decision recorded');
   if (!['reject', 'clear', 'inconclusive'].includes(decision)) {
     throw new ApiError(400, 'decision must be one of: reject, clear, inconclusive');
@@ -543,8 +558,8 @@ The AVE Insurance Team`;
   return { investigation, claimStatus: newClaimStatus, decision };
 };
 
-const getMyInvestigations = async (investigatorId) => {
-  const investigations = await Investigation.find({ investigatorId })
+const getMyInvestigations = async (investigatorId, company) => {
+  const investigations = await Investigation.find({ investigatorId, ...(company ? { company } : {}) })
     .populate('claimId', 'status incidentDetails vehiclesInvolved claimant customerId')
     .sort({ createdAt: -1 })
     .lean();
@@ -553,19 +568,20 @@ const getMyInvestigations = async (investigatorId) => {
   return investigations;
 };
 
-const getAllInvestigations = async () => {
-  return Investigation.find()
+const getAllInvestigations = async (company) => {
+  return Investigation.find(company ? { company } : {})
     .populate('claimId', 'status incidentDetails vehiclesInvolved claimant')
     .populate('investigatorId', 'name email contactNumber')
     .sort({ createdAt: -1 })
     .lean();
 };
 
-const getInvestigationById = async (id) => {
+const getInvestigationById = async (id, company) => {
   const investigation = await Investigation.findById(id)
     .populate('claimId')
     .populate('investigatorId', 'name email contactNumber licenseNumber');
-  if (!investigation) throw new ApiError(404, 'Investigation not found');
+  // Cross-tenant investigations 404 like missing ones.
+  if (!investigation || !belongsToCompany(investigation.company, company)) throw new ApiError(404, 'Investigation not found');
   return investigation;
 };
 

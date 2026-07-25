@@ -4,9 +4,8 @@ const controller = require('../controllers/insuranceCompany.controller');
 const verifyProviderToken = require('../middlewheres/verifyProviderToken');
 const authLimiter = require('../middlewheres/authLimiter');
 
-// Public
-router.post('/login', authLimiter, controller.loginCompany);
-router.post('/reset-password', authLimiter, controller.resetCompanyPassword);
+// Company-level login retired: each company's identity is its Super Admin
+// portal user (created at onboarding), who manages the rest of their users.
 
 // Protected (platform staff only)
 router.post('/', verifyProviderToken(), controller.createCompany);

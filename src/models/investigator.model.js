@@ -3,6 +3,8 @@ const softDelete = require('./plugins/softDelete');
 const { ObjectId } = require('mongodb');
 
 const investigatorSchema = new mongoose.Schema({
+  // Insurance company this investigator belongs to.
+  company: { type: mongoose.Schema.Types.ObjectId, ref: 'InsuranceCompany', index: true },
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   contactNumber: { type: String, required: true },

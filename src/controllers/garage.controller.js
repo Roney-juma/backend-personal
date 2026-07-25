@@ -3,20 +3,35 @@ const tokenService = require('../service/token.service');
 const emailService = require('../service/email.service');
 const logger = require('../middlewheres/logger');
 const { getRequesterCompany, belongsToCompany } = require('../utils/requesterCompany');
+const { DEFAULT_TEMP_PASSWORD } = require('../constants/userDefaults');
+const { writeAuditLog } = require('../utils/auditHelper');
 
 const createGarage = async (req, res) => {
   try {
-    const rawPassword = req.body.password;
+    // Resolve the credential HERE so the welcome email always carries the real
+    // value — the portal may omit password, in which case the default applies.
+    const rawPassword = req.body.password || DEFAULT_TEMP_PASSWORD;
     // The garage belongs to the company of the user creating it (ignore any
     // client-supplied company to prevent spoofing). Platform staff → no company.
     const company = await getRequesterCompany(req);
-    const newGarage = await garageService.createGarage({ ...req.body, company: company || undefined });
+    const newGarage = await garageService.createGarage({ ...req.body, password: rawPassword, company: company || undefined });
 
     await emailService.sendEmailNotification(
       newGarage.email,
       'Welcome To AVE Insurance',
       `Dear ${newGarage.name},\n\nYour account has been created on the AVE Insurance platform.\n\nLogin Details:\n  Email:    ${newGarage.email}\n  Password: ${rawPassword}\n  Role:     ${newGarage.accountType}\n\nPlease log in and change your password at your earliest convenience.\n\nRegards,\nThe AVE Insurance Team`
     );
+
+    await writeAuditLog(req, {
+      action: 'CREATE',
+      module: 'Garage',
+      actionDescription: `Created garage ${newGarage.name} (${newGarage.email})`,
+      resourceType: 'Garage',
+      resourceId: newGarage._id,
+      statusCode: 201,
+      success: true,
+      changes: { old: null, new: { name: newGarage.name, email: newGarage.email } },
+    });
 
     res.status(201).json(newGarage);
   } catch (error) {
@@ -90,6 +105,15 @@ const updateGarage = async (req, res) => {
     const company = await getRequesterCompany(req);
     const updatedGarage = await garageService.updateGarage(req.params.garageId, req.body, company);
     if (!updatedGarage) return res.status(404).json({ message: 'Garage not found' });
+    await writeAuditLog(req, {
+      action: 'UPDATE',
+      module: 'Garage',
+      actionDescription: `Updated garage ${updatedGarage.name}`,
+      resourceType: 'Garage',
+      resourceId: updatedGarage._id,
+      statusCode: 200,
+      success: true,
+    });
     res.status(200).json(updatedGarage);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -101,6 +125,15 @@ const deleteGarage = async (req, res) => {
     const company = await getRequesterCompany(req);
     const deletedGarage = await garageService.deleteGarage(req.params.garageId, company);
     if (!deletedGarage) return res.status(404).json({ message: 'Garage not found' });
+    await writeAuditLog(req, {
+      action: 'DELETE',
+      module: 'Garage',
+      actionDescription: `Deleted garage ${deletedGarage.name} (${deletedGarage.email})`,
+      resourceType: 'Garage',
+      resourceId: deletedGarage._id,
+      statusCode: 200,
+      success: true,
+    });
     res.status(200).json({ message: 'Garage deleted successfully' });
   } catch (error) {
     res.status(error.statusCode || 500).json({ message: error.message });
@@ -176,7 +209,8 @@ const resetPassword = async (req, res) => {
 
 const getGarageStats = async (req, res) => {
   try {
-    const stats = await garageService.getGarageStats();
+    // Company users only see their own company's stats; platform staff see all.
+    const stats = await garageService.getGarageStats(await getRequesterCompany(req));
     res.status(200).json(stats);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -185,7 +219,7 @@ const getGarageStats = async (req, res) => {
 
 const getTopGarages = async (req, res) => {
   try {
-    const topGarages = await garageService.getTopGarages();
+    const topGarages = await garageService.getTopGarages(await getRequesterCompany(req));
     res.status(200).json(topGarages);
   } catch (error) {
     res.status(500).json({ error: error.message });

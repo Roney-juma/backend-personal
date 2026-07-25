@@ -5,6 +5,7 @@ const { renderIntakePage } = require('../ai/intakePage');
 const claimService = require('../service/claim.service');
 const Customer = require('../models/customerModel');
 const logger = require('../middlewheres/logger');
+const { getRequesterCompany } = require('../utils/requesterCompany');
 
 /**
  * GET /ai/claim-intake/:token
@@ -68,6 +69,7 @@ const runIntakeTurn = async (req, res, identity) => {
     const usageMeta = {
       sessionKey: intakeSessionKey(identity.token, identity.customer),
       customerId: identity.customer && identity.customer._id,
+      company: identity.customer && identity.customer.company,
     };
     const checks = await Promise.all(photoUrls.map((url) => validatePhotoUrl(url, usageMeta)));
     const rejected = checks.filter((c) => !c.valid);
@@ -159,6 +161,7 @@ const validateClaimPhoto = async (req, res) => {
         req.customer || (req.user && { _id: req.user.id })
       ),
       customerId: (req.customer && req.customer._id) || (req.user && req.user.id),
+      company: (req.customer && req.customer.company) || (req.user && req.user.company),
     };
     const result = await validatePhoto(req.file.buffer, req.file.mimetype, usageMeta);
     res.status(200).json(result);
@@ -180,8 +183,13 @@ const staffAssistant = async (req, res) => {
     if (!userMessage || typeof userMessage !== 'string') {
       return res.status(400).json({ message: 'userMessage is required' });
     }
+    // Tenant scope for the read-only tools: company users (and any actor token
+    // carrying a company claim) only query their own company's data; AVE
+    // platform staff resolve to null → global scope.
+    const company = await getRequesterCompany(req);
     const result = await runStaffAssistant({
       user: req.user,
+      company,
       messages: Array.isArray(messages) ? messages : [],
       userMessage,
     });

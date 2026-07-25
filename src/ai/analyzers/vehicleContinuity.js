@@ -119,7 +119,7 @@ async function run(claim, stage) {
 
   // ── 3. Photo-to-photo fingerprints: claimant picture vs stage picture ────
   checksRun.push('vehicle_fingerprint');
-  const usageMeta = { claimId: claim._id, customerId: claim.customerId, stage };
+  const usageMeta = { claimId: claim._id, customerId: claim.customerId, company: claim.company, stage };
   let baseFp = base.photos.length ? cachedBaseline(claim, base.photos) : null;
   if (!baseFp && base.photos.length) {
     baseFp = await extractFingerprint(base.photos, 'claimant', usageMeta);

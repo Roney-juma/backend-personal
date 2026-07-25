@@ -91,7 +91,16 @@ const verifyLoginChallenge = async (mfaToken, code) => {
     throw new Error('Invalid verification code');
   }
 
-  return user;
+  // Portal users need their role populated — the portal derives permissions
+  // from role.name / role.permissions in the login response.
+  if (payload.accountType === 'User') {
+    await user.populate('role');
+  }
+
+  // Return the accountType from the challenge token so the caller can mint the
+  // matching access token (customer/garage tokens must never come out stamped
+  // as portal tokens).
+  return { user, accountType: payload.accountType };
 };
 
 module.exports = { beginEnrollment, confirmEnrollment, disable, verifyLoginChallenge };

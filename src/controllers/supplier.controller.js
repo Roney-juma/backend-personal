@@ -5,13 +5,18 @@ const logger = require('../middlewheres/logger');
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const { getRequesterCompany, belongsToCompany } = require('../utils/requesterCompany');
+const { DEFAULT_TEMP_PASSWORD } = require('../constants/userDefaults');
+const { writeAuditLog } = require('../utils/auditHelper');
 
 const createSupplier = async (req, res) => {
     try {
         // The supplier belongs to the insurance company of the user creating it
         // (`company` on the body stays as the free-text supplier business name).
         const insuranceCompany = await getRequesterCompany(req);
-        const supplier = await supplierService.createSupplier({ ...req.body, insuranceCompany: insuranceCompany || undefined });
+        // Resolve the credential HERE so the welcome email always carries the
+        // real value — the portal may omit password, then the default applies.
+        const rawPassword = req.body.password || DEFAULT_TEMP_PASSWORD;
+        const supplier = await supplierService.createSupplier({ ...req.body, password: rawPassword, insuranceCompany: insuranceCompany || undefined });
 
         if (supplier && supplier.email) {
             emailService.sendEmailNotification(
@@ -23,7 +28,7 @@ const createSupplier = async (req, res) => {
 
                 Your login credentials are as follows:
                 Username: ${supplier.email}
-                Password: ${req.body.password}
+                Password: ${rawPassword}
 
                 Please keep this information secure.
 
@@ -31,6 +36,17 @@ const createSupplier = async (req, res) => {
                 Admin Team`
             );
         }
+
+        await writeAuditLog(req, {
+            action: 'CREATE',
+            module: 'Supplier',
+            actionDescription: `Created supplier ${supplier.name} (${supplier.email})`,
+            resourceType: 'Supplier',
+            resourceId: supplier._id,
+            statusCode: 201,
+            success: true,
+            changes: { old: null, new: { name: supplier.name, email: supplier.email } },
+        });
 
         res.status(201).json(supplier);
     } catch (err) {
@@ -101,6 +117,15 @@ const updateSupplier = async (req, res) => {
         if (!supplier) {
             return res.status(404).json({ error: 'Supplier not found' });
         }
+        await writeAuditLog(req, {
+            action: 'UPDATE',
+            module: 'Supplier',
+            actionDescription: `Updated supplier ${supplier.name}`,
+            resourceType: 'Supplier',
+            resourceId: supplier._id,
+            statusCode: 200,
+            success: true,
+        });
         res.status(200).json(supplier);
     } catch (err) {
         logger.error('Error updating supplier: %s', err.message);
@@ -115,6 +140,15 @@ const deleteSupplier = async (req, res) => {
         if (!deleted) {
             return res.status(404).json({ error: 'Supplier not found' });
         }
+        await writeAuditLog(req, {
+            action: 'DELETE',
+            module: 'Supplier',
+            actionDescription: `Deleted supplier ${deleted.name} (${deleted.email})`,
+            resourceType: 'Supplier',
+            resourceId: deleted._id,
+            statusCode: 200,
+            success: true,
+        });
         res.status(200).json({ message: 'Supplier deleted successfully' });
     } catch (err) {
         logger.error('Error deleting supplier: %s', err.message);
@@ -152,7 +186,12 @@ const submitBidForSupply = async (req, res) => {
 
 const getAllClaimsInGarage = async (req, res) => {
     try {
-        const claims = await supplierService.getClaimsInGarage();
+        // This is the supplier app's bidding feed — the requester's own supplier id
+        // scopes it to their insurer. Portal staff (Company/Provider users) keep the
+        // unscoped feed; ids that don't resolve to a supplier fall back to global.
+        const type = req.user?.accountType;
+        const supplierId = type === 'CompanyUser' || type === 'ProviderUser' ? null : req.user?.id;
+        const claims = await supplierService.getClaimsInGarage(supplierId);
         console.log('Claims in garage:', claims);
         res.json(claims);
     } catch (err) {

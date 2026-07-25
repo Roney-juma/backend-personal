@@ -1,6 +1,7 @@
 const assessorService = require("../service/assessor.service");
 const tokenService = require("../service/token.service");
 const emailService = require("../service/email.service");
+const { DEFAULT_TEMP_PASSWORD } = require('../constants/userDefaults');
 const logger = require('../middlewheres/logger');
   const { getRequesterCompany, belongsToCompany } = require('../utils/requesterCompany');
 
@@ -24,11 +25,13 @@ const login = async (req, res) => {
 
 const createAssessor = async (req, res) => {
   try {
-    const rawPassword = req.body.password;
+    // Resolve the credential HERE so the welcome email always carries the real
+    // value — the portal may omit password, in which case the default applies.
+    const rawPassword = req.body.password || DEFAULT_TEMP_PASSWORD;
     // The assessor belongs to the company of the user creating it (ignore any
     // client-supplied company to prevent spoofing). Platform staff → no company.
     const company = await getRequesterCompany(req);
-    const newAssessor = await assessorService.createAssessor({ ...req.body, company: company || undefined }, req);
+    const newAssessor = await assessorService.createAssessor({ ...req.body, password: rawPassword, company: company || undefined }, req);
 
     await emailService.sendEmailNotification(
       newAssessor.email,
@@ -179,7 +182,8 @@ const rejectReAssessment = async (req, res) => {
 
 const getAssessorStatistics = async (req, res) => {
   try {
-    const statistics = await assessorService.getAssessorStatistics(req.params.assessorId);
+    // Company users only see their own company's stats; platform staff see all.
+    const statistics = await assessorService.getAssessorStatistics(await getRequesterCompany(req));
     res.status(200).json(statistics);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -188,7 +192,7 @@ const getAssessorStatistics = async (req, res) => {
 
 const getTopAssessors = async (req, res) => {
   try {
-    const topAssessors = await assessorService.getTopAssessors();
+    const topAssessors = await assessorService.getTopAssessors(await getRequesterCompany(req));
     res.status(200).json(topAssessors);
   } catch (error) {
     res.status(500).json({ message: error.message });

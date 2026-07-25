@@ -20,6 +20,8 @@ const investigators = require("./investigator.route")
 const ai = require("./ai.route")
 const claimTypes = require("./claimType.route")
 const vendorInvoices = require("./vendorInvoice.route")
+const sso = require("./sso.route")
+const publicCompanies = require("./publicCompanies.route")
 
 
 const router = express.Router()
@@ -28,6 +30,7 @@ const router = express.Router()
 router.use("/customers", customer)
 router.use("/claims", claims)
 router.use("/users", users)
+router.use("/auth/sso", sso)
 router.use("/auth", auth)
 router.use("/images", upload)
 router.use("/assessors", assessors)
@@ -45,6 +48,7 @@ router.use("/investigators", investigators)
 router.use("/ai", ai)
 router.use("/claim-types", claimTypes)
 router.use("/vendor-invoices", vendorInvoices)
+router.use("/public/companies", publicCompanies)
 
 
 module.exports  = router

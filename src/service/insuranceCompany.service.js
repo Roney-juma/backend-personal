@@ -1,4 +1,3 @@
-const bcrypt = require('bcrypt');
 const InsuranceCompany = require('../models/insuranceCompany.model');
 const emailService = require('./email.service');
 const userService = require('./users.service');
@@ -12,13 +11,12 @@ const createCompany = async (data) => {
     throw new Error('A company with this email or registration number already exists');
   }
 
-  const hashedPassword = await bcrypt.hash(password, 10);
-
+  // No company-level credential: the company's only login is its Super Admin
+  // portal user below, so the supplied password becomes that user's initial one.
   const company = new InsuranceCompany({
     companyName,
     registrationNumber,
     email,
-    password: hashedPassword,
     phone,
     address,
     contactPerson,
@@ -96,14 +94,22 @@ const getCompanySuppliers = async (companyId, { page = 1, limit = 100, search = 
   return supplierService.getAllSuppliers({ page, limit, search, insuranceCompany: companyId });
 };
 
+// Public directory for the mobile app's company picker — active companies only,
+// and only the fields safe to expose without auth (no emails/phones).
+const getPublicCompanies = async () => {
+  return InsuranceCompany.find({ status: 'active' })
+    .select('_id companyName logo')
+    .sort({ companyName: 1 })
+    .lean();
+};
+
 const getCompanyById = async (id) => {
   return InsuranceCompany.findById(id).select('-password');
 };
 
 const updateCompany = async (id, data) => {
-  if (data.password) {
-    data.password = await bcrypt.hash(data.password, 10);
-  }
+  // Company-level login is retired — never (re)store a company credential.
+  delete data.password;
   return InsuranceCompany.findByIdAndUpdate(id, data, { new: true }).select('-password');
 };
 
@@ -115,31 +121,6 @@ const updateCompanyStatus = async (id, status) => {
 
 const deleteCompany = async (id) => {
   return InsuranceCompany.softDeleteById(id);
-};
-
-const loginCompany = async (email, password) => {
-  const company = await InsuranceCompany.findOne({ email });
-  if (!company) return null;
-
-  const match = await bcrypt.compare(password, company.password);
-  if (!match) return null;
-
-  if (company.status === 'suspended') {
-    throw new Error('Account suspended. Please contact support.');
-  }
-
-  company.lastActiveAt = new Date();
-  await company.save();
-
-  return company;
-};
-
-const resetCompanyPassword = async (email, newPassword) => {
-  const company = await InsuranceCompany.findOne({ email });
-  if (!company) throw new Error('Company not found');
-  company.password = await bcrypt.hash(newPassword, 10);
-  await company.save();
-  return { message: 'Password reset successfully' };
 };
 
 const getCompanyStats = async (id) => {
@@ -178,12 +159,11 @@ const getCompanyStats = async (id) => {
 module.exports = {
   createCompany,
   getAllCompanies,
+  getPublicCompanies,
   getCompanyById,
   updateCompany,
   updateCompanyStatus,
   deleteCompany,
-  loginCompany,
-  resetCompanyPassword,
   getCompanyStats,
   getCompanyUsers,
   getCompanyGarages,

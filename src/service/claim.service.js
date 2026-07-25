@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Claim = require('../models/claim.model');
 const Customer = require('../models/customerModel');
 const Assessor = require('../models/assessor.model');
@@ -90,9 +91,11 @@ const selectBestGarageBid = (garageBids = []) => {
   }, null);
 };
 
-const generateClaimLink = async (email) => {
+const generateClaimLink = async (email, company) => {
   try {
-    const customer = await Customer.findOne({ email });
+    // Tenant scope: a company-scoped portal admin can only link their own customers.
+    const customerFilter = company ? { email, company } : { email };
+    const customer = await Customer.findOne(customerFilter);
 
     if (!customer) {
       return { error: 'Customer not found' };
@@ -129,9 +132,10 @@ const generateClaimLink = async (email) => {
 
 // Generate a link that opens the conversational AI claim-filing assistant.
 // Uses the same single-use token mechanism, but points at /ai/claim-intake.
-const generateAiClaimLink = async (email) => {
+const generateAiClaimLink = async (email, company) => {
   try {
-    const customer = await Customer.findOne({ email });
+    // Tenant scope: a company-scoped portal admin can only link their own customers.
+    const customer = await Customer.findOne(company ? { email, company } : { email });
 
     if (!customer) {
       return { error: 'Customer not found' };
@@ -193,6 +197,9 @@ const fileClaimService = async (token, claimDetails, req) => {
         email: customer.email,
       },
       ...claimDetails,
+      // Tenant stamp — the claim always belongs to the claimant's insurer,
+      // regardless of anything in the submitted details.
+      company: customer.company,
     });
     const start = Date.now();
     await newClaim.save();
@@ -263,6 +270,8 @@ const fileClaimForCustomer = async (customer, claimDetails, req) => {
         email: customer.email,
       },
       ...claimDetails,
+      // Tenant stamp — the claim always belongs to the claimant's insurer.
+      company: customer.company,
     });
     const start = Date.now();
     await newClaim.save();
@@ -323,6 +332,8 @@ const createClaim = async (data, req) => {
       phone: claimant.phone,
       email: claimant.email,
     };
+    // Tenant stamp — always the claimant's insurer, overriding any client value.
+    data.company = claimant.company;
     const start = Date.now();
     const claim = new Claim(data);
     await claim.save();
@@ -367,8 +378,10 @@ const createClaim = async (data, req) => {
 
 // Pure read — no side effects. Auto-award now runs on bid submission via runAutoAward()
 // instead of on every list read (which previously triggered writes + emails per claim).
-const getClaims = async () => {
-  return Claim.find().sort({ createdAt: -1 }).lean();
+// `company` (from getRequesterCompany) narrows the list to one insurer's claims;
+// falsy = platform staff, global scope.
+const getClaims = async (company) => {
+  return Claim.find(company ? { company } : {}).sort({ createdAt: -1 }).lean();
 };
 
 // Evaluate and apply auto-award rules for a single claim. Called after a bid is placed.
@@ -975,9 +988,10 @@ const rejectGarageBid = async (id, bidId, req) => {
   return claim;
 };
 
-// Get awarded claims
-const getAwardedClaims = async () => {
-  return cache.wrap('cache:claims:awarded', () => Claim.find({ awardedAssessor: { $exists: true } }).lean(), 300);
+// Get awarded claims — cache key varies by tenant so companies never share entries
+const getAwardedClaims = async (company) => {
+  return cache.wrap(`cache:claims:awarded:${company || 'all'}`, () =>
+    Claim.find({ awardedAssessor: { $exists: true }, ...(company ? { company } : {}) }).lean(), 300);
 };
 const updateClaim = async (id, updateData) => {
   updateData.status = 'Repair';
@@ -1016,9 +1030,10 @@ const getGarageBidsByClaim = async (id) => {
   }, 300);
 };
 
-// Garage finds assessed claims for repair
-const garageFindsAssessedClaimsForRepair = async () => {
-  return cache.wrap('cache:claims:assessed', () => Claim.find({ status: 'Assessed' }).lean(), 300);
+// Garage finds assessed claims for repair — tenant-suffixed cache key
+const garageFindsAssessedClaimsForRepair = async (company) => {
+  return cache.wrap(`cache:claims:assessed:${company || 'all'}`, () =>
+    Claim.find({ status: 'Assessed', ...(company ? { company } : {}) }).lean(), 300);
 };
 
 // Get assessed claim by ID
@@ -1218,18 +1233,23 @@ const rejectSupplierBid = async (claimId, bidId, req) => {
   return supplyBid;
 };
 
-const countClaimsByStatus = async () => {
-  return cache.wrap('cache:stats:claims:status', async () => {
+const countClaimsByStatus = async (company) => {
+  return cache.wrap(`cache:stats:claims:status:${company || 'all'}`, async () => {
     const allStatuses = ['Pending', 'Approved', 'Rejected', 'Assessment', 'Assessed', 'Repair', 'Garage', 'Re-Assessment', 'Completed'];
-    const counts = await Claim.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]);
+    // Aggregations don't cast — the tenant $match needs an explicit ObjectId.
+    const pipeline = company ? [{ $match: { company: new mongoose.Types.ObjectId(String(company)) } }] : [];
+    pipeline.push({ $group: { _id: '$status', count: { $sum: 1 } } });
+    const counts = await Claim.aggregate(pipeline);
     const countsMap = new Map(counts.map(count => [count._id, count.count]));
     const result = allStatuses.map(status => ({ _id: status, count: countsMap.get(status) || 0 }));
     return result.reduce((acc, curr) => { acc[curr._id] = curr.count; return acc; }, {});
   }, 600);
 };
-const getPaymentTotals = async () => {
-  return cache.wrap('cache:stats:claims:cost', async () => {
+const getPaymentTotals = async (company) => {
+  return cache.wrap(`cache:stats:claims:cost:${company || 'all'}`, async () => {
   const result = await Claim.aggregate([
+    // Tenant scope first — aggregations don't cast, so build the ObjectId explicitly
+    ...(company ? [{ $match: { company: new mongoose.Types.ObjectId(String(company)) } }] : []),
     // Unwind the bids array to process each bid
     { $unwind: { path: '$bids', preserveNullAndEmptyArrays: true } },
     // Match only awarded garage bids
@@ -1839,10 +1859,10 @@ const reAssessSelfRepair = async (claimId, { notes, recommendedAmount }, req) =>
   return claim;
 };
 
-// Get all claims that are in self-repair workflow
-const getSelfRepairClaims = async () => {
-  return cache.wrap('cache:claims:self-repair', () =>
-    Claim.find({ 'selfRepair.opted': true }).sort({ createdAt: -1 }).lean(), 600);
+// Get all claims that are in self-repair workflow — tenant-suffixed cache key
+const getSelfRepairClaims = async (company) => {
+  return cache.wrap(`cache:claims:self-repair:${company || 'all'}`, () =>
+    Claim.find({ 'selfRepair.opted': true, ...(company ? { company } : {}) }).sort({ createdAt: -1 }).lean(), 600);
 };
 
 // Approve a glass claim — sets status to GlassApproved
@@ -2025,10 +2045,10 @@ const completeGlassRepair = async (claimId, req) => {
   return claim;
 };
 
-// Get all glass/motor glass claims
-const getGlassClaims = async () => {
-  return cache.wrap('cache:claims:glass', () =>
-    Claim.find({ claimTypeId: MOTOR_GLASS_TYPE_ID }).sort({ createdAt: -1 }).lean(), 600);
+// Get all glass/motor glass claims — tenant-suffixed cache key
+const getGlassClaims = async (company) => {
+  return cache.wrap(`cache:claims:glass:${company || 'all'}`, () =>
+    Claim.find({ claimTypeId: MOTOR_GLASS_TYPE_ID, ...(company ? { company } : {}) }).sort({ createdAt: -1 }).lean(), 600);
 };
 
 // Customer resubmits a rejected claim with updated details

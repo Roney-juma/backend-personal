@@ -4,12 +4,38 @@ const logger = require('../middlewheres/logger');
 const { analyseClaimFraud, applyFraudAnalysis, notifyAdminFraudAlert } = require('../service/fraud.service');
 const Claim = require('../models/claim.model');
 const AiAnalysis = require('../models/aiAnalysis.model');
+const { getRequesterCompany, belongsToCompany } = require('../utils/requesterCompany');
+
+// Resolve the requester's tenant for claim access. Portal admins carry a
+// company claim (or resolve via the legacy DB fallback); AVE staff resolve to
+// null → global scope. Mobile actor tokens (Customer/Garage/Assessor/Supplier)
+// also carry their insurer's company claim now, so they are scoped to their
+// own tenant too — an actor must never see another insurer's claims. Legacy
+// actor tokens without the claim resolve to null (expire within 2 days).
+const portalCompany = async (req) => {
+  return getRequesterCompany(req);
+};
+
+// Ownership guard for portal reads/mutations on a single claim. Responds 404 on a
+// cross-tenant claim so foreign ids are indistinguishable from missing ones.
+// Returns false when the response has already been sent.
+const ensureClaimInCompany = async (req, res, claimId) => {
+  const company = await portalCompany(req);
+  if (!company) return true;
+  const claim = await Claim.findById(claimId).select('company').lean();
+  if (!claim || !belongsToCompany(claim.company, company)) {
+    res.status(404).json({ message: 'Claim not found' });
+    return false;
+  }
+  return true;
+};
 
 const generateClaimLinkController = async (req, res) => {
   const { email } = req.body;
 
   try {
-    const claimLink = await claimService.generateClaimLink(email);
+    // Company-scoped admins can only generate links for their own customers.
+    const claimLink = await claimService.generateClaimLink(email, await portalCompany(req));
     res.status(200).json({ message: 'Claim link generated successfully', claimLink });
 
   } catch (error) {
@@ -21,7 +47,7 @@ const generateAiClaimLinkController = async (req, res) => {
   const { email } = req.body;
 
   try {
-    const claimLink = await claimService.generateAiClaimLink(email);
+    const claimLink = await claimService.generateAiClaimLink(email, await portalCompany(req));
     res.status(200).json({ message: 'AI claim link generated successfully', claimLink });
 
   } catch (error) {
@@ -71,7 +97,7 @@ const createClaim = async (req, res) => {
 // Get all claims
 const getClaims = async (req, res) => {
   try {
-    const claims = await claimService.getClaims();
+    const claims = await claimService.getClaims(await portalCompany(req));
     res.status(200).json(claims);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -91,6 +117,7 @@ const getClaimsByCustomer = async (req, res) => {
 // Approve a claim
 const approveClaim = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const claim = await claimService.approveClaim(req.params.id, req);
     res.status(200).json(claim);
   } catch (error) {
@@ -101,6 +128,7 @@ const approveClaim = async (req, res) => {
 // Delete a claim
 const deleteClaim = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const claim = await claimService.deleteClaim(req.params.id, req);
     res.status(200).json({ message: 'Claim deleted successfully' });
   } catch (error) {
@@ -115,6 +143,7 @@ const rejectClaim = async (req, res) => {
     if (!rejectionReason) {
       return res.status(400).json({ message: 'Rejection reason is required' });
     }
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const claim = await claimService.rejectClaim(req.params.id, rejectionReason, req);
     res.status(200).json(claim);
   } catch (error) {
@@ -125,6 +154,7 @@ const rejectClaim = async (req, res) => {
 // Get a specific claim by ID
 const getClaimById = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const claim = await claimService.getClaimById(req.params.id);
     res.status(200).json(claim);
   } catch (error) {
@@ -135,6 +165,7 @@ const getClaimById = async (req, res) => {
 // Award a claim to an assessor
 const awardClaim = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const claim = await claimService.awardClaim(req.params.id, req.body.bidId, req);
     res.status(200).json(claim);
   } catch (error) {
@@ -145,6 +176,7 @@ const awardClaim = async (req, res) => {
 // Award a bid to a garage
 const awardBidToGarage = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const claim = await claimService.awardBidToGarage(req.params.id, req.body.bidId, req);
     res.status(200).json(claim);
   } catch (error) {
@@ -155,7 +187,7 @@ const awardBidToGarage = async (req, res) => {
 // Get awarded claims
 const getAwardedClaims = async (req, res) => {
   try {
-    const claims = await claimService.getAwardedClaims();
+    const claims = await claimService.getAwardedClaims(await portalCompany(req));
     res.status(200).json(claims);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -165,6 +197,7 @@ const getAwardedClaims = async (req, res) => {
 // Get bids by claim
 const getBidsByClaim = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const bids = await claimService.getBidsByClaim(req.params.id);
     res.status(200).json(bids);
   } catch (error) {
@@ -175,6 +208,7 @@ const getBidsByClaim = async (req, res) => {
 // Get garage bids by claim
 const getGarageBidsByClaim = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const bids = await claimService.getGarageBidsByClaim(req.params.id);
     res.status(200).json(bids);
   } catch (error) {
@@ -185,7 +219,7 @@ const getGarageBidsByClaim = async (req, res) => {
 // Garage finds assessed claims for repair
 const garageFindsAssessedClaimsForRepair = async (req, res) => {
   try {
-    const claims = await claimService.garageFindsAssessedClaimsForRepair();
+    const claims = await claimService.garageFindsAssessedClaimsForRepair(await portalCompany(req));
     res.status(200).json(claims);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -195,6 +229,7 @@ const garageFindsAssessedClaimsForRepair = async (req, res) => {
 // Get assessed claim by ID
 const getAssessedClaimById = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const claim = await claimService.getAssessedClaimById(req.params.id);
     res.status(200).json(claim);
   } catch (error) {
@@ -215,6 +250,7 @@ const getAssessedClaimsByGarage = async (req, res) => {
 // Get all supplier bids for a claim
 const getSupplierBidsForClaim = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.claimId))) return;
     const bids = await claimService.getSupplierBidsForClaim(req.params.claimId);
     res.status(200).json(bids);
   } catch (error) {
@@ -225,6 +261,7 @@ const getSupplierBidsForClaim = async (req, res) => {
 // Accept a supplier bid
 const acceptSupplierBid = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.claimId))) return;
     const bid = await claimService.acceptSupplierBid(req.params.claimId, req.params.bidId, req);
     res.status(200).json(bid);
   } catch (error) {
@@ -235,6 +272,7 @@ const acceptSupplierBid = async (req, res) => {
 // Update claim
 const updateClaimById = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const updatedClaim = await claimService.updateClaim(req.params.id, req.body);
     if (!updatedClaim) return res.status(404).json({ message: 'Claim not found' });
     res.status(200).json(updatedClaim);
@@ -245,7 +283,7 @@ const updateClaimById = async (req, res) => {
 // Count claims by status
 const countClaimsByStatus = async (req, res) => {
   try {
-    const count = await claimService.countClaimsByStatus();
+    const count = await claimService.countClaimsByStatus(await portalCompany(req));
     res.status(200).json(count);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -254,7 +292,7 @@ const countClaimsByStatus = async (req, res) => {
 
 const getClaimsTotalCost = async (req, res) => {
   try {
-    const totalCost = await claimService.getPaymentTotals();
+    const totalCost = await claimService.getPaymentTotals(await portalCompany(req));
     res.status(200).json(totalCost);
   }
   catch (error) {
@@ -263,6 +301,7 @@ const getClaimsTotalCost = async (req, res) => {
 }
 const awardClaimToGarage = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.claimId))) return;
     const claim = await claimService.awardClaimToGarage(req.params.claimId, req.params.garageId);
     res.status(200).json(claim);
   } catch (error) {
@@ -273,6 +312,7 @@ const awardClaimToGarage = async (req, res) => {
 // Reject a specific assessor bid
 const rejectAssessorBid = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const claim = await claimService.rejectAssessorBid(req.params.id, req.body.bidId, req);
     res.status(200).json(claim);
   } catch (error) {
@@ -283,6 +323,7 @@ const rejectAssessorBid = async (req, res) => {
 // Reject a specific garage bid
 const rejectGarageBid = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const claim = await claimService.rejectGarageBid(req.params.id, req.body.bidId, req);
     res.status(200).json(claim);
   } catch (error) {
@@ -293,6 +334,7 @@ const rejectGarageBid = async (req, res) => {
 // Award a supplier bid
 const awardSupplierBid = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.claimId))) return;
     const bid = await claimService.awardSupplierBid(req.params.claimId, req.params.bidId, req);
     res.status(200).json(bid);
   } catch (error) {
@@ -303,6 +345,7 @@ const awardSupplierBid = async (req, res) => {
 // Reject a specific supplier bid
 const rejectSupplierBid = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.claimId))) return;
     const bid = await claimService.rejectSupplierBid(req.params.claimId, req.params.bidId, req);
     res.status(200).json(bid);
   } catch (error) {
@@ -355,6 +398,7 @@ const approveSelfRepair = async (req, res) => {
     const { totalAwardedAmount, depositPercentage } = req.body;
     if (!totalAwardedAmount) return res.status(400).json({ message: 'totalAwardedAmount is required' });
     if (!depositPercentage) return res.status(400).json({ message: 'depositPercentage is required' });
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const claim = await claimService.approveSelfRepair(req.params.id, { totalAwardedAmount, depositPercentage }, req);
     res.status(200).json(claim);
   } catch (error) {
@@ -366,6 +410,7 @@ const rejectSelfRepair = async (req, res) => {
   try {
     const { rejectionReason } = req.body;
     if (!rejectionReason) return res.status(400).json({ message: 'rejectionReason is required' });
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const claim = await claimService.rejectSelfRepair(req.params.id, { rejectionReason }, req);
     res.status(200).json(claim);
   } catch (error) {
@@ -375,6 +420,7 @@ const rejectSelfRepair = async (req, res) => {
 
 const payInitialDeposit = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const claim = await claimService.payInitialDeposit(req.params.id, req);
     res.status(200).json(claim);
   } catch (error) {
@@ -384,6 +430,7 @@ const payInitialDeposit = async (req, res) => {
 
 const payFinalSettlement = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const claim = await claimService.payFinalSettlement(req.params.id, req);
     res.status(200).json(claim);
   } catch (error) {
@@ -393,6 +440,7 @@ const payFinalSettlement = async (req, res) => {
 
 const completeReAssessment = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const claim = await assessorService.completeRepair(req.params.id, req);
     res.status(200).json(claim);
   } catch (error) {
@@ -403,7 +451,7 @@ const completeReAssessment = async (req, res) => {
 
 const getSelfRepairClaims = async (req, res) => {
   try {
-    const claims = await claimService.getSelfRepairClaims();
+    const claims = await claimService.getSelfRepairClaims(await portalCompany(req));
     res.status(200).json(claims);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -421,6 +469,7 @@ const resubmitRejectedClaim = async (req, res) => {
 
 const approveGlassClaim = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const claim = await claimService.approveGlassClaim(req.params.id, req);
     res.status(200).json(claim);
   } catch (error) {
@@ -432,6 +481,7 @@ const assignGlassSupplier = async (req, res) => {
   try {
     const { supplierId, appointmentDate, notes } = req.body;
     if (!supplierId) return res.status(400).json({ message: 'supplierId is required' });
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const claim = await claimService.assignGlassSupplier(req.params.id, { supplierId, appointmentDate, notes }, req);
     res.status(200).json(claim);
   } catch (error) {
@@ -441,6 +491,7 @@ const assignGlassSupplier = async (req, res) => {
 
 const completeGlassRepair = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const claim = await claimService.completeGlassRepair(req.params.id, req);
     res.status(200).json(claim);
   } catch (error) {
@@ -450,7 +501,7 @@ const completeGlassRepair = async (req, res) => {
 
 const getGlassClaims = async (req, res) => {
   try {
-    const claims = await claimService.getGlassClaims();
+    const claims = await claimService.getGlassClaims(await portalCompany(req));
     res.status(200).json(claims);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -459,8 +510,11 @@ const getGlassClaims = async (req, res) => {
 
 const getAiAnalysis = async (req, res) => {
   try {
-    const claim = await Claim.findById(req.params.id).select('ai').lean();
+    const claim = await Claim.findById(req.params.id).select('ai company').lean();
     if (!claim) return res.status(404).json({ message: 'Claim not found' });
+    if (!belongsToCompany(claim.company, await portalCompany(req))) {
+      return res.status(404).json({ message: 'Claim not found' });
+    }
     if (!claim.ai?.analysisId) return res.status(200).json(null);
     const analysis = await AiAnalysis.findById(claim.ai.analysisId).lean();
     res.status(200).json(analysis);
@@ -471,6 +525,7 @@ const getAiAnalysis = async (req, res) => {
 
 const getVehicleContinuity = async (req, res) => {
   try {
+    if (!(await ensureClaimInCompany(req, res, req.params.id))) return;
     const analyses = await AiAnalysis.find({ claimId: req.params.id, kind: 'vehicle_continuity' })
       .sort({ createdAt: -1 })
       .lean();
@@ -489,6 +544,9 @@ const runFraudCheck = async (req, res) => {
   try {
     const claim = await Claim.findById(req.params.id);
     if (!claim) return res.status(404).json({ message: 'Claim not found' });
+    if (!belongsToCompany(claim.company, await portalCompany(req))) {
+      return res.status(404).json({ message: 'Claim not found' });
+    }
 
     const analysis = await analyseClaimFraud(claim);
     applyFraudAnalysis(claim, analysis);
