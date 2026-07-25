@@ -16,6 +16,10 @@ const supplierSchema = new mongoose.Schema({
     longitude: Number,
     latitude: Number
   },
+  accountType: {
+    type: String,
+    default: 'Supplier',
+  },
   company: { type: String, required: true }, // free-text supplier business name (not a ref)
   // Insurance company this supplier belongs to (the company of the user who created it).
   insuranceCompany: { type: mongoose.Schema.Types.ObjectId, ref: 'InsuranceCompany', index: true },
