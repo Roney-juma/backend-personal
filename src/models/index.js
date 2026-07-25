@@ -11,6 +11,7 @@ module.exports.InsuranceCompany = require('./insuranceCompany.model');
 module.exports.SubscriptionPlan = require('./subscriptionPlan.model');
 module.exports.CompanySubscription = require('./companySubscription.model');
 module.exports.Invoice = require('./invoice.model');
+module.exports.VendorInvoice = require('./vendorInvoice.model');
 module.exports.ApiKey = require('./apiKey.model');
 module.exports.SupportTicket = require('./supportTicket.model');
 module.exports.CompanyActivity = require('./companyActivity.model');

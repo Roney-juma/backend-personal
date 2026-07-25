@@ -19,6 +19,7 @@ const notifications = require("./notification.route")
 const investigators = require("./investigator.route")
 const ai = require("./ai.route")
 const claimTypes = require("./claimType.route")
+const vendorInvoices = require("./vendorInvoice.route")
 const sso = require("./sso.route")
 const publicCompanies = require("./publicCompanies.route")
 
@@ -46,6 +47,7 @@ router.use("/notifications", notifications)
 router.use("/investigators", investigators)
 router.use("/ai", ai)
 router.use("/claim-types", claimTypes)
+router.use("/vendor-invoices", vendorInvoices)
 router.use("/public/companies", publicCompanies)
 
 
