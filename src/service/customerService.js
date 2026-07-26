@@ -80,6 +80,133 @@ async function createCustomer(cus, requesterCompany) {
   // Create new customer
   return await Customer.create(cus);
 }
+
+// Normalise + validate one row of an import payload into a persistable customer
+// doc scoped to `company`. Returns { doc } on success or { error } on a bad row.
+// Imported records carry no credential (status 'imported'); they activate later.
+const buildImportedCustomer = (row, company, insurerName, batchId) => {
+  const firstName = (row.firstName || '').trim();
+  const lastName = (row.lastName || '').trim();
+  const email = row.email ? String(row.email).trim().toLowerCase() : undefined;
+  const phone = row.phone ? String(row.phone).trim() : undefined;
+
+  if (!firstName || !lastName) return { error: 'firstName and lastName are required' };
+  if (!email && !phone) return { error: 'An email or phone is required' };
+
+  const policies = Array.isArray(row.policies) ? row.policies : [];
+  if (!policies.length) return { error: 'At least one policy is required' };
+
+  const primary = policies[0];
+  if (!primary.policyNumber || !String(primary.policyNumber).trim()) {
+    return { error: 'The first policy needs a policyNumber' };
+  }
+  if (!primary.policyType || !String(primary.policyType).trim()) {
+    return { error: 'The first policy needs a policyType' };
+  }
+
+  const doc = {
+    firstName,
+    lastName,
+    email,
+    phone,
+    idNumber: row.idNumber ? String(row.idNumber).trim() : undefined,
+    policyNumber: String(primary.policyNumber).trim(),
+    policyType: String(primary.policyType).trim(),
+    policies,
+    Insurer: insurerName,
+    company,
+    status: 'imported',
+    source: 'import',
+    importBatchId: batchId,
+  };
+  return { doc };
+};
+
+/**
+ * Bulk-import (or single-add) customers into the requester's insurance company.
+ * Payload: { customers: [...], dryRun?: boolean }. With dryRun the payload is only
+ * validated (nothing is persisted) so the portal can preview the outcome.
+ * Every customer is scoped to `company` — never to a tenant supplied in the body.
+ */
+async function importCustomers(payload, company) {
+  if (!company) {
+    throw new ApiError(403, 'Only insurance company admins can import customers');
+  }
+  const rows = Array.isArray(payload?.customers) ? payload.customers : [];
+  const dryRun = payload?.dryRun === true;
+  if (!rows.length) throw new ApiError(400, 'No customers provided');
+  if (rows.length > 5000) throw new ApiError(400, 'Import is limited to 5000 customers per request');
+
+  const companyDoc = await InsuranceCompany.findById(company).select('companyName');
+  if (!companyDoc) throw new ApiError(404, 'Insurance company not found');
+  const insurerName = companyDoc.companyName;
+  const batchId = `import-${Date.now()}`;
+
+  const results = [];
+  let created = 0; // for dryRun: rows that WOULD be created
+  let invalid = 0;
+  let duplicates = 0;
+
+  // Track policy/email seen within THIS payload so intra-file dupes are caught too.
+  const seenPolicies = new Set();
+  const seenEmails = new Set();
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i] || {};
+    const label = `${(row.firstName || '').trim()} ${(row.lastName || '').trim()}`.trim() || `Row ${i + 1}`;
+
+    const { doc, error } = buildImportedCustomer(row, company, insurerName, batchId);
+    if (error) {
+      invalid++;
+      results.push({ index: i, label, status: 'error', message: error });
+      continue;
+    }
+
+    // Duplicate within the payload.
+    const polKey = doc.policyNumber.toLowerCase();
+    const emailKey = doc.email;
+    if (seenPolicies.has(polKey) || (emailKey && seenEmails.has(emailKey))) {
+      duplicates++;
+      results.push({ index: i, label, status: 'duplicate', message: 'Duplicate within this file' });
+      continue;
+    }
+
+    // Duplicate against existing records for this tenant.
+    const or = [{ policyNumber: doc.policyNumber }];
+    if (doc.email) or.push({ email: doc.email });
+    const existing = await Customer.findOne({ company, $or: or }).select('_id');
+    if (existing) {
+      duplicates++;
+      results.push({ index: i, label, status: 'duplicate', message: 'A customer with this policy or email already exists' });
+      continue;
+    }
+
+    seenPolicies.add(polKey);
+    if (emailKey) seenEmails.add(emailKey);
+
+    if (!dryRun) {
+      try {
+        await Customer.create(doc);
+      } catch (e) {
+        invalid++;
+        results.push({ index: i, label, status: 'error', message: e.message });
+        continue;
+      }
+    }
+    created++;
+    results.push({ index: i, label, status: dryRun ? 'valid' : 'created' });
+  }
+
+  return {
+    dryRun,
+    total: rows.length,
+    created: dryRun ? 0 : created,
+    wouldCreate: dryRun ? created : undefined,
+    invalid,
+    duplicates,
+    results,
+  };
+}
 // Multi-insurer aware login (contract §3). The same email can now exist once
 // per insurer, so all non-deleted records are candidates; an optional companyId
 // (sent by the app after the company picker) narrows to one. Only `active`
@@ -330,6 +457,7 @@ const requestAccountDeletion = async ({ email, phone }) => {
 
 module.exports = {
   createCustomer,
+  importCustomers,
   loginUser,
   getCustomers,
   getCustomerClaims,
