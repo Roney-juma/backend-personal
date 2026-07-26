@@ -284,6 +284,95 @@ const getCustomers = async (company) => {
   return await Customer.find(query).lean();
 };
 
+const withCode = (statusCode, code, message) => {
+  const err = new ApiError(statusCode, message);
+  err.code = code;
+  return err;
+};
+
+// Sibling records = same person (email or phone match) at other insurers.
+const siblingIdentityOr = (me) => {
+  const or = [];
+  if (me.email) or.push({ email: me.email });
+  if (me.phone) or.push({ phone: me.phone });
+  return or;
+};
+
+const CUSTOMER_SENSITIVE_FIELDS = ['password', 'mfaSecret', 'resetPasswordToken', 'resetPasswordExpires', 'fcmToken'];
+
+/**
+ * Insurer selector data: every insurer where this person holds a record
+ * (matched by email/phone, one entry per insurer). Non-active records are
+ * included so the app can grey them out and route into activation; records
+ * under suspended insurers are omitted (they can't be logged into at all).
+ */
+const getMyCompanies = async (userId) => {
+  const me = await Customer.findById(userId);
+  if (!me || me.isDeleted) throw withCode(404, 'NOT_FOUND', 'Customer not found');
+
+  const or = siblingIdentityOr(me);
+  const siblings = or.length
+    ? await Customer.find({ $or: or, isDeleted: { $ne: true }, company: { $ne: null } })
+        .select('company status')
+        .populate('company', 'companyName logo status')
+        .lean()
+    : [];
+
+  const byCompany = new Map();
+  for (const record of siblings) {
+    if (!record.company || record.company.status !== 'active') continue;
+    const key = String(record.company._id);
+    // One record per insurer by email; phone matches can duplicate — prefer
+    // the record that is furthest along (active > invited > imported).
+    const rank = { active: 2, invited: 1, imported: 0 };
+    const prev = byCompany.get(key);
+    if (prev && rank[prev.status] >= rank[record.status]) continue;
+    byCompany.set(key, {
+      companyId: record.company._id,
+      companyName: record.company.companyName,
+      logo: record.company.logo,
+      status: record.status,
+      current: String(record._id) === String(me._id),
+    });
+  }
+  return Array.from(byCompany.values());
+};
+
+/**
+ * Swaps the session to this person's record at another insurer: verifies an
+ * ACTIVE sibling record under `companyId` and issues fresh tokens for it.
+ * No password re-entry — the caller is already authenticated and sibling
+ * hashes are kept in sync by activation/reset.
+ */
+const switchCompany = async (userId, companyId) => {
+  if (!companyId) throw withCode(400, 'VALIDATION_ERROR', 'companyId is required');
+  const me = await Customer.findById(userId);
+  if (!me || me.isDeleted) throw withCode(404, 'NOT_FOUND', 'Customer not found');
+
+  const or = siblingIdentityOr(me);
+  if (!or.length) throw withCode(404, 'NOT_IN_BOOK', 'No account found with this insurer');
+
+  const target = await Customer.findOne({
+    company: companyId,
+    isDeleted: { $ne: true },
+    $or: or,
+  }).populate('company', 'companyName logo status');
+
+  if (!target) throw withCode(404, 'NOT_IN_BOOK', 'No account found with this insurer');
+  if (target.company && target.company.status !== 'active') {
+    throw withCode(403, 'INSURER_UNAVAILABLE', 'This insurer is currently unavailable');
+  }
+  if (target.status !== 'active') {
+    // The app routes this into the activation flow for that insurer.
+    throw withCode(409, 'NOT_ACTIVATED', 'This account has not been activated with this insurer yet. Please verify it first.');
+  }
+
+  const tokens = tokenService.GenerateToken(target);
+  const user = target.toObject();
+  CUSTOMER_SENSITIVE_FIELDS.forEach((f) => delete user[f]);
+  return { user, tokens };
+};
+
 const getCustomerClaims = async (customerId, company) => {
   const customer = await Customer.findById(customerId);
   // Cross-tenant ids read as missing ones (company falsy → no requester scope).
@@ -292,8 +381,15 @@ const getCustomerClaims = async (customerId, company) => {
   }
 
   // Claims are matched by claimant email, which can exist at several insurers
-  // (multi-insurer contract) — keep the requester's tenant scope on the claims too.
-  const claims = await Claim.find({ 'claimant.email': customer.email, ...(company ? { company } : {}) }).lean();
+  // (multi-insurer contract). Tenant scope is the requester's company (portal)
+  // or the record's own company (mobile token — portalCompany resolves to null
+  // for customers, and without this the app would show every insurer's claims).
+  // Pre-tenancy claims have no company stamp, so those match by record id.
+  const scope = company || customer.company;
+  const query = scope
+    ? { 'claimant.email': customer.email, $or: [{ company: scope }, { company: null, customerId: customer._id }] }
+    : { 'claimant.email': customer.email };
+  const claims = await Claim.find(query).lean();
   if (claims.length === 0) {
     throw new Error('No claims found for this customer');
   }
@@ -460,6 +556,8 @@ module.exports = {
   importCustomers,
   loginUser,
   getCustomers,
+  getMyCompanies,
+  switchCompany,
   getCustomerClaims,
   sendWelcomeEmail,
   forgotPassword,
