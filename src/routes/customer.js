@@ -36,6 +36,10 @@ router.get("/",verifyToken(), requirePortalUser, customerController.getAllCustom
 router.get('/get-garages/:claimId',verifyToken(), customerController.getGarage)
 router.put('/updateCustomer/:customerId',verifyToken(), customerController.updateCustomer)
 router.get('/myClaims/:customerId',verifyToken(), customerController.getCustomerClaims)
+// Mobile insurer selector: list this person's insurers / swap the session to
+// their record at another insurer (returns { user, tokens } like login).
+router.get('/my-companies', verifyToken(), customerController.getMyCompanies)
+router.post('/switch-company', verifyToken(), customerController.switchCompany)
 router.patch('/:id/fcm-token', verifyToken(), customerController.updateFcmToken)
 router.patch('/request-deletion', customerController.requestAccountDeletion)
 
