@@ -390,22 +390,23 @@ const submitAssessmentReport = async (claimId, assessmentReport, req) => {
 
 const forgotPassword = async (email) => {
   const user = await Assessor.findOne({ email });
-  // Always return the same response so the endpoint cannot be used to enumerate accounts.
-  if (user) {
-    const { rawToken, hashedToken, expires } = await createResetToken();
-    // updateOne bypasses the password pre-save hook (which would otherwise re-hash on save).
-    await Assessor.updateOne(
-      { _id: user._id },
-      { $set: { resetPasswordToken: hashedToken, resetPasswordExpires: expires } }
-    );
-
-    await emailService.sendEmailNotification(
-      user.email,
-      'Your Ave Insurance password reset code',
-      resetEmailBody(user.name, rawToken)
-    );
+  if (!user) {
+    throw new ApiError(404, 'No account found with that email address');
   }
-  return { message: 'If an account exists for that email, a reset link has been sent.' };
+
+  const { rawToken, hashedToken, expires } = await createResetToken();
+  // updateOne bypasses the password pre-save hook (which would otherwise re-hash on save).
+  await Assessor.updateOne(
+    { _id: user._id },
+    { $set: { resetPasswordToken: hashedToken, resetPasswordExpires: expires } }
+  );
+
+  await emailService.sendEmailNotification(
+    user.email,
+    'Your Ave Insurance password reset code',
+    resetEmailBody(user.name, rawToken)
+  );
+  return { message: 'A password reset code has been sent to your email.' };
 };
 
 const resetPassword = async (email, token, newPassword) => {
