@@ -70,6 +70,32 @@ const createCustomer = async (req, res) => {
   }
 };
 
+// Portal-only bulk import / single add. Body: { customers: [...], dryRun?: bool }.
+// Customers are scoped to the requester's company; dryRun validates without saving.
+const importCustomers = async (req, res) => {
+  try {
+    const company = await getRequesterCompany(req);
+    const report = await customerService.importCustomers(req.body, company);
+
+    if (!report.dryRun && report.created > 0) {
+      await writeAuditLog(req, {
+        action: 'CREATE',
+        module: 'Customer',
+        actionDescription: `Imported ${report.created} customer(s) (${report.invalid} invalid, ${report.duplicates} duplicate)`,
+        resourceType: 'Customer',
+        statusCode: 201,
+        success: true,
+        changes: { old: null, new: { imported: report.created } },
+      });
+    }
+
+    res.status(report.dryRun ? 200 : 201).json(report);
+  } catch (error) {
+    logger.error('Error importing customers: %s', error.message);
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
+
 const login = async (req, res) => {
   try {
     const { email, password, companyId } = req.body;
@@ -252,6 +278,7 @@ const requestAccountDeletion = async (req, res) => {
 
 module.exports = {
   createCustomer,
+  importCustomers,
   login,
   verifyAccount,
   confirmVerifyAccount,

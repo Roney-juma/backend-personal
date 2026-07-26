@@ -11,6 +11,8 @@ const router = express.Router();
 
 
 router.post("/register", customerController.createCustomer)
+// Portal-only: company admins add one or bulk-import customers (dryRun supported).
+router.post("/import", verifyToken(), requirePortalUser, customerController.importCustomers)
 router.post("/login", authLimiter, customerController.login)
 
 // Mobile account activation — book-verified "registration" (public, rate-limited)
