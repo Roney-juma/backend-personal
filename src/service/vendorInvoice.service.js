@@ -1,5 +1,6 @@
 const VendorInvoice = require('../models/vendorInvoice.model');
 const Claim = require('../models/claim.model');
+const SupplyBid = require('../models/supplyBids.model');
 const Assessor = require('../models/assessor.model');
 const Garage = require('../models/garage.model');
 const Supplier = require('../models/supplier.model');
@@ -7,6 +8,23 @@ const notificationService = require('./notification.service');
 const { getRequesterCompany, belongsToCompany } = require('../utils/requesterCompany');
 const ApiError = require('../utils/ApiError');
 const logger = require('../middlewheres/logger');
+
+// A claim may only be invoiced once it has been assessed. These are the statuses
+// at or beyond assessment (everything except the pre-assessment states
+// Pending / Approved / Rejected / Resubmitted / Assessment).
+const ASSESSED_STATUSES = new Set([
+  'Assessed', 'Awarded', 'Repair', 'Garage', 'Re-Assessment', 'ReAssessed',
+  'SelfRepair', 'UnderRepair', 'Completed', 'UnderInvestigation', 'Investigated',
+  'GlassApproved', 'GlassRepair',
+]);
+
+const round2 = (n) => parseFloat(Number(n || 0).toFixed(2));
+
+// A single-line invoice for a flat awarded amount.
+const oneLine = (description, amount) => {
+  const a = round2(amount);
+  return { items: [{ description, quantity: 1, unitPrice: a, total: a }], subtotal: a, total: a };
+};
 
 // Account types (from the JWT payload) that may raise an invoice, mapped to the
 // model that owns them and the field holding their insurance company.
@@ -54,23 +72,69 @@ const vendorIsOnClaim = (vendorType, vendorId, claim) => {
   }
 };
 
-const computeTotals = (items, taxRate = 0) => {
-  const itemsWithTotal = items.map((item) => ({
-    description: item.description,
-    quantity: item.quantity,
-    unitPrice: item.unitPrice,
-    total: parseFloat((item.quantity * item.unitPrice).toFixed(2)),
-  }));
-  const subtotal = parseFloat(
-    itemsWithTotal.reduce((sum, i) => sum + i.total, 0).toFixed(2)
-  );
-  const tax = parseFloat(((subtotal * taxRate) / 100).toFixed(2));
-  const total = parseFloat((subtotal + tax).toFixed(2));
-  return { itemsWithTotal, subtotal, tax, total };
+/**
+ * Build the invoice line items from the vendor's *awarded bid* on this claim, so
+ * the amount always reflects what was agreed — never a figure typed by the vendor.
+ * Returns { items, subtotal, total }.
+ */
+const resolveAwardedAmount = async (vendorType, vendorId, claim) => {
+  if (vendorType === 'Assessor') {
+    return oneLine('Assessment services', claim.awardedAssessor?.awardedAmount);
+  }
+
+  if (vendorType === 'Garage') {
+    const awarded = claim.awardedGarage?.awardedAmount;
+    // Prefer the awarded garage bid's parts breakdown when present.
+    const bid = (claim.bids || []).find(
+      (b) => b.bidderType === 'garage' && idEq(b.garageId, vendorId) && b.status === 'awarded'
+    );
+    const parts = bid?.parts || [];
+    if (parts.length) {
+      const items = parts.map((p) => ({
+        description: p.partName || 'Repair item',
+        quantity: 1,
+        unitPrice: round2(p.cost),
+        total: round2(p.cost),
+      }));
+      const subtotal = round2(items.reduce((s, i) => s + i.total, 0));
+      // The awarded amount is the source of truth; if it differs from the parts
+      // sum (e.g. negotiated down), bill the awarded amount instead.
+      if (awarded != null && Math.abs(awarded - subtotal) > 0.01) {
+        return oneLine('Repair work', awarded);
+      }
+      return { items, subtotal, total: subtotal };
+    }
+    return oneLine('Repair work', awarded);
+  }
+
+  // Supplier — the accepted supply bid holds the parts + total.
+  const supplyBid = await SupplyBid.findOne({
+    claimId: claim._id,
+    supplierId: vendorId,
+    status: { $in: ['Accepted', 'Delivered'] },
+  });
+  const parts = supplyBid?.parts || [];
+  const totalCost = supplyBid?.totalCost;
+  if (parts.length) {
+    const items = parts.map((p) => ({
+      description: p.partName || 'Part',
+      quantity: 1,
+      unitPrice: round2(p.cost),
+      total: round2(p.cost),
+    }));
+    const subtotal = round2(items.reduce((s, i) => s + i.total, 0));
+    if (totalCost != null && Math.abs(totalCost - subtotal) > 0.01) {
+      return oneLine('Parts supplied', totalCost);
+    }
+    return { items, subtotal, total: subtotal };
+  }
+  return oneLine('Parts supplied', totalCost);
 };
 
 /**
  * A vendor (assessor/garage/supplier) submits an invoice for a claim they worked on.
+ * Rules: the claim must be assessed, only one invoice per claim per vendor, and the
+ * amount is taken from the vendor's awarded bid (not the request body).
  */
 const createInvoice = async (req) => {
   const actor = req.user;
@@ -79,20 +143,8 @@ const createInvoice = async (req) => {
     throw new ApiError(403, 'Only assessors, garages and suppliers can submit invoices');
   }
 
-  const { claim: claimId, items, taxRate = 0, currency, notes, attachments } = req.body;
-
+  const { claim: claimId, notes } = req.body;
   if (!claimId) throw new ApiError(400, 'A claim reference is required');
-  if (!Array.isArray(items) || items.length === 0) {
-    throw new ApiError(400, 'At least one line item is required');
-  }
-  for (const item of items) {
-    if (!item.description || item.quantity == null || item.unitPrice == null) {
-      throw new ApiError(400, 'Each item needs a description, quantity and unitPrice');
-    }
-    if (item.quantity < 1 || item.unitPrice < 0) {
-      throw new ApiError(400, 'Item quantity must be >= 1 and unitPrice >= 0');
-    }
-  }
 
   // Resolve the vendor to derive their company (never taken from the request).
   const { model, companyField } = VENDORS[vendorType];
@@ -111,20 +163,38 @@ const createInvoice = async (req) => {
     throw new ApiError(403, 'You are not assigned to this claim');
   }
 
-  const { itemsWithTotal, subtotal, tax, total } = computeTotals(items, taxRate);
+  // Rule 1: the claim must have been assessed.
+  if (!ASSESSED_STATUSES.has(claim.status)) {
+    throw new ApiError(400, 'You can only invoice a claim that has been assessed');
+  }
+
+  // Rule 2: one active invoice per claim per vendor (a cancelled one may be re-raised).
+  const existing = await VendorInvoice.countDocuments({
+    claim: claimId,
+    vendor: actor.id,
+    status: { $ne: 'cancelled' },
+  });
+  if (existing > 0) {
+    throw new ApiError(409, 'You have already submitted an invoice for this claim');
+  }
+
+  // Rule 3: the amount comes from the awarded bid, not the request body.
+  const { items, subtotal, total } = await resolveAwardedAmount(vendorType, actor.id, claim);
+  if (!(total > 0)) {
+    throw new ApiError(400, 'No awarded bid amount was found for this claim');
+  }
 
   const invoice = await VendorInvoice.create({
     vendorType,
     vendor: actor.id,
     company: companyId,
     claim: claimId,
-    items: itemsWithTotal,
+    items,
     subtotal,
-    taxRate,
-    tax,
+    taxRate: 0,
+    tax: 0,
     total,
-    currency: currency || 'KES',
-    attachments,
+    currency: 'KES',
     notes,
   });
 
