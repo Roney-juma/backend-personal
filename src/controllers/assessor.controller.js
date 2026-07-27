@@ -138,7 +138,7 @@ const forgotPassword = async (req, res) => {
     const response = await assessorService.forgotPassword(email);
     res.status(200).json(response);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.statusCode || 400).json({ error: err.message });
   }
 };
 
