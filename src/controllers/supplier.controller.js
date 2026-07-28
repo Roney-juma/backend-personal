@@ -200,13 +200,23 @@ const getAllClaimsInGarage = async (req, res) => {
     }
 };
 
+// Supplier-only: confirm the awarded parts were physically delivered. Invoicing
+// is a separate action (POST /vendor-invoices) the supplier takes independently.
 const repairPartsDelivered = async (req, res) => {
     try {
-        const claim = await supplierService.repairPartsDelivered(req.params.claimId);
+        if (req.user?.accountType !== 'Supplier') {
+            return res.status(403).json({ error: 'Only the awarded supplier can mark parts as delivered' });
+        }
+        const { notes } = req.body || {};
+        const claim = await supplierService.repairPartsDelivered(
+            req.params.claimId,
+            req.user.id,
+            { notes }
+        );
         res.json(claim);
     } catch (err) {
         logger.error('Error delivering repair parts: %s', err.message);
-        res.status(500).json({ error: 'Server error' });
+        res.status(err.statusCode || 500).json({ error: err.message || 'Server error' });
     }
 };
 

@@ -276,10 +276,44 @@ const requestAccountDeletion = async (req, res) => {
   }
 };
 
+// Mobile-only: insurers where this person holds a record, for the insurer
+// selector (post-activation and the in-app switcher).
+const getMyCompanies = async (req, res) => {
+  try {
+    if (req.user?.accountType !== 'Customer') {
+      return res.status(403).json({ message: 'Only customers can list their insurers' });
+    }
+    const companies = await customerService.getMyCompanies(req.user.id);
+    res.status(200).json({ companies });
+  } catch (error) {
+    const body = { message: error.message };
+    if (error.code) body.code = error.code;
+    res.status(error.statusCode || 500).json(body);
+  }
+};
+
+// Mobile-only: swap the session to this person's record at another insurer.
+// Returns { user, tokens } — the same shape as login/activate.
+const switchCompany = async (req, res) => {
+  try {
+    if (req.user?.accountType !== 'Customer') {
+      return res.status(403).json({ message: 'Only customers can switch insurer' });
+    }
+    const result = await customerService.switchCompany(req.user.id, req.body?.companyId);
+    res.status(200).json(result);
+  } catch (error) {
+    const body = { message: error.message };
+    if (error.code) body.code = error.code;
+    res.status(error.statusCode || 500).json(body);
+  }
+};
+
 module.exports = {
   createCustomer,
   importCustomers,
   login,
+  getMyCompanies,
+  switchCompany,
   verifyAccount,
   confirmVerifyAccount,
   activateAccount,

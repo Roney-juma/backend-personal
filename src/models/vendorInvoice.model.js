@@ -73,14 +73,22 @@ const vendorInvoiceSchema = new mongoose.Schema(
     attachments: [{ type: String }],
     notes: { type: String },
 
-    // Minimal lifecycle: submitted -> paid (or cancelled by the vendor before payment).
+    // Lifecycle: submitted -> approved -> paid, or submitted -> rejected.
+    // The vendor may also withdraw a submitted/approved invoice (cancelled).
     status: {
       type: String,
-      enum: ['submitted', 'paid', 'cancelled'],
+      enum: ['submitted', 'approved', 'rejected', 'paid', 'cancelled'],
       default: 'submitted',
       index: true,
     },
     submittedAt: { type: Date, default: Date.now },
+
+    // Admin review (approve/reject) — filled before payment.
+    approvedAt: { type: Date },
+    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    rejectedAt: { type: Date },
+    rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    rejectionReason: { type: String },
 
     // Payment settlement (filled by the insurance-company admin on mark-as-paid).
     paidAt: { type: Date },
