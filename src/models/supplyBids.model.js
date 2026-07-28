@@ -14,10 +14,11 @@ const supplyBidSchema = new mongoose.Schema({
       enum: ['Pending', 'Accepted','Delivered', 'Rejected'],
       default: 'Pending'
     },
-    // Set when the supplier confirms delivery (with their invoice) — not automatic.
+    // Set when the supplier confirms physical delivery — not automatic. Invoicing
+    // is separate (see VendorInvoice) — the supplier requests one independently
+    // once this claim shows up eligible.
     deliveredAt: { type: Date },
     deliveryNotes: { type: String },
-    invoice: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorInvoice' }
   }, { timestamps: true });
   
   module.exports = mongoose.model('SupplyBid', supplyBidSchema);

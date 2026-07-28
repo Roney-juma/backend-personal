@@ -272,11 +272,11 @@ const getClaimsInGarage = async (supplierId) => {
 };
 
 // The awarded supplier confirms delivery of the parts. This is a deliberate,
-// supplier-initiated action (nothing marks delivery automatically) and it MUST
-// carry the supplier's invoice: the invoice is created (from the awarded bid
-// amount) in the same call, then the claim moves 'Awarded' -> 'Garage' so the
-// repair can start.
-const repairPartsDelivered = async (claimId, supplierId, { notes, attachments } = {}) => {
+// supplier-initiated action (nothing marks delivery automatically) — purely a
+// physical-delivery/claim-workflow step. Invoicing is a separate, independent
+// action (see vendorInvoice.service.js): the supplier requests an invoice for
+// this car once it shows up eligible, whenever they're ready to bill for it.
+const repairPartsDelivered = async (claimId, supplierId, { notes } = {}) => {
   const claim = await Claim.findById(claimId);
   if (!claim) {
     throw new ApiError(404, "Claim not found");
@@ -304,27 +304,9 @@ const repairPartsDelivered = async (claimId, supplierId, { notes, attachments } 
     throw new ApiError(409, `Delivery cannot be confirmed while the claim is in '${claim.status}'`);
   }
 
-  // The invoice is required alongside the delivery confirmation. Reuse an active
-  // invoice if the supplier already raised one for this claim; otherwise create it
-  // now — its amount comes from the awarded bid, never from the request.
-  const VendorInvoice = require("../models/vendorInvoice.model.js");
-  let invoice = await VendorInvoice.findOne({
-    claim: claimId,
-    vendor: supplierId,
-    status: { $ne: "cancelled" },
-  });
-  if (!invoice) {
-    const vendorInvoiceService = require("./vendorInvoice.service.js");
-    invoice = await vendorInvoiceService.createInvoice({
-      user: { accountType: "Supplier", id: supplierId },
-      body: { claim: claimId, notes, attachments },
-    });
-  }
-
   acceptedBid.status = "Delivered";
   acceptedBid.deliveredAt = new Date();
   if (notes) acceptedBid.deliveryNotes = notes;
-  acceptedBid.invoice = invoice._id;
   claim.assessmentReport.parts = acceptedBid.parts;
   await acceptedBid.save();
 
@@ -339,7 +321,7 @@ const repairPartsDelivered = async (claimId, supplierId, { notes, attachments } 
     claimId: String(claimId),
   });
 
-  return { claim, invoice };
+  return claim;
 };
 
 const forgotPassword = async (email) => {

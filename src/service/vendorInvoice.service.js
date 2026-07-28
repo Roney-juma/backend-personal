@@ -9,15 +9,6 @@ const { getRequesterCompany, belongsToCompany } = require('../utils/requesterCom
 const ApiError = require('../utils/ApiError');
 const logger = require('../middlewheres/logger');
 
-// A claim may only be invoiced once it has been assessed. These are the statuses
-// at or beyond assessment (everything except the pre-assessment states
-// Pending / Approved / Rejected / Resubmitted / Assessment).
-const ASSESSED_STATUSES = new Set([
-  'Assessed', 'Awarded', 'Repair', 'Garage', 'Re-Assessment', 'ReAssessed',
-  'SelfRepair', 'UnderRepair', 'Completed', 'UnderInvestigation', 'Investigated',
-  'GlassApproved', 'GlassRepair',
-]);
-
 const round2 = (n) => parseFloat(Number(n || 0).toFixed(2));
 
 // A single-line invoice for a flat awarded amount.
@@ -47,38 +38,49 @@ const resolveAdminCompany = async (req) => {
 };
 
 /**
- * Confirm the vendor is genuinely attached to the claim they're billing for.
- * Guards against a vendor invoicing a company for work that isn't theirs.
+ * Whether a vendor is eligible to invoice a given claim — deliberately tied to
+ * the concrete fact of THEIR job being done on that car, not to the claim's
+ * overall status (a claim's status can move on for other reasons — e.g. a
+ * fraud investigation — without affecting whether the assessor/garage/supplier
+ * already did their part and is owed for it):
+ *   - Assessor: eligible only once they've submitted the RE-assessment report.
+ *   - Garage:   eligible once they've submitted the repair report (repair done).
+ *   - Supplier: eligible once their parts delivery is confirmed (or, for a
+ *               glass job, once the glass replacement is completed).
  */
-const vendorIsOnClaim = async (vendorType, vendorId, claim) => {
+const isVendorEligible = async (vendorType, vendorId, claim) => {
   switch (vendorType) {
     case 'Assessor':
       return (
-        idEq(claim.awardedAssessor?.assessorId, vendorId) ||
-        idEq(claim.reAssessmentReport?.assessorId, vendorId)
+        idEq(claim.reAssessmentReport?.assessorId, vendorId) &&
+        Boolean(claim.reAssessmentReport?.submittedAt)
       );
     case 'Garage':
       return (
-        idEq(claim.awardedGarage?.garageId, vendorId) ||
-        idEq(claim.garageRepairReport?.garageId, vendorId)
+        idEq(claim.garageRepairReport?.garageId, vendorId) &&
+        Boolean(claim.garageRepairReport?.submittedAt)
       );
-    case 'Supplier':
-      // Parts suppliers are attached via their accepted SupplyBid, not claim.bids.
-      return (
-        idEq(claim.glassRepair?.supplierId, vendorId) ||
-        (claim.bids || []).some((b) => idEq(b.awardedSupplierId, vendorId)) ||
-        Boolean(
-          await SupplyBid.exists({
-            claimId: claim._id,
-            supplierId: vendorId,
-            status: { $in: ['Accepted', 'Delivered'] },
-          })
-        )
+    case 'Supplier': {
+      const glassDone =
+        idEq(claim.glassRepair?.supplierId, vendorId) &&
+        claim.glassRepair?.status === 'Completed';
+      if (glassDone) return true;
+      return Boolean(
+        await SupplyBid.exists({
+          claimId: claim._id,
+          supplierId: vendorId,
+          status: 'Delivered',
+        })
       );
+    }
     default:
       return false;
   }
 };
+
+// Statuses that count as "already invoiced" for a claim — block a duplicate
+// submission, but a rejected or withdrawn (cancelled) invoice may be re-raised.
+const ACTIVE_INVOICE_STATUSES = ['submitted', 'approved', 'paid'];
 
 /**
  * Build the invoice line items from the vendor's *awarded bid* on this claim, so
@@ -140,9 +142,12 @@ const resolveAwardedAmount = async (vendorType, vendorId, claim) => {
 };
 
 /**
- * A vendor (assessor/garage/supplier) submits an invoice for a claim they worked on.
- * Rules: the claim must be assessed, only one invoice per claim per vendor, and the
- * amount is taken from the vendor's awarded bid (not the request body).
+ * A vendor (assessor/garage/supplier) requests an invoice for a car they've
+ * finished working on. Rules: their own job on that car must actually be done
+ * (see isVendorEligible — this is independent of the claim's own status/stage),
+ * only one active invoice per claim per vendor, a supporting document
+ * (quote/invoice) is required, and the amount is taken from the vendor's
+ * awarded bid — never from the request body.
  */
 const createInvoice = async (req) => {
   const actor = req.user;
@@ -153,6 +158,13 @@ const createInvoice = async (req) => {
 
   const { claim: claimId, notes, attachments } = req.body;
   if (!claimId) throw new ApiError(400, 'A claim reference is required');
+
+  const cleanAttachments = Array.isArray(attachments)
+    ? attachments.filter((a) => typeof a === 'string' && a.trim()).slice(0, 10)
+    : [];
+  if (!cleanAttachments.length) {
+    throw new ApiError(400, 'A supporting document (quote/invoice) attachment is required');
+  }
 
   // Resolve the vendor to derive their company (never taken from the request).
   const { model, companyField } = VENDORS[vendorType];
@@ -167,26 +179,28 @@ const createInvoice = async (req) => {
   const claim = await Claim.findById(claimId);
   if (!claim) throw new ApiError(404, 'Claim not found');
 
-  if (!(await vendorIsOnClaim(vendorType, actor.id, claim))) {
-    throw new ApiError(403, 'You are not assigned to this claim');
+  // Tenant guard: a vendor may only bill the insurer they're actually linked
+  // to for a claim belonging to that same insurer (legacy claims/vendors with
+  // no company on either side are exempt, matching the rest of the app).
+  if (claim.company && !belongsToCompany(claim.company, companyId)) {
+    throw new ApiError(403, 'This claim does not belong to your insurance company');
   }
 
-  // Rule 1: the claim must have been assessed.
-  if (!ASSESSED_STATUSES.has(claim.status)) {
-    throw new ApiError(400, 'You can only invoice a claim that has been assessed');
+  if (!(await isVendorEligible(vendorType, actor.id, claim))) {
+    throw new ApiError(403, 'Your work on this car is not yet complete, or you are not assigned to it');
   }
 
-  // Rule 2: one active invoice per claim per vendor (a cancelled one may be re-raised).
+  // One active invoice per claim per vendor — a rejected or withdrawn one may be re-raised.
   const existing = await VendorInvoice.countDocuments({
     claim: claimId,
     vendor: actor.id,
-    status: { $ne: 'cancelled' },
+    status: { $in: ACTIVE_INVOICE_STATUSES },
   });
   if (existing > 0) {
     throw new ApiError(409, 'You have already submitted an invoice for this claim');
   }
 
-  // Rule 3: the amount comes from the awarded bid, not the request body.
+  // The amount comes from the awarded bid, not the request body.
   const { items, subtotal, total } = await resolveAwardedAmount(vendorType, actor.id, claim);
   if (!(total > 0)) {
     throw new ApiError(400, 'No awarded bid amount was found for this claim');
@@ -204,12 +218,85 @@ const createInvoice = async (req) => {
     total,
     currency: 'KES',
     notes,
-    attachments: Array.isArray(attachments)
-      ? attachments.filter((a) => typeof a === 'string').slice(0, 10)
-      : [],
+    attachments: cleanAttachments,
   });
 
   return invoice;
+};
+
+/**
+ * Cars this vendor has finished work on and can raise an invoice for — i.e.
+ * isVendorEligible(claim) is true and there's no active invoice for it yet.
+ * Powers the "New Invoice" picker in the vendor's own app.
+ */
+const getEligibleClaims = async (req) => {
+  const actor = req.user;
+  const vendorType = actor.accountType;
+  if (!isVendor(vendorType)) {
+    throw new ApiError(403, 'Only assessors, garages and suppliers can request invoices');
+  }
+
+  // Tenant scope: a vendor only ever sees claims belonging to their own
+  // insurance company (legacy vendors with no company keep the unscoped
+  // behaviour — nothing to scope them to). Mirrors the cross-tenant guard
+  // already enforced when bids/awards are made in the first place.
+  const { model, companyField } = VENDORS[vendorType];
+  const vendorDoc = await model.findById(actor.id).select(companyField).lean();
+  const companyId = vendorDoc?.[companyField];
+  const tenantScope = companyId ? { company: companyId } : {};
+
+  let candidateClaims;
+  if (vendorType === 'Assessor') {
+    candidateClaims = await Claim.find({
+      ...tenantScope,
+      'reAssessmentReport.assessorId': actor.id,
+      'reAssessmentReport.submittedAt': { $exists: true },
+    }).lean();
+  } else if (vendorType === 'Garage') {
+    candidateClaims = await Claim.find({
+      ...tenantScope,
+      'garageRepairReport.garageId': actor.id,
+      'garageRepairReport.submittedAt': { $exists: true },
+    }).lean();
+  } else {
+    const deliveredClaimIds = await SupplyBid.find({
+      supplierId: actor.id,
+      status: 'Delivered',
+    }).distinct('claimId');
+    candidateClaims = await Claim.find({
+      ...tenantScope,
+      $or: [
+        { _id: { $in: deliveredClaimIds } },
+        { 'glassRepair.supplierId': actor.id, 'glassRepair.status': 'Completed' },
+      ],
+    }).lean();
+  }
+
+  const invoicedClaimIds = new Set(
+    (
+      await VendorInvoice.find({
+        vendor: actor.id,
+        vendorType,
+        status: { $in: ACTIVE_INVOICE_STATUSES },
+      }).distinct('claim')
+    ).map(String)
+  );
+
+  const eligible = candidateClaims.filter((c) => !invoicedClaimIds.has(String(c._id)));
+
+  return Promise.all(
+    eligible.map(async (claim) => {
+      const { total } = await resolveAwardedAmount(vendorType, actor.id, claim);
+      return {
+        claimId: claim._id,
+        status: claim.status,
+        vehicle: claim.vehiclesInvolved?.[0] || null,
+        location: claim.incidentDetails?.location,
+        amount: total,
+        currency: 'KES',
+      };
+    })
+  );
 };
 
 /**
@@ -240,7 +327,7 @@ const getInvoices = async (req) => {
     VendorInvoice.find(filter)
       .populate('vendor', 'name email')
       .populate('company', 'companyName email')
-      .populate('claim', 'status incidentDetails')
+      .populate('claim', 'status incidentDetails vehiclesInvolved')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(l),
@@ -255,7 +342,7 @@ const getInvoiceById = async (req, id) => {
   const invoice = await VendorInvoice.findById(id)
     .populate('vendor', 'name email')
     .populate('company', 'companyName email')
-    .populate('claim', 'status incidentDetails');
+    .populate('claim', 'status incidentDetails vehiclesInvolved');
   if (!invoice) throw new ApiError(404, 'Invoice not found');
   await assertCanAccess(req, invoice);
   return invoice;
@@ -278,7 +365,90 @@ const assertCanAccess = async (req, invoice) => {
 };
 
 /**
- * Insurance-company admin marks an invoice paid.
+ * Insurance-company admin approves a submitted invoice, clearing it for payment.
+ */
+const approveInvoice = async (req, id) => {
+  const actor = req.user;
+  if (isVendor(actor.accountType)) {
+    throw new ApiError(403, 'Only company admins can approve invoices');
+  }
+  const invoice = await VendorInvoice.findById(id);
+  if (!invoice) throw new ApiError(404, 'Invoice not found');
+
+  const company = await resolveAdminCompany(req);
+  if (!belongsToCompany(invoice.company, company)) {
+    throw new ApiError(403, 'This invoice was not billed to your company');
+  }
+  if (invoice.status !== 'submitted') {
+    throw new ApiError(409, `Only a submitted invoice can be approved (this one is ${invoice.status})`);
+  }
+
+  invoice.status = 'approved';
+  invoice.approvedAt = new Date();
+  invoice.approvedBy = actor.id;
+  await invoice.save();
+
+  const { recipientType } = VENDORS[invoice.vendorType];
+  notificationService
+    .createAndEmit({
+      recipientId: invoice.vendor,
+      recipientType,
+      type: 'invoice_approved',
+      title: 'Invoice approved',
+      content: `Invoice ${invoice.invoiceNumber} has been approved and is awaiting payment.`,
+      claimId: invoice.claim,
+    })
+    .catch((err) => logger.warn('invoice_approved notification failed: %s', err.message));
+
+  return invoice;
+};
+
+/**
+ * Insurance-company admin rejects a submitted invoice, with a reason. The
+ * vendor may correct and resubmit (createInvoice allows a fresh one once the
+ * old one is no longer 'active').
+ */
+const rejectInvoice = async (req, id, { reason } = {}) => {
+  const actor = req.user;
+  if (isVendor(actor.accountType)) {
+    throw new ApiError(403, 'Only company admins can reject invoices');
+  }
+  if (!reason || !reason.trim()) throw new ApiError(400, 'A rejection reason is required');
+
+  const invoice = await VendorInvoice.findById(id);
+  if (!invoice) throw new ApiError(404, 'Invoice not found');
+
+  const company = await resolveAdminCompany(req);
+  if (!belongsToCompany(invoice.company, company)) {
+    throw new ApiError(403, 'This invoice was not billed to your company');
+  }
+  if (invoice.status !== 'submitted') {
+    throw new ApiError(409, `Only a submitted invoice can be rejected (this one is ${invoice.status})`);
+  }
+
+  invoice.status = 'rejected';
+  invoice.rejectedAt = new Date();
+  invoice.rejectedBy = actor.id;
+  invoice.rejectionReason = reason.trim();
+  await invoice.save();
+
+  const { recipientType } = VENDORS[invoice.vendorType];
+  notificationService
+    .createAndEmit({
+      recipientId: invoice.vendor,
+      recipientType,
+      type: 'invoice_rejected',
+      title: 'Invoice rejected',
+      content: `Invoice ${invoice.invoiceNumber} was rejected: ${reason.trim()}`,
+      claimId: invoice.claim,
+    })
+    .catch((err) => logger.warn('invoice_rejected notification failed: %s', err.message));
+
+  return invoice;
+};
+
+/**
+ * Insurance-company admin marks an approved invoice paid.
  */
 const markAsPaid = async (req, id, { paymentMethod, paymentReference } = {}) => {
   const actor = req.user;
@@ -292,8 +462,9 @@ const markAsPaid = async (req, id, { paymentMethod, paymentReference } = {}) => 
   if (!belongsToCompany(invoice.company, company)) {
     throw new ApiError(403, 'This invoice was not billed to your company');
   }
-  if (invoice.status === 'paid') throw new ApiError(409, 'Invoice is already paid');
-  if (invoice.status === 'cancelled') throw new ApiError(409, 'Cannot pay a cancelled invoice');
+  if (invoice.status !== 'approved') {
+    throw new ApiError(409, `Only an approved invoice can be paid (this one is ${invoice.status})`);
+  }
 
   invoice.status = 'paid';
   invoice.paidAt = new Date();
@@ -337,8 +508,11 @@ const cancelInvoice = async (req, id, { reason } = {}) => {
 
 module.exports = {
   createInvoice,
+  getEligibleClaims,
   getInvoices,
   getInvoiceById,
+  approveInvoice,
+  rejectInvoice,
   markAsPaid,
   cancelInvoice,
 };
