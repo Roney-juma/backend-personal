@@ -393,21 +393,20 @@ const getGarageBids = async (garageId) => {
 
 const forgotPassword = async (email) => {
   const user = await Garage.findOne({ email });
-  if (!user) {
-    throw new ApiError(404, 'No account found with that email address');
+  // Always return the same response so the endpoint cannot be used to enumerate accounts.
+  if (user) {
+    const { rawToken, hashedToken, expires } = await createResetToken();
+    user.resetPasswordToken = hashedToken;
+    user.resetPasswordExpires = expires;
+    await user.save();
+
+    await emailService.sendEmailNotification(
+      user.email,
+      'Your Ave Insurance password reset code',
+      resetEmailBody(user.name, rawToken)
+    );
   }
-
-  const { rawToken, hashedToken, expires } = await createResetToken();
-  user.resetPasswordToken = hashedToken;
-  user.resetPasswordExpires = expires;
-  await user.save();
-
-  await emailService.sendEmailNotification(
-    user.email,
-    'Your Ave Insurance password reset code',
-    resetEmailBody(user.name, rawToken)
-  );
-  return { message: 'A password reset code has been sent to your email.' };
+  return { message: 'If an account exists for that email, a reset link has been sent.' };
 };
 
 const resetPassword = async (email, token, newPassword) => {
