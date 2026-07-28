@@ -54,4 +54,18 @@ const sendInvoiceEmail = (to, subject, text, pdfBuffer, filename) => {
     .catch((error) => logEmailError(to, error));
 };
 
-module.exports = { sendEmailNotification, sendEmailDirect, sendInvoiceEmail };
+// Startup health-check: confirms the SMTP host/credentials are usable so a
+// misconfiguration is caught in the logs immediately, instead of silently
+// failing on every queued send. Never throws — logs and resolves to a boolean.
+const verifyTransport = async () => {
+  try {
+    await transporter.verify();
+    logger.info(`SMTP ready | host=${process.env.EMAIL_HOST} port=${process.env.EMAIL_PORT} user=${process.env.EMAIL_HOST_USER}`);
+    return true;
+  } catch (error) {
+    logger.error(`SMTP verify FAILED | host=${process.env.EMAIL_HOST} port=${process.env.EMAIL_PORT} | ${error.message} | code=${error.code || 'N/A'}`);
+    return false;
+  }
+};
+
+module.exports = { sendEmailNotification, sendEmailDirect, sendInvoiceEmail, verifyTransport };

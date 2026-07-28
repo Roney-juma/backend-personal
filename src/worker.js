@@ -1,7 +1,7 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 const { Worker } = require('bullmq');
 const { getRedisClient } = require('./queue/connection');
-const { sendEmailDirect } = require('./service/email.service');
+const { sendEmailDirect, verifyTransport } = require('./service/email.service');
 const { sendWhatsAppDirect } = require('./service/whatsapp.service');
 const { sendPushDirect } = require('./service/firebase.service');
 const { runWithContext } = require('./utils/requestContext');
@@ -63,6 +63,11 @@ const worker = new Worker('ave-notifications', notificationProcessor, {
   concurrency: 10,
   limiter: { max: 50, duration: 1000 },
 });
+
+// Confirm the worker is up and that SMTP is actually reachable — the two things
+// that silently break queued email delivery when misconfigured.
+logger.info('[worker] notification worker started — listening on ave-notifications');
+verifyTransport();
 
 // ── Fraud analysis worker ─────────────────────────────────────────────────────
 
