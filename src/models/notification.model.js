@@ -21,7 +21,7 @@ const notificationSchema = new Schema({
       'self_repair_rejected', 'self_repair_paid',
       'account_deletion_requested',
       'investigation_assigned', 'investigation_submitted', 'investigation_completed',
-      'invoice_paid',
+      'invoice_approved', 'invoice_rejected', 'invoice_paid',
     ],
     required: true,
   },

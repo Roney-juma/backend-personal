@@ -190,7 +190,7 @@ const forgotPassword = async (req, res) => {
     const response = await garageService.forgotPassword(email);
     res.status(200).json(response);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.statusCode || 400).json({ error: err.message });
   }
 };
 

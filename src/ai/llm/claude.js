@@ -4,15 +4,15 @@
  * Everything that talks to the model goes through here so model selection,
  * prompt caching, max_tokens ceilings and cost logging stay in one place.
  */
-require('dotenv').config();
-const Anthropic = require('@anthropic-ai/sdk');
-const logger = require('../../middlewheres/logger');
-const { recordUsage } = require('./usage');
+require("dotenv").config();
+const Anthropic = require("@anthropic-ai/sdk/index.js");
+const logger = require("../../middlewheres/logger");
+const { recordUsage } = require("./usage");
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // Reasoning / orchestration model. Kept in env so it can be tuned without a deploy.
-const AGENT_MODEL = process.env.ANTHROPIC_MODEL_AGENT || 'claude-opus-4-8';
+const AGENT_MODEL = process.env.ANTHROPIC_MODEL_AGENT || "claude-opus-4-8";
 
 /**
  * Run one model turn.
@@ -28,15 +28,23 @@ const AGENT_MODEL = process.env.ANTHROPIC_MODEL_AGENT || 'claude-opus-4-8';
  *                                   { feature, stage, claimId, customerId, userId, sessionKey, company }
  * @returns the raw Anthropic message response.
  */
-const complete = async ({ system, messages, tools, toolChoice, model, maxTokens = 1024, meta }) => {
+const complete = async ({
+  system,
+  messages,
+  tools,
+  toolChoice,
+  model,
+  maxTokens = 1024,
+  meta,
+}) => {
   if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error('ANTHROPIC_API_KEY is not configured');
+    throw new Error("ANTHROPIC_API_KEY is not configured");
   }
 
   // Wrap the system prompt in a cacheable block so the (large, stable) prefix
   // is billed at ~0.1x on repeat turns within a conversation.
   const systemBlocks = system
-    ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }]
+    ? [{ type: "text", text: system, cache_control: { type: "ephemeral" } }]
     : undefined;
 
   const response = await client.messages.create({
@@ -52,7 +60,9 @@ const complete = async ({ system, messages, tools, toolChoice, model, maxTokens 
     const u = response.usage;
     logger.info(
       `[ai] ${response.model} in=${u.input_tokens} out=${u.output_tokens} ` +
-      `cacheRead=${u.cache_read_input_tokens || 0} cacheWrite=${u.cache_creation_input_tokens || 0}`
+        `cacheRead=${u.cache_read_input_tokens || 0} cacheWrite=${
+          u.cache_creation_input_tokens || 0
+        }`
     );
     // Durable ledger — one AiUsage doc per call, non-blocking.
     recordUsage(response, meta);
