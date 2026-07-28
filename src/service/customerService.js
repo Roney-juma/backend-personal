@@ -1,18 +1,27 @@
 const Customer = require("../models/customerModel.js");
-const InsuranceCompany = require('../models/insuranceCompany.model');
-const Garage = require('../models/garage.model');
-const Assessor = require('../models/assessor.model.js');
-const Claim = require('../models/claim.model');
-const bcrypt = require('bcrypt')
-const ApiError = require('../utils/ApiError.js');
-const emailService = require("../service/email.service");
-const tokenService = require("../service/token.service");
-const { createResetToken, verifyResetToken, resetEmailBody } = require("../utils/passwordReset");
-const { isLocked, registerFailedAttempt, resetAttempts, AccountLockedError } = require("../utils/accountLockout");
-const { assertValidPassword } = require("../utils/passwordPolicy");
-const { belongsToCompany } = require("../utils/requesterCompany");
+const InsuranceCompany = require("../models/insuranceCompany.model.js");
+const Garage = require("../models/garage.model.js");
+const Assessor = require("../models/assessor.model.js");
+const Claim = require("../models/claim.model.js");
+const bcrypt = require("bcrypt");
+const ApiError = require("../utils/ApiError.js");
+const emailService = require("./email.service.js");
+const tokenService = require("./token.service.js");
+const {
+  createResetToken,
+  verifyResetToken,
+  resetEmailBody,
+} = require("../utils/passwordReset.js");
+const {
+  isLocked,
+  registerFailedAttempt,
+  resetAttempts,
+  AccountLockedError,
+} = require("../utils/accountLockout.js");
+const { assertValidPassword } = require("../utils/passwordPolicy.js");
+const { belongsToCompany } = require("../utils/requesterCompany.js");
 
-const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // Resolve the tenant for a new customer. A portal admin's own company always wins
 // over anything client-supplied. Otherwise a body `company` id is honoured when it
@@ -23,16 +32,19 @@ const resolveCustomerCompany = async (cus, requesterCompany) => {
   if (requesterCompany) return requesterCompany;
 
   if (cus.company) {
-    const byId = await InsuranceCompany.findOne({ _id: cus.company, status: { $ne: 'suspended' } })
-      .select('_id')
+    const byId = await InsuranceCompany.findOne({
+      _id: cus.company,
+      status: { $ne: "suspended" },
+    })
+      .select("_id")
       .catch(() => null); // invalid ObjectId — ignore rather than fail
     if (byId) return byId._id;
   }
 
   if (cus.Insurer && cus.Insurer.trim()) {
     const byName = await InsuranceCompany.findOne({
-      companyName: new RegExp(`^${escapeRegex(cus.Insurer.trim())}$`, 'i'),
-    }).select('_id');
+      companyName: new RegExp(`^${escapeRegex(cus.Insurer.trim())}$`, "i"),
+    }).select("_id");
     if (byName) return byName._id;
   }
 
@@ -43,14 +55,14 @@ async function createCustomer(cus, requesterCompany) {
   // Schema-level email is optional (phone-only imported book records), so
   // self/admin registration enforces it here.
   if (!cus.email || !String(cus.email).trim()) {
-    throw new Error('Email is required');
+    throw new Error("Email is required");
   }
   // Cross-actor check stays global: an email that logs in as a garage or
   // assessor can never also be a customer login.
   const existingGarage = await Garage.findOne({ email: cus.email });
   const existingAssessor = await Assessor.findOne({ email: cus.email });
   if (existingGarage || existingAssessor) {
-    throw new Error('We already have this Email in the System');
+    throw new Error("We already have this Email in the System");
   }
 
   assertValidPassword(cus.password);
@@ -68,13 +80,15 @@ async function createCustomer(cus, requesterCompany) {
     company: cus.company ?? null,
   });
   if (existingCustomer) {
-    throw new Error('Customer already exists');
+    throw new Error("Customer already exists");
   }
 
   // Mirror the primary policy into the policies array (the book-import shape),
   // so self-registered customers look the same as imported ones downstream.
   if (!Array.isArray(cus.policies) || !cus.policies.length) {
-    cus.policies = [{ policyNumber: cus.policyNumber, policyType: cus.policyType }];
+    cus.policies = [
+      { policyNumber: cus.policyNumber, policyType: cus.policyType },
+    ];
   }
 
   // Create new customer
@@ -85,23 +99,24 @@ async function createCustomer(cus, requesterCompany) {
 // doc scoped to `company`. Returns { doc } on success or { error } on a bad row.
 // Imported records carry no credential (status 'imported'); they activate later.
 const buildImportedCustomer = (row, company, insurerName, batchId) => {
-  const firstName = (row.firstName || '').trim();
-  const lastName = (row.lastName || '').trim();
+  const firstName = (row.firstName || "").trim();
+  const lastName = (row.lastName || "").trim();
   const email = row.email ? String(row.email).trim().toLowerCase() : undefined;
   const phone = row.phone ? String(row.phone).trim() : undefined;
 
-  if (!firstName || !lastName) return { error: 'firstName and lastName are required' };
-  if (!email && !phone) return { error: 'An email or phone is required' };
+  if (!firstName || !lastName)
+    return { error: "firstName and lastName are required" };
+  if (!email && !phone) return { error: "An email or phone is required" };
 
   const policies = Array.isArray(row.policies) ? row.policies : [];
-  if (!policies.length) return { error: 'At least one policy is required' };
+  if (!policies.length) return { error: "At least one policy is required" };
 
   const primary = policies[0];
   if (!primary.policyNumber || !String(primary.policyNumber).trim()) {
-    return { error: 'The first policy needs a policyNumber' };
+    return { error: "The first policy needs a policyNumber" };
   }
   if (!primary.policyType || !String(primary.policyType).trim()) {
-    return { error: 'The first policy needs a policyType' };
+    return { error: "The first policy needs a policyType" };
   }
 
   const doc = {
@@ -115,8 +130,8 @@ const buildImportedCustomer = (row, company, insurerName, batchId) => {
     policies,
     Insurer: insurerName,
     company,
-    status: 'imported',
-    source: 'import',
+    status: "imported",
+    source: "import",
     importBatchId: batchId,
   };
   return { doc };
@@ -130,15 +145,21 @@ const buildImportedCustomer = (row, company, insurerName, batchId) => {
  */
 async function importCustomers(payload, company) {
   if (!company) {
-    throw new ApiError(403, 'Only insurance company admins can import customers');
+    throw new ApiError(
+      403,
+      "Only insurance company admins can import customers"
+    );
   }
   const rows = Array.isArray(payload?.customers) ? payload.customers : [];
   const dryRun = payload?.dryRun === true;
-  if (!rows.length) throw new ApiError(400, 'No customers provided');
-  if (rows.length > 5000) throw new ApiError(400, 'Import is limited to 5000 customers per request');
+  if (!rows.length) throw new ApiError(400, "No customers provided");
+  if (rows.length > 5000)
+    throw new ApiError(400, "Import is limited to 5000 customers per request");
 
-  const companyDoc = await InsuranceCompany.findById(company).select('companyName');
-  if (!companyDoc) throw new ApiError(404, 'Insurance company not found');
+  const companyDoc = await InsuranceCompany.findById(company).select(
+    "companyName"
+  );
+  if (!companyDoc) throw new ApiError(404, "Insurance company not found");
   const insurerName = companyDoc.companyName;
   const batchId = `import-${Date.now()}`;
 
@@ -153,12 +174,19 @@ async function importCustomers(payload, company) {
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i] || {};
-    const label = `${(row.firstName || '').trim()} ${(row.lastName || '').trim()}`.trim() || `Row ${i + 1}`;
+    const label =
+      `${(row.firstName || "").trim()} ${(row.lastName || "").trim()}`.trim() ||
+      `Row ${i + 1}`;
 
-    const { doc, error } = buildImportedCustomer(row, company, insurerName, batchId);
+    const { doc, error } = buildImportedCustomer(
+      row,
+      company,
+      insurerName,
+      batchId
+    );
     if (error) {
       invalid++;
-      results.push({ index: i, label, status: 'error', message: error });
+      results.push({ index: i, label, status: "error", message: error });
       continue;
     }
 
@@ -167,17 +195,27 @@ async function importCustomers(payload, company) {
     const emailKey = doc.email;
     if (seenPolicies.has(polKey) || (emailKey && seenEmails.has(emailKey))) {
       duplicates++;
-      results.push({ index: i, label, status: 'duplicate', message: 'Duplicate within this file' });
+      results.push({
+        index: i,
+        label,
+        status: "duplicate",
+        message: "Duplicate within this file",
+      });
       continue;
     }
 
     // Duplicate against existing records for this tenant.
     const or = [{ policyNumber: doc.policyNumber }];
     if (doc.email) or.push({ email: doc.email });
-    const existing = await Customer.findOne({ company, $or: or }).select('_id');
+    const existing = await Customer.findOne({ company, $or: or }).select("_id");
     if (existing) {
       duplicates++;
-      results.push({ index: i, label, status: 'duplicate', message: 'A customer with this policy or email already exists' });
+      results.push({
+        index: i,
+        label,
+        status: "duplicate",
+        message: "A customer with this policy or email already exists",
+      });
       continue;
     }
 
@@ -189,12 +227,12 @@ async function importCustomers(payload, company) {
         await Customer.create(doc);
       } catch (e) {
         invalid++;
-        results.push({ index: i, label, status: 'error', message: e.message });
+        results.push({ index: i, label, status: "error", message: e.message });
         continue;
       }
     }
     created++;
-    results.push({ index: i, label, status: dryRun ? 'valid' : 'created' });
+    results.push({ index: i, label, status: dryRun ? "valid" : "created" });
   }
 
   return {
@@ -215,12 +253,17 @@ async function importCustomers(payload, company) {
 // AFTER password verification.
 const loginUser = async (email, password, companyId) => {
   const query = {
-    email: String(email || '').trim().toLowerCase(),
+    email: String(email || "")
+      .trim()
+      .toLowerCase(),
     isDeleted: { $ne: true },
   };
   if (companyId) query.company = companyId;
 
-  const candidates = await Customer.find(query).populate('company', 'companyName logo status');
+  const candidates = await Customer.find(query).populate(
+    "company",
+    "companyName logo status"
+  );
   if (!candidates.length) {
     throw new Error("Invalid email or password");
   }
@@ -236,7 +279,8 @@ const loginUser = async (email, password, companyId) => {
   // Tenant lifecycle: records under a suspended/inactive insurer can't log in
   // (legacy records with no company are unaffected).
   const activeCandidates = candidates.filter(
-    (c) => c.status === 'active' && (!c.company || c.company.status === 'active')
+    (c) =>
+      c.status === "active" && (!c.company || c.company.status === "active")
   );
   const lockedBefore = activeCandidates.filter((c) => isLocked(c));
   const checkable = activeCandidates.filter((c) => !isLocked(c));
@@ -272,7 +316,10 @@ const loginUser = async (email, password, companyId) => {
   // As before: a lock is only reported when the account was already locked
   // coming into this request (an attempt that just triggered the lock still
   // reads as invalid credentials, matching the previous single-record flow).
-  if (activeCandidates.length && lockedBefore.length === activeCandidates.length) {
+  if (
+    activeCandidates.length &&
+    lockedBefore.length === activeCandidates.length
+  ) {
     throw new AccountLockedError(lockedBefore[0]);
   }
   throw new Error("Invalid email or password");
@@ -298,7 +345,13 @@ const siblingIdentityOr = (me) => {
   return or;
 };
 
-const CUSTOMER_SENSITIVE_FIELDS = ['password', 'mfaSecret', 'resetPasswordToken', 'resetPasswordExpires', 'fcmToken'];
+const CUSTOMER_SENSITIVE_FIELDS = [
+  "password",
+  "mfaSecret",
+  "resetPasswordToken",
+  "resetPasswordExpires",
+  "fcmToken",
+];
 
 /**
  * Insurer selector data: every insurer where this person holds a record
@@ -308,19 +361,24 @@ const CUSTOMER_SENSITIVE_FIELDS = ['password', 'mfaSecret', 'resetPasswordToken'
  */
 const getMyCompanies = async (userId) => {
   const me = await Customer.findById(userId);
-  if (!me || me.isDeleted) throw withCode(404, 'NOT_FOUND', 'Customer not found');
+  if (!me || me.isDeleted)
+    throw withCode(404, "NOT_FOUND", "Customer not found");
 
   const or = siblingIdentityOr(me);
   const siblings = or.length
-    ? await Customer.find({ $or: or, isDeleted: { $ne: true }, company: { $ne: null } })
-        .select('company status')
-        .populate('company', 'companyName logo status')
+    ? await Customer.find({
+        $or: or,
+        isDeleted: { $ne: true },
+        company: { $ne: null },
+      })
+        .select("company status")
+        .populate("company", "companyName logo status")
         .lean()
     : [];
 
   const byCompany = new Map();
   for (const record of siblings) {
-    if (!record.company || record.company.status !== 'active') continue;
+    if (!record.company || record.company.status !== "active") continue;
     const key = String(record.company._id);
     // One record per insurer by email; phone matches can duplicate — prefer
     // the record that is furthest along (active > invited > imported).
@@ -345,26 +403,38 @@ const getMyCompanies = async (userId) => {
  * hashes are kept in sync by activation/reset.
  */
 const switchCompany = async (userId, companyId) => {
-  if (!companyId) throw withCode(400, 'VALIDATION_ERROR', 'companyId is required');
+  if (!companyId)
+    throw withCode(400, "VALIDATION_ERROR", "companyId is required");
   const me = await Customer.findById(userId);
-  if (!me || me.isDeleted) throw withCode(404, 'NOT_FOUND', 'Customer not found');
+  if (!me || me.isDeleted)
+    throw withCode(404, "NOT_FOUND", "Customer not found");
 
   const or = siblingIdentityOr(me);
-  if (!or.length) throw withCode(404, 'NOT_IN_BOOK', 'No account found with this insurer');
+  if (!or.length)
+    throw withCode(404, "NOT_IN_BOOK", "No account found with this insurer");
 
   const target = await Customer.findOne({
     company: companyId,
     isDeleted: { $ne: true },
     $or: or,
-  }).populate('company', 'companyName logo status');
+  }).populate("company", "companyName logo status");
 
-  if (!target) throw withCode(404, 'NOT_IN_BOOK', 'No account found with this insurer');
-  if (target.company && target.company.status !== 'active') {
-    throw withCode(403, 'INSURER_UNAVAILABLE', 'This insurer is currently unavailable');
+  if (!target)
+    throw withCode(404, "NOT_IN_BOOK", "No account found with this insurer");
+  if (target.company && target.company.status !== "active") {
+    throw withCode(
+      403,
+      "INSURER_UNAVAILABLE",
+      "This insurer is currently unavailable"
+    );
   }
-  if (target.status !== 'active') {
+  if (target.status !== "active") {
     // The app routes this into the activation flow for that insurer.
-    throw withCode(409, 'NOT_ACTIVATED', 'This account has not been activated with this insurer yet. Please verify it first.');
+    throw withCode(
+      409,
+      "NOT_ACTIVATED",
+      "This account has not been activated with this insurer yet. Please verify it first."
+    );
   }
 
   const tokens = tokenService.GenerateToken(target);
@@ -377,7 +447,7 @@ const getCustomerClaims = async (customerId, company) => {
   const customer = await Customer.findById(customerId);
   // Cross-tenant ids read as missing ones (company falsy → no requester scope).
   if (!customer || !belongsToCompany(customer.company, company)) {
-    throw new Error('Customer not found');
+    throw new Error("Customer not found");
   }
 
   // Claims are matched by claimant email, which can exist at several insurers
@@ -387,17 +457,20 @@ const getCustomerClaims = async (customerId, company) => {
   // Pre-tenancy claims have no company stamp, so those match by record id.
   const scope = company || customer.company;
   const query = scope
-    ? { 'claimant.email': customer.email, $or: [{ company: scope }, { company: null, customerId: customer._id }] }
-    : { 'claimant.email': customer.email };
+    ? {
+        "claimant.email": customer.email,
+        $or: [{ company: scope }, { company: null, customerId: customer._id }],
+      }
+    : { "claimant.email": customer.email };
   const claims = await Claim.find(query).lean();
   if (claims.length === 0) {
-    throw new Error('No claims found for this customer');
+    throw new Error("No claims found for this customer");
   }
 
   return claims;
 };
 const sendWelcomeEmail = async (customer) => {
-  const subject = 'Welcome to Ave Insurance - Your New Account Details';
+  const subject = "Welcome to Ave Insurance - Your New Account Details";
   const message = `
     Dear ${customer.firstName} ${customer.lastName},
 
@@ -430,17 +503,19 @@ const forgotPassword = async (email) => {
 
     await emailService.sendEmailNotification(
       user.email,
-      'Your Ave Insurance password reset code',
+      "Your Ave Insurance password reset code",
       resetEmailBody(user.firstName, rawToken)
     );
   }
-  return { message: 'If an account exists for that email, a reset link has been sent.' };
+  return {
+    message: "If an account exists for that email, a reset link has been sent.",
+  };
 };
 
 const resetPassword = async (email, token, newPassword) => {
   const user = await Customer.findOne({ email });
   if (!user || !(await verifyResetToken(token, user))) {
-    throw new Error('Reset token is invalid or has expired');
+    throw new Error("Reset token is invalid or has expired");
   }
 
   assertValidPassword(newPassword);
@@ -460,7 +535,7 @@ const resetPassword = async (email, token, newPassword) => {
     { $set: { password: user.password } }
   );
 
-  return { message: 'Password has been reset successfully' };
+  return { message: "Password has been reset successfully" };
 };
 
 // update customer
@@ -478,21 +553,24 @@ const getCustomerStats = async (company) => {
   const customersCount = await Customer.countDocuments(scope);
   const newCustomersCount = await Customer.countDocuments({
     ...scope,
-    createdAt: { $gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) }
+    createdAt: {
+      $gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+    },
   });
   const recurringCustomersCount = customersCount - newCustomersCount;
   return { customersCount, newCustomersCount, recurringCustomersCount };
-  };
+};
 
 // Find garages closer to my claim location
 const findGarages = async (claimId) => {
   const claim = await Claim.findById(claimId);
   if (!claim) {
-    throw new Error('Invalid request: Claim not found');
+    throw new Error("Invalid request: Claim not found");
   }
 
   // Extract incident location
-  const { longitude: incidentLongitude, latitude: incidentLatitude } = claim.incidentDetails;
+  const { longitude: incidentLongitude, latitude: incidentLatitude } =
+    claim.incidentDetails;
 
   // Find all garages
   const garages = await Garage.find({});
@@ -535,20 +613,26 @@ const degToRad = (deg) => (deg * Math.PI) / 180;
 
 const requestAccountDeletion = async ({ email, phone }) => {
   const customer = await Customer.findOne({ email, phone });
-  if (!customer) throw new Error('No account found matching the provided email and phone number');
-  if (customer.isDeleted) throw new Error('Account is already deleted');
-  if (customer.deletionRequestedAt) throw new Error('A deletion request is already pending');
+  if (!customer)
+    throw new Error(
+      "No account found matching the provided email and phone number"
+    );
+  if (customer.isDeleted) throw new Error("Account is already deleted");
+  if (customer.deletionRequestedAt)
+    throw new Error("A deletion request is already pending");
 
   customer.deletionRequestedAt = new Date();
   await customer.save();
 
   await emailService.sendEmailNotification(
     customer.email,
-    'Account Deletion Request Received',
-    `Dear ${customer.firstName || customer.username},\n\nWe have received your request to delete your account. Our team will review it and process the deletion within 7 business days.\n\nIf you did not make this request, please contact support immediately.\n\nBest Regards,\nAVE Insurance Team`
+    "Account Deletion Request Received",
+    `Dear ${
+      customer.firstName || customer.username
+    },\n\nWe have received your request to delete your account. Our team will review it and process the deletion within 7 business days.\n\nIf you did not make this request, please contact support immediately.\n\nBest Regards,\nAVE Insurance Team`
   );
 
-  return { message: 'Account deletion request submitted successfully' };
+  return { message: "Account deletion request submitted successfully" };
 };
 
 module.exports = {
@@ -567,4 +651,3 @@ module.exports = {
   findGarages,
   requestAccountDeletion,
 };
-
