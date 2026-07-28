@@ -50,7 +50,7 @@ const resolveAdminCompany = async (req) => {
  * Confirm the vendor is genuinely attached to the claim they're billing for.
  * Guards against a vendor invoicing a company for work that isn't theirs.
  */
-const vendorIsOnClaim = (vendorType, vendorId, claim) => {
+const vendorIsOnClaim = async (vendorType, vendorId, claim) => {
   switch (vendorType) {
     case 'Assessor':
       return (
@@ -63,9 +63,17 @@ const vendorIsOnClaim = (vendorType, vendorId, claim) => {
         idEq(claim.garageRepairReport?.garageId, vendorId)
       );
     case 'Supplier':
+      // Parts suppliers are attached via their accepted SupplyBid, not claim.bids.
       return (
         idEq(claim.glassRepair?.supplierId, vendorId) ||
-        (claim.bids || []).some((b) => idEq(b.awardedSupplierId, vendorId))
+        (claim.bids || []).some((b) => idEq(b.awardedSupplierId, vendorId)) ||
+        Boolean(
+          await SupplyBid.exists({
+            claimId: claim._id,
+            supplierId: vendorId,
+            status: { $in: ['Accepted', 'Delivered'] },
+          })
+        )
       );
     default:
       return false;
@@ -143,7 +151,7 @@ const createInvoice = async (req) => {
     throw new ApiError(403, 'Only assessors, garages and suppliers can submit invoices');
   }
 
-  const { claim: claimId, notes } = req.body;
+  const { claim: claimId, notes, attachments } = req.body;
   if (!claimId) throw new ApiError(400, 'A claim reference is required');
 
   // Resolve the vendor to derive their company (never taken from the request).
@@ -159,7 +167,7 @@ const createInvoice = async (req) => {
   const claim = await Claim.findById(claimId);
   if (!claim) throw new ApiError(404, 'Claim not found');
 
-  if (!vendorIsOnClaim(vendorType, actor.id, claim)) {
+  if (!(await vendorIsOnClaim(vendorType, actor.id, claim))) {
     throw new ApiError(403, 'You are not assigned to this claim');
   }
 
@@ -196,6 +204,9 @@ const createInvoice = async (req) => {
     total,
     currency: 'KES',
     notes,
+    attachments: Array.isArray(attachments)
+      ? attachments.filter((a) => typeof a === 'string').slice(0, 10)
+      : [],
   });
 
   return invoice;

@@ -200,13 +200,23 @@ const getAllClaimsInGarage = async (req, res) => {
     }
 };
 
+// Supplier-only: confirm the awarded parts were delivered and submit the invoice
+// (required — both happen in this one action).
 const repairPartsDelivered = async (req, res) => {
     try {
-        const claim = await supplierService.repairPartsDelivered(req.params.claimId);
-        res.json(claim);
+        if (req.user?.accountType !== 'Supplier') {
+            return res.status(403).json({ error: 'Only the awarded supplier can mark parts as delivered' });
+        }
+        const { notes, attachments } = req.body || {};
+        const result = await supplierService.repairPartsDelivered(
+            req.params.claimId,
+            req.user.id,
+            { notes, attachments }
+        );
+        res.json(result);
     } catch (err) {
         logger.error('Error delivering repair parts: %s', err.message);
-        res.status(500).json({ error: 'Server error' });
+        res.status(err.statusCode || 500).json({ error: err.message || 'Server error' });
     }
 };
 

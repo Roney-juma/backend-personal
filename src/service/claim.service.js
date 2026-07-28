@@ -1074,8 +1074,10 @@ const acceptSupplierBid = async (claimId, bidId, req) => {
     { $set: { status: 'Rejected' } }
   );
 
+  // The claim waits in 'Awarded' until the supplier confirms delivery (and submits
+  // their invoice) — only then does it move to 'Garage' for repair.
   const claim = await Claim.findById(claimId);
-  claim.status = 'Garage';
+  claim.status = 'Awarded';
   await claim.save();
   await invalidateClaimCache(claimId);
 
@@ -1128,7 +1130,9 @@ const awardSupplierBid = async (claimId, bidId, req) => {
       status: 'Assigned',
     };
   } else {
-    claim.status = 'Garage';
+    // Parts claims wait in 'Awarded' until the supplier marks the parts delivered
+    // and submits their invoice — that action moves the claim to 'Garage'.
+    claim.status = 'Awarded';
   }
   await claim.save();
   await invalidateClaimCache(claimId);
@@ -1164,13 +1168,13 @@ const awardSupplierBid = async (claimId, bidId, req) => {
   if (supplier && supplier.email) {
     const emailBody = glass
       ? `Dear ${supplier.name},\n\nCongratulations! Your glass replacement bid for claim ID: ${claimId} has been awarded. Please contact the customer to arrange the replacement.\n\nCustomer: ${claim.claimant?.name}\nPhone: ${claim.claimant?.phone}\nEmail: ${claim.claimant?.email}\n\nBest Regards,\nAdmin Team`
-      : `Dear ${supplier.name},\n\nCongratulations! Your parts bid for claim ID: ${claimId} has been awarded. Please proceed with delivering the parts as soon as possible.\n\nBest Regards,\nAdmin Team`;
+      : `Dear ${supplier.name},\n\nCongratulations! Your parts bid for claim ID: ${claimId} has been awarded. Please proceed with delivering the parts as soon as possible. Once delivered, mark the parts as delivered in the app and submit your invoice — the claim only moves to repair after you confirm delivery.\n\nBest Regards,\nAdmin Team`;
     await emailService.sendEmailNotification(supplier.email, 'Bid Award Notification', emailBody);
   }
   if (supplier && supplier.phone) {
     const waMsg = glass
       ? `Hi ${supplier.name}, your glass replacement bid for claim ${claimId} has been *awarded*. Please contact the customer (${claim.claimant?.name} | ${claim.claimant?.phone}) to arrange. — Ave Insurance`
-      : `Hi ${supplier.name}, your parts bid for claim ${claimId} has been *awarded*. Please proceed with delivering the parts. — Ave Insurance`;
+      : `Hi ${supplier.name}, your parts bid for claim ${claimId} has been *awarded*. Please deliver the parts, then mark them as *delivered* in the app and submit your invoice. — Ave Insurance`;
     await whatsappService.sendWhatsAppMessage(supplier.phone, waMsg);
   }
 
@@ -1235,7 +1239,7 @@ const rejectSupplierBid = async (claimId, bidId, req) => {
 
 const countClaimsByStatus = async (company) => {
   return cache.wrap(`cache:stats:claims:status:${company || 'all'}`, async () => {
-    const allStatuses = ['Pending', 'Approved', 'Rejected', 'Assessment', 'Assessed', 'Repair', 'Garage', 'Re-Assessment', 'Completed'];
+    const allStatuses = ['Pending', 'Approved', 'Rejected', 'Assessment', 'Assessed', 'Awarded', 'Repair', 'Garage', 'Re-Assessment', 'Completed'];
     // Aggregations don't cast — the tenant $match needs an explicit ObjectId.
     const pipeline = company ? [{ $match: { company: new mongoose.Types.ObjectId(String(company)) } }] : [];
     pipeline.push({ $group: { _id: '$status', count: { $sum: 1 } } });

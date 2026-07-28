@@ -30,7 +30,8 @@ const STAFF_KNOWLEDGE_BASE = `
 
 ## Standard repair flow (end to end)
 Pending → (admin approves) Approved → (≥3 assessor bids, top-rated auto-awarded) Assessment →
-(assessor submits report) Assessed → (supplier parts bid accepted) Garage →
+(assessor submits report) Assessed → (supplier parts bid awarded) Awarded →
+(supplier marks parts delivered + submits invoice) Garage →
 (garage bid awarded) Repair → (garage finishes) Re-Assessment → (passes) ReAssessed →
 (admin completes) Completed.
 
@@ -41,7 +42,9 @@ Pending → (admin approves) Approved → (≥3 assessor bids, top-rated auto-aw
   exist, the best is auto-selected by: (1) highest rating, then (2) lowest pending workload,
   then (3) lowest cost; others rejected, status → Repair.
 - Supplier (parts) bids: a SupplyBid has status Pending/Accepted/Delivered/Rejected. Accepting
-  one rejects the others and moves the claim toward garage repair.
+  one rejects the others and moves the claim to Awarded. Delivery is NOT automatic: the awarded
+  supplier must mark the parts as delivered in the app, which also submits their invoice
+  (required, amount taken from the awarded bid) and moves the claim to Garage.
 - Bids may also be awarded/rejected manually by staff.
 
 ## Self-repair (cash-in-lieu)

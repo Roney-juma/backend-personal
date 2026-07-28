@@ -136,8 +136,8 @@ const flagClaimAsFraud = async (claimId, reason, flaggedBy, flaggedByType, req, 
   if (!claim || !belongsToCompany(claim.company, company)) throw new ApiError(404, 'Claim not found');
 
   const allowedStatuses = flaggedByType === 'system'
-    ? ['Pending', 'Approved', 'Assessed', 'Garage', 'Resubmitted', 'SelfRepair']
-    : ['Assessed', 'Approved', 'Garage'];
+    ? ['Pending', 'Approved', 'Assessed', 'Awarded', 'Garage', 'Resubmitted', 'SelfRepair']
+    : ['Assessed', 'Approved', 'Awarded', 'Garage'];
   if (!allowedStatuses.includes(claim.status)) {
     throw new ApiError(400, 'A fraud flag can only be raised after the assessment report is submitted (claim status must be Assessed, Approved, or Garage)');
   }
