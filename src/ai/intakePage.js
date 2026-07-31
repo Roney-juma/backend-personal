@@ -118,11 +118,8 @@ if (navigator.geolocation) {
   );
 }
 
-// restore prior session if the page was refreshed
-try {
-  const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
-  if (saved && saved.messages) { messages = saved.messages; (saved.transcript||[]).forEach(t => addBubble(t.who, t.text, t.img)); }
-} catch (e) {}
+// Prior-session restore is handled server-first in init() at the bottom, so the
+// claim resumes on ANY device — not just this browser.
 
 function addBubble(who, text, img) {
   const row = document.createElement('div'); row.className = 'row ' + who;
@@ -145,7 +142,7 @@ async function send(userMessage, opts = {}) {
   try {
     const res = await fetch('/ai/claim-intake/' + TOKEN, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages, userMessage, images: opts.images || [], coordinates: geo })
+      body: JSON.stringify({ messages, userMessage, images: opts.images || [], coordinates: geo, hidden: !!opts.hidden })
     });
     const data = await res.json();
     showTyping(false);
@@ -225,8 +222,45 @@ fileInput.onchange = async () => {
   fileInput.value='';
 };
 
-// kick off the conversation (greeting) unless we're resuming
-if (messages.length === 0) send("Hi, I'd like to report an accident and file a claim.", { hidden: true });
+// Resume the conversation from the SERVER first (so a claim started on one device
+// continues on another), fall back to this browser's local cache if offline, then
+// greet only if it's a brand-new link.
+async function init() {
+  try {
+    const r = await fetch('/ai/claim-intake/' + TOKEN + '/session');
+    if (r.ok) {
+      const s = await r.json();
+      const t = (s && s.transcript) || [];
+      if (t.length || (s.messages && s.messages.length)) {
+        messages = s.messages || [];
+        t.forEach(b => addBubble(b.who, b.text, b.img));
+        try { localStorage.setItem(KEY, JSON.stringify({ messages, transcript: t })); } catch (e) {}
+        if (s.status === 'submitted') {
+          banner('ok', '✅ Claim already filed. Reference: ' + (s.claimId || ''));
+          done = true; input.disabled = true; sendBtn.disabled = true;
+        }
+        return;
+      }
+    } else if (r.status === 401 || r.status === 410) {
+      banner('err', 'This claim link has already been used or has expired.');
+      done = true; input.disabled = true; sendBtn.disabled = true;
+      return;
+    }
+  } catch (e) {
+    // Network unavailable — resume from this device's local cache if present.
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if (saved && saved.messages && saved.messages.length) {
+        messages = saved.messages;
+        (saved.transcript || []).forEach(b => addBubble(b.who, b.text, b.img));
+        return;
+      }
+    } catch (e2) {}
+  }
+  // Brand-new link — start the conversation.
+  send("Hi, I'd like to report an accident and file a claim.", { hidden: true });
+}
+init();
 </script>
 </body>
 </html>`;

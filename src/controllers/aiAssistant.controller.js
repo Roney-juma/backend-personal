@@ -4,8 +4,41 @@ const { validatePhoto, validatePhotoUrl } = require('../ai/agents/photoValidator
 const { renderIntakePage } = require('../ai/intakePage');
 const claimService = require('../service/claim.service');
 const Customer = require('../models/customerModel');
+const ClaimToken = require('../models/claimToken.model');
 const logger = require('../middlewheres/logger');
 const { getRequesterCompany } = require('../utils/requesterCompany');
+
+// Persist the intake conversation on the claim token after each turn so the
+// claimant can resume on another device. Uses an atomic $set (never a full-doc
+// save) so it can't clobber `used` if the claim was filed during this turn.
+// Rebuilds the display transcript to mirror what the browser shows: the greeting
+// and other hidden turns add no user bubble, but a photo turn (hidden + image)
+// still shows the attached photo.
+const persistIntakeSession = async (claimToken, { messages, userTurn, reply, status, claimId }) => {
+  try {
+    const transcript = Array.isArray(claimToken.transcript) ? claimToken.transcript.slice() : [];
+    const imgs = (userTurn && userTurn.images) || [];
+    const vids = (userTurn && userTurn.videos) || [];
+    const showUser = userTurn && (!userTurn.hidden || imgs.length > 0 || vids.length > 0);
+    if (showUser) {
+      transcript.push({ who: 'me', text: userTurn.userMessage || '', img: imgs[0] || undefined });
+    }
+    if (reply) transcript.push({ who: 'ai', text: reply });
+
+    const set = {
+      transcript: transcript.slice(-400), // cap runaway growth
+      lastActivityAt: new Date(),
+    };
+    if (Array.isArray(messages)) set.conversation = messages;
+    if (status) set.intakeStatus = status;
+    if (claimId) set.claimId = claimId;
+
+    await ClaimToken.updateOne({ _id: claimToken._id }, { $set: set });
+  } catch (e) {
+    // Persistence is best-effort — never fail the turn because saving state failed.
+    logger.warn(`persistIntakeSession failed: ${e.message}`);
+  }
+};
 
 /**
  * GET /ai/claim-intake/:token
@@ -98,7 +131,34 @@ const runIntakeTurn = async (req, res, identity) => {
     req,
   });
 
+  // Secure-link path only: save the conversation to the token so it survives a
+  // dead device and resumes on another. The JWT path resumes via the account.
+  if (identity.token && req.claimToken) {
+    await persistIntakeSession(req.claimToken, {
+      messages: result.messages,
+      userTurn: { userMessage, images: photoUrls, videos: videoUrls, hidden: Boolean(req.body && req.body.hidden) },
+      reply: result.reply,
+      status: result.status,
+      claimId: result.claimId,
+    });
+  }
+
   return res.status(200).json(result);
+};
+
+/**
+ * GET /ai/claim-intake/:token/session   (secure-link token via verifyClaimToken)
+ * Returns the saved conversation for this link so the claimant can resume on any
+ * device. Empty on a brand-new link.
+ */
+const getIntakeSession = async (req, res) => {
+  const t = req.claimToken;
+  res.status(200).json({
+    messages: Array.isArray(t.conversation) ? t.conversation : [],
+    transcript: Array.isArray(t.transcript) ? t.transcript : [],
+    status: t.intakeStatus || 'collecting',
+    claimId: t.claimId || null,
+  });
 };
 
 /**
@@ -200,4 +260,4 @@ const staffAssistant = async (req, res) => {
   }
 };
 
-module.exports = { claimIntake, claimIntakeJwt, claimIntakePage, validateClaimPhoto, staffAssistant };
+module.exports = { claimIntake, claimIntakeJwt, claimIntakePage, getIntakeSession, validateClaimPhoto, staffAssistant };

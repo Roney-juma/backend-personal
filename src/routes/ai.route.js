@@ -23,6 +23,9 @@ router.post(
 // Browser chat page — open this link to file a claim by chatting.
 router.get('/claim-intake/:token', aiController.claimIntakePage);
 
+// Saved conversation for this link (cross-device resume). Token-authenticated.
+router.get('/claim-intake/:token/session', verifyClaimToken, aiController.getIntakeSession);
+
 // Conversational claim filing. Authenticated by the claim token (the secure
 // link), NOT a JWT — so this router is intentionally not behind verifyToken.
 router.post('/claim-intake/:token', verifyClaimToken, aiController.claimIntake);
