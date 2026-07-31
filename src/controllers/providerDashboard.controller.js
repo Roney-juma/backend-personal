@@ -27,6 +27,16 @@ const getCompanyAnalytics = async (req, res) => {
   }
 };
 
+const getClaimsByCompany = async (req, res) => {
+  try {
+    const { groupBy, from, to, companyId, status } = req.query;
+    const data = await providerDashboardService.getClaimsByCompany({ groupBy, from, to, companyId, status });
+    res.status(200).json(data);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 const getSubscriptionAnalytics = async (req, res) => {
   try {
     const data = await providerDashboardService.getSubscriptionAnalytics();
@@ -50,6 +60,7 @@ module.exports = {
   getOverview,
   getRevenueAnalytics,
   getCompanyAnalytics,
+  getClaimsByCompany,
   getSubscriptionAnalytics,
   getRecentActivity,
 };
