@@ -1,7 +1,7 @@
 const https = require('https');
 const logger = require('../middlewheres/logger');
 const { getQueue } = require('../queue/queues');
-const { getCorrelationId } = require('../utils/requestContext');
+const { getCorrelationId, once } = require('../utils/requestContext');
 require('dotenv').config();
 
 const toE164 = (number) => {
@@ -119,6 +119,14 @@ const sendWhatsAppDirect = async (to, message, template = null) => {
 
 // Enqueued send — all services call this; falls back to direct if Redis not available
 const sendWhatsAppMessage = async (to, message, template = null) => {
+  // De-duplicate within a request: one WhatsApp per number per request. This lets
+  // sendEmailNotification mirror every email to WhatsApp while a flow that already
+  // sends an explicit WhatsApp to the same person doesn't double-send.
+  const recipient = toE164(to);
+  if (recipient && !once('whatsapp', recipient)) {
+    return;
+  }
+
   const queue = getQueue();
   if (queue) {
     await queue.add('whatsapp', { to, message, template, correlationId: getCorrelationId() });
