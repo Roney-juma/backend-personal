@@ -305,7 +305,7 @@ const awardClaimToGarage = async (req, res) => {
     const claim = await claimService.awardClaimToGarage(req.params.claimId, req.params.garageId);
     res.status(200).json(claim);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(error.statusCode || 500).json({ message: error.message });
   }
 };
 
@@ -485,7 +485,7 @@ const assignGlassSupplier = async (req, res) => {
     const claim = await claimService.assignGlassSupplier(req.params.id, { supplierId, appointmentDate, notes }, req);
     res.status(200).json(claim);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    res.status(error.statusCode || 400).json({ message: error.message });
   }
 };
 

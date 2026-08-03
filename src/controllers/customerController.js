@@ -245,10 +245,10 @@ const getCustomerStats = async (req, res) => {
 };
 const getGarage = async (req, res) => {
   try {
-    const garage = await customerService.findGarages(req.params.claimId);
+    const garage = await customerService.findGarages(req.params.claimId, req);
     res.status(200).json(garage);
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(error.statusCode || 500).json({ error: error.message });
       }
   };
 
