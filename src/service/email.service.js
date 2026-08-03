@@ -3,8 +3,27 @@ const logger = require('../middlewheres/logger');
 const { getQueue } = require('../queue/queues');
 const { getCorrelationId } = require('../utils/requestContext');
 const whatsappService = require('./whatsapp.service');
-const findPhoneByEmail = require('../utils/findPhoneByEmail');
+const resolveRecipient = require('../utils/resolveRecipient');
 require('dotenv').config();
+
+// White-label a notification: swap the hardcoded platform brand for the
+// recipient's actual insurance company (tenant) name. Only runs when we resolved
+// a company; otherwise the text is left as-is. Longest patterns first so
+// "AVE Insurance Team" isn't half-matched by "AVE Insurance".
+const rebrand = (str, company) => {
+  if (!str || !company) return str;
+  // Escape "$" so a company name can't inject regex replacement patterns ($1…).
+  const c = String(company).replace(/\$/g, '$$$$');
+  return String(str)
+    .replace(/\bThe AVE Insurance Team\b/gi, `The ${c} Team`)
+    .replace(/\bThe AVE Team\b/gi, `The ${c} Team`)
+    .replace(/\bAVE Insurance Team\b/gi, `${c} Team`)
+    .replace(/\bAVE Africa Solutions\b/gi, c)
+    .replace(/\bAVE Africa\b/gi, c)
+    .replace(/\bAVE Insurance\b/gi, c)
+    .replace(/\bAve Insurance\b/gi, c)
+    .replace(/\bAdmin Team\b/g, `${c} Team`);
+};
 
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST,
@@ -59,33 +78,47 @@ const toWhatsAppText = (subject, text) => {
 //   opts.phone             → use this number instead of an email→phone lookup
 //   opts.whatsappText      → send this exact WhatsApp text instead of a condensed
 //                            version of the email body
-const mirrorToWhatsApp = async (to, subject, text, opts) => {
-  if (opts && opts.whatsapp === false) return;
+const mirrorToWhatsApp = async (phone, subject, text, opts) => {
+  if (!phone || (opts && opts.whatsapp === false)) return;
   try {
-    const phone = (opts && opts.phone) || (await findPhoneByEmail(to));
-    if (!phone) return;
     const message = (opts && opts.whatsappText) || toWhatsAppText(subject, text);
     if (!message) return;
     await whatsappService.sendWhatsAppMessage(phone, message);
   } catch (err) {
-    logger.warn(`WhatsApp mirror failed | to=${to} | ${err.message}`);
+    logger.warn(`WhatsApp mirror failed | ${err.message}`);
   }
 };
 
-// Enqueued send — all services call this; falls back to direct if Redis not available or queue fails
+// Enqueued send — all services call this; falls back to direct if Redis not available or queue fails.
+// Two things happen centrally so no call site needs to change:
+//  1. White-labelling — the platform brand is replaced with the recipient's insurer name.
+//  2. WhatsApp mirror — the (branded) notification is also sent over WhatsApp.
 const sendEmailNotification = async (to, subject, text, opts = {}) => {
+  let phone = (opts && opts.phone) || null;
+  let companyName = null;
+  try {
+    const r = await resolveRecipient(to);
+    phone = phone || r.phone;
+    companyName = r.companyName;
+  } catch (err) {
+    logger.warn(`resolveRecipient failed | to=${to} | ${err.message}`);
+  }
+
+  const subj = rebrand(subject, companyName);
+  const body = rebrand(text, companyName);
+
   const queue = getQueue();
   if (queue) {
     try {
-      await queue.add('email', { to, subject, text, correlationId: getCorrelationId() });
-      await mirrorToWhatsApp(to, subject, text, opts);
+      await queue.add('email', { to, subject: subj, text: body, correlationId: getCorrelationId() });
+      await mirrorToWhatsApp(phone, subj, body, opts);
       return;
     } catch (err) {
       logger.warn(`Email queue failed, falling back to direct send | to=${to} | ${err.message}`);
     }
   }
-  await sendEmailDirect(to, subject, text);
-  await mirrorToWhatsApp(to, subject, text, opts);
+  await sendEmailDirect(to, subj, body);
+  await mirrorToWhatsApp(phone, subj, body, opts);
 };
 
 // Invoice email always sent directly — attachment serialisation overhead not worth it
