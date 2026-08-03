@@ -381,8 +381,18 @@ const createClaim = async (data, req) => {
 // instead of on every list read (which previously triggered writes + emails per claim).
 // `company` (from getRequesterCompany) narrows the list to one insurer's claims;
 // falsy = platform staff, global scope.
-const getClaims = async (company) => {
-  return Claim.find(company ? { company } : {}).sort({ createdAt: -1 }).lean();
+// The assessor app's claims feed. Kept as a bare array for backward-compat, but
+// bounded: without a company (platform staff / legacy tokens) this would
+// otherwise load EVERY claim in the system into memory. A generous default
+// ceiling protects the event loop; ?page/?limit allow real paging.
+const getClaims = async (company, { page, limit } = {}) => {
+  const l = Math.min(Math.max(Number(limit) || 2000, 1), 2000);
+  const p = Math.max(Number(page) || 1, 1);
+  return Claim.find(company ? { company } : {})
+    .sort({ createdAt: -1 })
+    .skip((p - 1) * l)
+    .limit(l)
+    .lean();
 };
 
 // Evaluate and apply auto-award rules for a single claim. Called after a bid is placed.

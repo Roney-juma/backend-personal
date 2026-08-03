@@ -97,7 +97,7 @@ const createClaim = async (req, res) => {
 // Get all claims
 const getClaims = async (req, res) => {
   try {
-    const claims = await claimService.getClaims(await portalCompany(req));
+    const claims = await claimService.getClaims(await portalCompany(req), { page: req.query.page, limit: req.query.limit });
     res.status(200).json(claims);
   } catch (error) {
     res.status(500).json({ message: error.message });
