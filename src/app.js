@@ -14,6 +14,7 @@ const sanitizeRequest = require('./middlewheres/sanitizeRequest');
 const correlationId = require('./middlewheres/correlationId');
 const { getRedisClient } = require('./queue/connection');
 const { makeRedisStore } = require('./middlewheres/rateLimitStore');
+const { ensureIndexes } = require('./config/ensureIndexes');
 const socketModule = require('./socket');
 
 const PORT = process.env.PORT || 3000;
@@ -29,7 +30,13 @@ mongoose.connect(process.env.MONGO_URI, {
   retryWrites: true,
   w: 'majority',
 })
-  .then(() => logger.info('Connected to MongoDB'))
+  .then(() => {
+    logger.info('Connected to MongoDB');
+    // Reconcile indexes with the schema so every environment (fresh dev DB, new
+    // staging, production) self-heals — including dropping the legacy unique
+    // roles.name_1 index. Non-blocking + never throws (see ensureIndexes).
+    return ensureIndexes();
+  })
   .catch((err) => logger.error('MongoDB connection error:', err));
 
 // Failover visibility — log when the driver loses/regains the primary.
