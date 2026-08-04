@@ -11,6 +11,8 @@ const requirePermission = require('../middlewheres/requirePermission');
 router.post('/', verifyToken(), requirePortalUser, requirePermission('CREATE_ROLE'), roleController.createRole);
 // Get all roles (global roles + the requester's company's roles)
 router.get('/', verifyToken(), requirePortalUser, requirePermission('VIEW_ROLES'), roleController.getAllRoles);
+// Grouped permission catalog for the role editor (declared before '/:id').
+router.get('/catalog', verifyToken(), requirePortalUser, requirePermission('VIEW_ROLES'), roleController.getPermissionCatalog);
 // Get a role by ID
 router.get('/:id', verifyToken(), requirePortalUser, requirePermission('VIEW_ROLES'), roleController.getRoleById);
 // Update a role (own-company roles only; global roles are staff-managed)
