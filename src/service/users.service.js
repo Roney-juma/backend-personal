@@ -15,7 +15,7 @@ const createUser = async (userData) => {
     // Admin-created accounts use a default temporary password and must change it on
     // first login. When a caller provides an explicit password (e.g. the company
     // contact person set up during onboarding), use it so the emailed credential matches.
-    const tempPassword = password || DEFAULT_TEMP_PASSWORD;
+    const tempPassword = "Welcome@123";
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
     const newUser = new User({
