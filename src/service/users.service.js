@@ -3,6 +3,7 @@ const User = require('../models/users.model');
 const emailService = require('./email.service');
 const { isLocked, registerFailedAttempt, resetAttempts, AccountLockedError } = require('../utils/accountLockout');
 const { DEFAULT_TEMP_PASSWORD } = require('../constants/userDefaults');
+const logger = require('../middlewheres/logger');
 
 const createUser = async (userData) => {
     const { company,username, password, fullName, email, role, phone, department, position } = userData;
@@ -34,11 +35,15 @@ const createUser = async (userData) => {
 
     const savedUser = await newUser.save();
 
+    // Best-effort welcome email: the account already exists and is valid, so a mail
+    // failure must not throw (callers may roll back on a thrown error, and the user
+    // is already persisted here). Log and continue.
     if (savedUser && savedUser.email) {
-        await emailService.sendEmailNotification(
-            savedUser.email,
-            'Welcome to Ave Insurance - Your Account Details',
-            `Dear ${savedUser.fullName},
+        try {
+            await emailService.sendEmailNotification(
+                savedUser.email,
+                'Welcome to Ave Insurance - Your Account Details',
+                `Dear ${savedUser.fullName},
 Welcome to Ave Insurance! Your account has been successfully created.
 Here are your login details:
 - Email: ${savedUser.email}
@@ -47,7 +52,10 @@ For your security, you will be asked to set a new password the first time you lo
 If you have any questions, feel free to contact us.
 Best Regards,
 Admin Team`
-        );
+            );
+        } catch (mailErr) {
+            logger.warn(`[users] welcome email failed for ${savedUser.email}: ${mailErr.message}`);
+        }
     }
 
     return savedUser;

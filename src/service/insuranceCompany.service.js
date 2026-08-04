@@ -1,8 +1,10 @@
 const crypto = require('crypto');
 const InsuranceCompany = require('../models/insuranceCompany.model');
+const Role = require('../models/roles.model');
 const emailService = require('./email.service');
 const userService = require('./users.service');
 const rolesService = require('./roles.service');
+const logger = require('../middlewheres/logger');
 
 // System-generated, human-readable company registration number: AVE-<YYYY>-<6 hex>.
 // Retries on the (astronomically unlikely) collision so the unique index never trips.
@@ -54,29 +56,48 @@ const createCompany = async (data) => {
 
   const saved = await company.save();
 
-  // 1) Create this tenant's first role — "Super Admin" holding every permission.
-  const superAdminRole = await rolesService.ensureCompanySuperAdminRole(saved._id);
+  // Everything below builds on the saved company. If any step fails we roll the
+  // company (and its just-created role) back so a retry starts from a clean slate
+  // instead of leaving an orphaned, half-onboarded tenant.
+  let insuranceUser;
+  try {
+    // 1) Create this tenant's first role — "Super Admin" holding every permission.
+    const superAdminRole = await rolesService.ensureCompanySuperAdminRole(saved._id);
 
-  // 2) Create the contact person as the company's first user, assigned that role.
-  //    No password is passed → createUser assigns a temporary one, emails it, and
-  //    forces a change on first login.
-  const insuranceUser = await userService.createUser({
-    company: saved._id,
-    username: contactPerson.username,
-    fullName: contactPerson.fullName,
-    email: contactPerson.email,
-    role: superAdminRole._id,
-  });
+    // 2) Create the contact person as the company's first user, assigned that role.
+    //    No password is passed → createUser assigns a temporary one, emails it, and
+    //    forces a change on first login.
+    insuranceUser = await userService.createUser({
+      company: saved._id,
+      username: contactPerson.username,
+      fullName: contactPerson.fullName,
+      email: contactPerson.email,
+      role: superAdminRole._id,
+    });
 
-  // Keep the embedded contactPerson.role in sync for display/denormalization.
-  saved.contactPerson.role = superAdminRole._id;
-  await saved.save();
+    // Keep the embedded contactPerson.role in sync for display/denormalization.
+    saved.contactPerson.role = superAdminRole._id;
+    await saved.save();
+  } catch (err) {
+    // Hard-delete (bypassing soft-delete) the company + its Super Admin role so the
+    // failed onboarding leaves nothing behind. Cleanup failures must not mask the
+    // original error, so they are swallowed.
+    await InsuranceCompany.collection.deleteOne({ _id: saved._id }).catch(() => {});
+    await Role.collection.deleteOne({ name: 'Super Admin', company: saved._id }).catch(() => {});
+    throw err;
+  }
 
-  await emailService.sendEmailNotification(
-    saved.email,
-    'Welcome — Your Company Account Has Been Created',
-    `Dear ${saved.companyName},\n\nYour account has been created on our platform.\nRegistration Number: ${saved.registrationNumber}\nCompany Email: ${saved.email}\n\nYour administrator (${insuranceUser.fullName}) has been emailed their login details separately.\n\nPlease await activation from our team.\n\nRegards,\nPlatform Team`
-  );
+  // Best-effort welcome email — a mail hiccup must not fail an otherwise-complete
+  // onboarding (the tenant + admin user already exist and are valid).
+  try {
+    await emailService.sendEmailNotification(
+      saved.email,
+      'Welcome — Your Company Account Has Been Created',
+      `Dear ${saved.companyName},\n\nYour account has been created on our platform.\nRegistration Number: ${saved.registrationNumber}\nCompany Email: ${saved.email}\n\nYour administrator (${insuranceUser.fullName}) has been emailed their login details separately.\n\nPlease await activation from our team.\n\nRegards,\nPlatform Team`
+    );
+  } catch (mailErr) {
+    logger.warn(`[onboarding] welcome email failed for ${saved.email}: ${mailErr.message}`);
+  }
 
   return saved;
 };
