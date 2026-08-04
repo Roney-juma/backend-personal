@@ -1,25 +1,52 @@
+const crypto = require('crypto');
 const InsuranceCompany = require('../models/insuranceCompany.model');
 const emailService = require('./email.service');
 const userService = require('./users.service');
 const rolesService = require('./roles.service');
 
-const createCompany = async (data) => {
-  const { companyName, registrationNumber, email, password, phone, address, contactPerson, website, notes } = data;
+// System-generated, human-readable company registration number: AVE-<YYYY>-<6 hex>.
+// Retries on the (astronomically unlikely) collision so the unique index never trips.
+const generateRegistrationNumber = async () => {
+  const year = new Date().getFullYear();
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const suffix = crypto.randomBytes(3).toString('hex').toUpperCase(); // 6 hex chars
+    const candidate = `AVE-${year}-${suffix}`;
+    const clash = await InsuranceCompany.findOne({ registrationNumber: candidate }).select('_id').lean();
+    if (!clash) return candidate;
+  }
+  throw new Error('Could not generate a unique registration number, please retry');
+};
 
-  const existing = await InsuranceCompany.findOne({ $or: [{ email }, { registrationNumber }] });
-  if (existing) {
-    throw new Error('A company with this email or registration number already exists');
+const createCompany = async (data) => {
+  // registrationNumber and password are intentionally NOT taken from the client:
+  // the reg number is system-generated and the contact person's initial password
+  // is auto-assigned by createUser (a temp password, emailed, forced change on first login).
+  const { companyName, email, phone, address, contactPerson, website, notes } = data;
+
+  if (!contactPerson || !contactPerson.email || !contactPerson.username || !contactPerson.fullName) {
+    throw new Error('A contact person (username, full name, email) is required');
   }
 
-  // No company-level credential: the company's only login is its Super Admin
-  // portal user below, so the supplied password becomes that user's initial one.
+  // Company name and email are unique; the reg number we generate ourselves.
+  const existing = await InsuranceCompany.findOne({ $or: [{ email }, { companyName }] });
+  if (existing) {
+    throw new Error('A company with this name or email already exists');
+  }
+
+  const registrationNumber = await generateRegistrationNumber();
+
   const company = new InsuranceCompany({
     companyName,
     registrationNumber,
     email,
     phone,
     address,
-    contactPerson,
+    // Store the contact person WITHOUT a credential; their login lives on the User below.
+    contactPerson: {
+      username: contactPerson.username,
+      fullName: contactPerson.fullName,
+      email: contactPerson.email,
+    },
     website,
     notes,
     status: 'pending',
@@ -27,20 +54,28 @@ const createCompany = async (data) => {
 
   const saved = await company.save();
 
-  // The contact person becomes the company's first (super-admin) user and can log
-  // into the insurer portal to manage the rest of their company's users.
-  const superAdminRole = await rolesService.ensureSuperAdminRole();
-  contactPerson.password = password;
-  contactPerson.role = superAdminRole._id;
-  contactPerson.company = saved._id;
-  const insuranceUser = await userService.createUser(contactPerson);
+  // 1) Create this tenant's first role — "Super Admin" holding every permission.
+  const superAdminRole = await rolesService.ensureCompanySuperAdminRole(saved._id);
 
+  // 2) Create the contact person as the company's first user, assigned that role.
+  //    No password is passed → createUser assigns a temporary one, emails it, and
+  //    forces a change on first login.
+  const insuranceUser = await userService.createUser({
+    company: saved._id,
+    username: contactPerson.username,
+    fullName: contactPerson.fullName,
+    email: contactPerson.email,
+    role: superAdminRole._id,
+  });
 
+  // Keep the embedded contactPerson.role in sync for display/denormalization.
+  saved.contactPerson.role = superAdminRole._id;
+  await saved.save();
 
   await emailService.sendEmailNotification(
     saved.email,
     'Welcome — Your Company Account Has Been Created',
-    `Dear ${saved.companyName},\n\nYour account has been created on our platform.\nEmail: ${saved.email}\n\nPlease await activation from our team.\n\nRegards,\nPlatform Team`
+    `Dear ${saved.companyName},\n\nYour account has been created on our platform.\nRegistration Number: ${saved.registrationNumber}\nCompany Email: ${saved.email}\n\nYour administrator (${insuranceUser.fullName}) has been emailed their login details separately.\n\nPlease await activation from our team.\n\nRegards,\nPlatform Team`
   );
 
   return saved;

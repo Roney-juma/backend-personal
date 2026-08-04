@@ -2,6 +2,7 @@ const role = require('../models/roles.model');
 const logger = require('../middlewheres/logger');
 const mongoose = require('mongoose');
 const permissionsCatalog = require('../role-permissions.json');
+const { ALL_PERMISSIONS } = require('../constants/permissions');
 const { ObjectId } = mongoose.Types;
 
 // Name of the role granted to a new company's contact person (the first/super-admin
@@ -27,6 +28,20 @@ const ensureSuperAdminRole = async () => {
     return role.findOneAndUpdate(
         { name: SUPER_ADMIN_ROLE_NAME, company: null },
         { $setOnInsert: { name: SUPER_ADMIN_ROLE_NAME, company: null, permissions: allPermissions() } },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+};
+
+// Idempotently ensure a company-scoped "Super Admin" role holding EVERY permission,
+// and keep its permission set current on each call. Created at company onboarding
+// and assigned to the contact person so the tenant's first user is unrestricted.
+const ensureCompanySuperAdminRole = async (companyId) => {
+    return role.findOneAndUpdate(
+        { name: SUPER_ADMIN_ROLE_NAME, company: companyId },
+        {
+            $set: { permissions: ALL_PERMISSIONS },
+            $setOnInsert: { name: SUPER_ADMIN_ROLE_NAME, company: companyId },
+        },
         { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 };
@@ -175,5 +190,6 @@ module.exports = {
     getRolesByUserId,
     getRolesByPermission,
     createBulkRoles,
-    ensureSuperAdminRole
+    ensureSuperAdminRole,
+    ensureCompanySuperAdminRole
 };
