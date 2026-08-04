@@ -1,79 +1,47 @@
 {
-    "permissions": {
-      "UserAndRoleManagement": [
-        "CREATE_USER",
-        "VIEW_USERS",
-        "UPDATE_USER",
-        "DELETE_USER",
-        "ASSIGN_ROLE",
-        "VIEW_ROLES",
-        "CREATE_ROLE",
-        "UPDATE_ROLE",
-        "DELETE_ROLE"
-      ],
-      "ClaimsManagement": [
-        "CREATE_CLAIM",
-        "VIEW_CLAIMS",
-        "UPDATE_CLAIM",
-        "DELETE_CLAIM",
-        "APPROVE_CLAIM",
-        "REJECT_CLAIM",
-        "ASSIGN_ASSESSOR",
-        "VIEW_CLAIM_HISTORY"
-      ],
-      "PolicyManagement": [
-        "CREATE_POLICY",
-        "VIEW_POLICIES",
-        "UPDATE_POLICY",
-        "DELETE_POLICY",
-        "ASSIGN_POLICY_TO_USER",
-        "VIEW_POLICY_DETAILS",
-        "ACTIVATE_POLICY",
-        "DEACTIVATE_POLICY"
-      ],
-      "PaymentAndBilling": [
-        "INITIATE_PAYMENT",
-        "VIEW_PAYMENTS",
-        "APPROVE_PAYMENT",
-        "REFUND_PAYMENT",
-        "VIEW_PAYMENT_HISTORY"
-      ],
-      "GarageAndRepairs": [
-        "VIEW_GARAGES",
-        "ADD_GARAGE",
-        "UPDATE_GARAGE",
-        "DELETE_GARAGE",
-        "ASSIGN_REPAIR_JOB",
-        "APPROVE_REPAIR_QUOTE"
-      ],
-      "AssessmentAndEvaluation": [
-        "CREATE_ASSESSMENT",
-        "VIEW_ASSESSMENTS",
-        "UPDATE_ASSESSMENT",
-        "DELETE_ASSESSMENT",
-        "ASSIGN_ASSESSOR",
-        "REVIEW_ASSESSMENT"
-      ],
-      "SuppliersAndParts": [
-        "VIEW_SUPPLIERS",
-        "ADD_SUPPLIER",
-        "UPDATE_SUPPLIER",
-        "DELETE_SUPPLIER",
-        "REQUEST_SPARE_PART",
-        "APPROVE_SUPPLIER_INVOICE"
-      ],
-      "ReportsAndAuditing": [
-        "VIEW_AUDIT_LOGS",
-        "EXPORT_REPORTS",
-        "VIEW_DASHBOARD_STATS",
-        "FILTER_REPORTS"
-      ],
-      "SystemConfiguration": [
-        "MANAGE_SYSTEM_SETTINGS",
-        "VIEW_SYSTEM_STATUS",
-        "CONFIGURE_NOTIFICATIONS",
-        "MANAGE_INTEGRATIONS"
-      ]
-    }
+  "permissions": {
+    "Users & Roles": [
+      "VIEW_USERS", "CREATE_USER", "UPDATE_USER", "DELETE_USER",
+      "VIEW_ROLES", "CREATE_ROLE", "UPDATE_ROLE", "DELETE_ROLE", "ASSIGN_ROLE"
+    ],
+    "Claims": [
+      "VIEW_CLAIMS", "CREATE_CLAIM", "UPDATE_CLAIM", "DELETE_CLAIM",
+      "APPROVE_CLAIM", "REJECT_CLAIM", "AWARD_CLAIM", "COMPLETE_CLAIM",
+      "GENERATE_CLAIM_LINK", "VIEW_CLAIM_ANALYTICS"
+    ],
+    "Cash in Lieu (Self-Repair)": [
+      "VIEW_SELF_REPAIR", "APPROVE_SELF_REPAIR", "REJECT_SELF_REPAIR", "PAY_SELF_REPAIR"
+    ],
+    "Glass Claims": [
+      "VIEW_GLASS_CLAIMS", "APPROVE_GLASS_CLAIM", "ASSIGN_GLASS_SUPPLIER", "COMPLETE_GLASS_CLAIM"
+    ],
+    "Customers": [
+      "VIEW_CUSTOMERS", "CREATE_CUSTOMER", "UPDATE_CUSTOMER", "IMPORT_CUSTOMERS"
+    ],
+    "Garages": [
+      "VIEW_GARAGES", "CREATE_GARAGE", "UPDATE_GARAGE", "DELETE_GARAGE"
+    ],
+    "Assessors": [
+      "VIEW_ASSESSORS", "CREATE_ASSESSOR", "UPDATE_ASSESSOR", "DELETE_ASSESSOR"
+    ],
+    "Suppliers": [
+      "VIEW_SUPPLIERS", "CREATE_SUPPLIER", "UPDATE_SUPPLIER", "DELETE_SUPPLIER"
+    ],
+    "Investigations": [
+      "VIEW_INVESTIGATORS", "CREATE_INVESTIGATOR", "UPDATE_INVESTIGATOR", "DELETE_INVESTIGATOR",
+      "ASSIGN_INVESTIGATION", "REVIEW_INVESTIGATION", "FLAG_FRAUD"
+    ],
+    "Vendor Invoices": [
+      "VIEW_VENDOR_INVOICES", "APPROVE_VENDOR_INVOICE", "REJECT_VENDOR_INVOICE", "PAY_VENDOR_INVOICE"
+    ],
+    "Claim Types": [
+      "VIEW_CLAIM_TYPES", "CREATE_CLAIM_TYPE", "UPDATE_CLAIM_TYPE", "DELETE_CLAIM_TYPE"
+    ],
+    "Support": [
+      "VIEW_SUPPORT", "MANAGE_SUPPORT"
+    ],
+    "Reports & Audit": [
+      "VIEW_AUDIT_LOGS", "VIEW_REPORTS", "EXPORT_REPORTS"
+    ]
   }
-  
+}

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/vendorInvoice.controller');
 const verifyToken = require('../middlewheres/verifyToken');
+const requirePermission = require('../middlewheres/requirePermission');
 
 // All routes use verifyToken — the same JWT used by assessors, garages, suppliers
 // (accountType Assessor/Garage/Supplier) and by insurance-company admins
@@ -20,11 +21,11 @@ router.get('/', verifyToken(), controller.getInvoices);
 router.get('/:id', verifyToken(), controller.getInvoiceById);
 
 // Insurance-company admin reviews a submitted invoice.
-router.patch('/:id/approve', verifyToken(), controller.approveInvoice);
-router.patch('/:id/reject', verifyToken(), controller.rejectInvoice);
+router.patch('/:id/approve', verifyToken(), requirePermission('APPROVE_VENDOR_INVOICE'), controller.approveInvoice);
+router.patch('/:id/reject', verifyToken(), requirePermission('REJECT_VENDOR_INVOICE'), controller.rejectInvoice);
 
 // Insurance-company admin marks an approved invoice paid.
-router.patch('/:id/pay', verifyToken(), controller.markAsPaid);
+router.patch('/:id/pay', verifyToken(), requirePermission('PAY_VENDOR_INVOICE'), controller.markAsPaid);
 
 // Vendor withdraws their own unpaid invoice.
 router.patch('/:id/cancel', verifyToken(), controller.cancelInvoice);

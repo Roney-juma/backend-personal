@@ -2,6 +2,8 @@ const garageController = require("../controllers/garage.controller")
 const express = require("express")
 const verifyToken = require("../middlewheres/verifyToken");
 const authLimiter = require("../middlewheres/authLimiter");
+const requirePortalUser = require("../middlewheres/requirePortalUser");
+const requirePermission = require("../middlewheres/requirePermission");
 const mfaController = require("../controllers/mfa.controller");
 const passwordController = require("../controllers/password.controller");
 
@@ -17,12 +19,12 @@ router.post('/mfa/setup', verifyToken(), mfaController.setup('Garage'));
 router.post('/mfa/enable', verifyToken(), mfaController.enable('Garage'));
 router.post('/mfa/disable', verifyToken(), mfaController.disable('Garage'));
 router.post('/change-password', verifyToken(), passwordController.changePassword('Garage'));
-router.post('/create',verifyToken(), garageController.createGarage)
+router.post('/create',verifyToken(), requirePortalUser, requirePermission('CREATE_GARAGE'), garageController.createGarage)
 router.get('/stats',verifyToken(), garageController.getGarageStats)
 router.get('/topGarages',verifyToken(), garageController.getTopGarages)
 router.get('/',verifyToken(), garageController.getAllGarages)
 router.get('/assessedClaims/:garageId',verifyToken(), garageController.getAssessedClaims)
-router.delete('/delete/:garageId',verifyToken(), garageController.deleteGarage)
+router.delete('/delete/:garageId',verifyToken(), requirePortalUser, requirePermission('DELETE_GARAGE'), garageController.deleteGarage)
 router.get('/:id',verifyToken(), garageController.getGarage)
 router.put('/:garageId',verifyToken(), garageController.updateGarage)
 router.post('/bidClaim/:id',verifyToken(), garageController.placeBid)

@@ -2,6 +2,12 @@ const roleService = require('../service/roles.service');
 const logger = require('../middlewheres/logger');
 const { getRequesterCompany } = require('../utils/requesterCompany');
 const { writeAuditLog } = require('../utils/auditHelper');
+const { GROUPS } = require('../constants/permissions');
+
+// The grouped permission catalog for the role editor's picker.
+const getPermissionCatalog = (req, res) => {
+    res.status(200).json({ groups: GROUPS });
+};
 
 // Every handler resolves the requester's tenant: company users see global roles
 // plus their own company's and may only mutate their own; platform staff
@@ -155,5 +161,6 @@ module.exports = {
     getRolesByIds,
     getRolesByUserId,
     getRoleByName,
-    createBulkRoles
+    createBulkRoles,
+    getPermissionCatalog
     };
