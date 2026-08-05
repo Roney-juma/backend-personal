@@ -62,6 +62,37 @@ const updateUser = async (req, res) => {
     }
 };
 
+// Fields a provider user may change on their OWN profile. role/active/password are
+// excluded (password has its own /change-password flow; role/active are admin-only).
+const PROFILE_EDITABLE_FIELDS = ['fullName', 'phone', 'department', 'position'];
+
+// GET /provider/me — the authenticated provider user's own profile.
+const getMe = async (req, res) => {
+    try {
+        const user = await providerUserService.getProviderUserById(req.user.id);
+        if (!user) return res.status(404).json({ message: 'Provider user not found' });
+        const { password, mfaSecret, ...safe } = user.toObject();
+        res.status(200).json(safe);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// PATCH /provider/me — update the authenticated provider user's editable fields.
+const updateMe = async (req, res) => {
+    try {
+        const updates = {};
+        for (const field of PROFILE_EDITABLE_FIELDS) {
+            if (req.body[field] !== undefined) updates[field] = req.body[field];
+        }
+        const user = await providerUserService.updateProviderUser(req.user.id, updates);
+        if (!user) return res.status(404).json({ message: 'Provider user not found' });
+        res.status(200).json(user);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 const deactivateUser = async (req, res) => {
     try {
         const user = await providerUserService.deactivateProviderUser(req.params.id);
@@ -90,4 +121,6 @@ module.exports = {
     updateUser,
     deactivateUser,
     resetPassword,
+    getMe,
+    updateMe,
 };
