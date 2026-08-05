@@ -60,10 +60,14 @@ ssh -L 3300:localhost:3300 -L 9090:localhost:9090 ubuntu@<your-elastic-ip>
   The Prometheus datasource is already wired up.
 
 ## 4. Dashboards
-In Grafana → **Dashboards → New → Import**:
-- **1860** — *Node Exporter Full* (host CPU/mem/disk) → pick the Prometheus datasource.
+The **AVE Backend** dashboard is auto-provisioned (Grafana → Dashboards → *AVE*
+folder) — HTTP rate/latency/errors, in-flight, Node runtime (app + worker) and
+host CPU/memory. No manual building needed; it appears on first start.
 
-For the app, add a dashboard with these panels (PromQL):
+Optionally import **1860** (*Node Exporter Full*) for deep host detail:
+Grafana → **Dashboards → New → Import → 1860** → pick the Prometheus datasource.
+
+The panels are driven by these queries (handy for ad-hoc **Explore**):
 ```promql
 # Request rate by route
 sum(rate(http_request_duration_seconds_count[5m])) by (route)

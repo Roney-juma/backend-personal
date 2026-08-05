@@ -37,7 +37,9 @@ docker compose logs -f alloy      # look for successful remote_write, no 401s
 - Open your stack's Grafana (`https://<your-stack>.grafana.net`).
 - **Explore** → pick the `grafanacloud-<stack>-prom` datasource → run the same
   PromQL from `../README.md` (request rate, p95 latency, 5xx %, event-loop lag).
-- **Dashboards → Import → 1860** (Node Exporter Full) for host metrics.
+- **Dashboards → Import** the ready-made app dashboard: upload
+  `../grafana/dashboards/ave-backend.json` (or paste its JSON) and pick your
+  `grafanacloud-<stack>-prom` datasource. Also import **1860** for host detail.
 
 ## Notes
 - Alloy makes only **outbound HTTPS** to Grafana Cloud — no inbound ports opened.
