@@ -21,18 +21,18 @@ scrape_configs:
           service: 'worker'
 
   # ── Staging (same EC2 box, isolated ports) ──────────────────────────────────
-  # Enable ONLY once the staging checkout runs with these in its .env:
-  #   METRICS_PORT_BASE=9564        # app-staging workers → 9564, 9565, …
-  #   WORKER_METRICS_PORT_BASE=9570 # worker-staging      → 9570
-  # then uncomment. One env, one Grafana — filter panels by the `env` label.
-  # - job_name: 'ave-backend-staging'
-  #   static_configs:
-  #     - targets: ['127.0.0.1:9564']   # add 9565… to match staging WEB_CONCURRENCY
-  #       labels: { service: 'backend', env: 'staging' }
-  # - job_name: 'ave-worker-staging'
-  #   static_configs:
-  #     - targets: ['127.0.0.1:9570']
-  #       labels: { service: 'worker', env: 'staging' }
+  # Requires the staging checkout's .env to set:
+  #   METRICS_PORT_BASE=9564        (app-staging workers -> 9564, 9565, ...)
+  #   WORKER_METRICS_PORT_BASE=9570 (worker-staging      -> 9570)
+  # One env, one Grafana — filter panels by the `env` label.
+  - job_name: 'ave-backend-staging'
+    static_configs:
+      - targets: ['127.0.0.1:9564']   # add 9565… to match staging WEB_CONCURRENCY
+        labels: { service: 'backend', env: 'staging' }
+  - job_name: 'ave-worker-staging'
+    static_configs:
+      - targets: ['127.0.0.1:9570']
+        labels: { service: 'worker', env: 'staging' }
 
   # Host CPU / memory / disk / network.
   - job_name: 'node'
