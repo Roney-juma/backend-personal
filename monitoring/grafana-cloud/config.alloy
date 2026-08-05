@@ -1,0 +1,37 @@
+// Grafana Alloy — scrapes the same local targets as the self-hosted Prometheus
+// and remote_writes them to Grafana Cloud. Use this INSTEAD of monitoring/
+// docker-compose.yml to keep the box light (no local Prometheus/Grafana). Alloy
+// only makes OUTBOUND HTTPS to Grafana Cloud — no inbound ports are opened.
+
+// ── Destination: Grafana Cloud Prometheus (credentials from env) ─────────────
+prometheus.remote_write "grafanacloud" {
+  endpoint {
+    url = sys.env("GRAFANA_CLOUD_PROM_URL")
+    basic_auth {
+      username = sys.env("GRAFANA_CLOUD_PROM_USER")
+      password = sys.env("GRAFANA_CLOUD_API_KEY")
+    }
+  }
+}
+
+// ── App + worker: one target per PM2 worker (match WEB_CONCURRENCY) ───────────
+prometheus.scrape "backend" {
+  targets = [
+    { "__address__" = "127.0.0.1:9464", "job" = "ave-backend", "service" = "backend" },
+    { "__address__" = "127.0.0.1:9465", "job" = "ave-backend", "service" = "backend" },
+    { "__address__" = "127.0.0.1:9470", "job" = "ave-worker",  "service" = "worker"  },
+  ]
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.grafanacloud.receiver]
+}
+
+// ── Host CPU / memory / disk via Alloy's built-in node exporter ───────────────
+prometheus.exporter.unix "host" {
+  rootfs_path = "/host"
+}
+
+prometheus.scrape "node" {
+  targets         = prometheus.exporter.unix.host.targets
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.grafanacloud.receiver]
+}

@@ -27,10 +27,11 @@ On the box:
 cd ~/backend-personal
 git pull
 npm install                       # pulls in prom-client
-pm2 restart app --update-env      # workers start exposing /metrics
-# verify (one per worker):
-curl -s 127.0.0.1:9464/metrics | head
-curl -s 127.0.0.1:9465/metrics | head
+pm2 restart app worker --update-env   # app workers + BullMQ worker expose /metrics
+# verify:
+curl -s 127.0.0.1:9464/metrics | head   # app worker 0
+curl -s 127.0.0.1:9465/metrics | head   # app worker 1
+curl -s 127.0.0.1:9470/metrics | head   # background worker
 ```
 > If you change `WEB_CONCURRENCY`, update the worker port list in
 > `prometheus/prometheus.yml` to match (worker N → port 9464 + N).
@@ -94,9 +95,14 @@ process_resident_memory_bytes
 ## Cost / footprint
 On a `t3.medium` (4 GB) the stack adds ~400 MB (Prometheus ~200, Grafana ~120,
 node_exporter ~20). Retention is capped at 15 days (`--storage.tsdb.retention.time`)
-to bound disk. If the box feels tight, the alternative is **Grafana Cloud** (free
-tier): keep `src/metrics.js` as-is and run a lightweight agent that `remote_write`s
-to the cloud instead of self-hosting Prometheus + Grafana — ask and I'll set it up.
+to bound disk. If the box feels tight, use the **Grafana Cloud** path in
+[`grafana-cloud/`](./grafana-cloud/) instead — a single ~50 MB Alloy agent that
+`remote_write`s to Grafana Cloud (free tier), with no local Prometheus/Grafana.
+
+## Deploys
+`deploy.yml` runs `npm ci --omit=dev` and `pm2 restart app worker`, so new
+dependencies (like `prom-client`) install and both processes restart automatically
+on every deploy — no manual step after the first setup.
 
 ## Reboots
 `restart: unless-stopped` brings the stack back after a reboot; PM2 (via `pm2 save`)

@@ -13,6 +13,13 @@ scrape_configs:
         labels:
           service: 'backend'
 
+  # The BullMQ background worker (single fork) — Node runtime metrics on 9470.
+  - job_name: 'ave-worker'
+    static_configs:
+      - targets: ['127.0.0.1:9470']
+        labels:
+          service: 'worker'
+
   # Host CPU / memory / disk / network.
   - job_name: 'node'
     static_configs:

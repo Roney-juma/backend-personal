@@ -58,9 +58,11 @@ function metricsMiddleware(req, res, next) {
 }
 
 // Dedicated metrics HTTP server, bound to LOOPBACK so /metrics is never exposed
-// on the public API. One port per PM2 worker: METRICS_PORT_BASE + worker index.
-function startMetricsServer() {
-  const base = Number(process.env.METRICS_PORT_BASE) || 9464;
+// on the public API. One port per process: portBase + worker index. The web app
+// uses the default base (9464 → 9464/9465 for its cluster workers); the worker
+// passes a distinct base (9470) so its port never collides with the app's.
+function startMetricsServer(portBase) {
+  const base = Number(portBase) || Number(process.env.METRICS_PORT_BASE) || 9464;
   const port = base + Number(instance);
   const server = http.createServer(async (req, res) => {
     if (req.url === '/metrics') {

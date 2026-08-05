@@ -23,5 +23,9 @@ jobs:
             git reset --hard
             git clean -df
             git pull origin production
-            npm install --production
-            pm2 restart app
+            # Deterministic install from the committed lockfile (installs new deps
+            # like prom-client). Falls back to npm install if the lockfile is stale.
+            npm ci --omit=dev || npm install --omit=dev
+            # Restart BOTH the web app and the background worker so worker-side
+            # changes (e.g. its metrics server) actually take effect.
+            pm2 restart app worker
