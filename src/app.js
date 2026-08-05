@@ -15,6 +15,7 @@ const correlationId = require('./middlewheres/correlationId');
 const { getRedisClient } = require('./queue/connection');
 const { makeRedisStore } = require('./middlewheres/rateLimitStore');
 const { ensureIndexes } = require('./config/ensureIndexes');
+const { metricsMiddleware, startMetricsServer } = require('./metrics');
 const socketModule = require('./socket');
 
 const PORT = process.env.PORT || 3000;
@@ -49,6 +50,9 @@ app.set('trust proxy', 1);
 
 // Correlation id first, so health checks and every downstream log carry a trace id.
 app.use(correlationId);
+
+// Prometheus timing — early so it wraps the whole chain (skips probes/metrics).
+app.use(metricsMiddleware);
 
 // ── Probes (before rate-limiting/logging so they aren't throttled or noisy) ──────
 // Liveness: the process is up. Never touches dependencies.
@@ -120,6 +124,9 @@ server.listen(PORT, (error) => {
     logger.info(`Server running on port ${PORT}`);
   }
 });
+
+// Per-worker Prometheus metrics endpoint (loopback only — see src/metrics.js).
+startMetricsServer();
 
 // ── Graceful shutdown ────────────────────────────────────────────────────────
 let shuttingDown = false;
