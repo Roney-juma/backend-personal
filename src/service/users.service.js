@@ -111,6 +111,15 @@ const getUsersByCompanyId = async (companyId, { page = 1, limit = 10, search = '
     return { users, total, page: Number(page), limit: Number(limit), pages: Math.ceil(total / Number(limit)) };
 };
 
+// Self-service profile update: no company scoping (a user edits only their own
+// record, keyed by their authenticated id) and returns a sanitized, populated doc.
+const updateMyProfile = async (userId, updates) => {
+    return User.findByIdAndUpdate(userId, updates, { new: true })
+        .select('-password -mfaSecret')
+        .populate('role')
+        .populate('company');
+};
+
 const updateUser = async (userId, updateData, company) => {
     // Scope to the requester's company (staff → no scope). Strip company from the
     // payload so a company user can't move a user to another tenant.
@@ -174,6 +183,7 @@ module.exports = {
     getAllUsers,
     getUserById,
     updateUser,
+    updateMyProfile,
     deleteUser,
     resetPassword,
     loginUserWithEmailAndPassword,

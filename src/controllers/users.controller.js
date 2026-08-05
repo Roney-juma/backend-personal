@@ -142,6 +142,48 @@ const updateAdminUser = async (req, res) => {
     }
 };
 
+// Fields a user may change on their OWN profile. Identity / access-control fields
+// (email, username, role, company, password, active, mfa) are deliberately excluded
+// — password has its own /change-password flow; the rest are admin-only.
+const PROFILE_EDITABLE_FIELDS = ['fullName', 'phone', 'department', 'position'];
+
+// GET /users/me — the authenticated user's own profile. No VIEW_USERS permission
+// required: a user may always read their own record.
+const getMyProfile = async (req, res) => {
+    try {
+        const user = await userService.getUserById(req.user.id);
+        if (!user) return res.status(404).json({ message: 'User not found' });
+        const { password, mfaSecret, ...safe } = user.toObject();
+        res.status(200).json(safe);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// PATCH /users/me — update the authenticated user's own editable profile fields.
+const updateMyProfile = async (req, res) => {
+    try {
+        const updates = {};
+        for (const field of PROFILE_EDITABLE_FIELDS) {
+            if (req.body[field] !== undefined) updates[field] = req.body[field];
+        }
+        const updated = await userService.updateMyProfile(req.user.id, updates);
+        if (!updated) return res.status(404).json({ message: 'User not found' });
+        await writeAuditLog(req, {
+            action: 'UPDATE',
+            module: 'User',
+            actionDescription: `${updated.fullName} updated their own profile`,
+            resourceType: 'User',
+            resourceId: updated._id,
+            statusCode: 200,
+            success: true,
+        });
+        res.status(200).json(updated);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 const deleteAdminUser = async (req, res) => {
     try {
         const company = await getRequesterCompany(req);
@@ -191,5 +233,7 @@ module.exports = {
     updateAdminUser,
     deleteAdminUser,
     resetPassword,
-    getCompanyUsers
+    getCompanyUsers,
+    getMyProfile,
+    updateMyProfile
 };

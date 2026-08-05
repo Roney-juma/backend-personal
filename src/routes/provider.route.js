@@ -20,6 +20,10 @@ router.post('/mfa/enable',  verifyProviderToken(), mfaController.enable('Provide
 router.post('/mfa/disable', verifyProviderToken(), mfaController.disable('ProviderUser'));
 router.post('/change-password', verifyProviderToken(), passwordController.changePassword('ProviderUser'));
 
+// Self-service profile for the authenticated provider user.
+router.get('/me', verifyProviderToken(), providerUserController.getMe);
+router.patch('/me', verifyProviderToken(), providerUserController.updateMe);
+
 router.get('/users',                    verifyProviderToken(), providerUserController.getAllUsers);
 router.post('/users',                   verifyProviderToken(), providerUserController.createUser);
 router.get('/users/:id',                verifyProviderToken(), providerUserController.getUserById);

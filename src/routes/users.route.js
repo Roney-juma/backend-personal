@@ -22,6 +22,11 @@ router.post('/mfa/enable', verifyToken(), mfaController.enable('User'))
 router.post('/mfa/disable', verifyToken(), mfaController.disable('User'))
 router.post('/mfa/verify-login', authLimiter, mfaController.verifyLogin)
 router.post('/change-password', verifyToken(), passwordController.changePassword('User'))
+// Self-service profile (must be declared BEFORE the '/:id' route so 'me' isn't
+// captured as an id). No VIEW_USERS/UPDATE_USER permission — a user always may
+// read and edit their OWN profile.
+router.get('/me', verifyToken(), userController.getMyProfile)
+router.patch('/me', verifyToken(), userController.updateMyProfile)
 router.get('/company-users/:id',verifyToken(), requirePortalUser, requirePermission('VIEW_USERS'), userController.getCompanyUsers)
 router.patch('/update/:id',verifyToken(), requirePortalUser, requirePermission('UPDATE_USER'), userController.updateAdminUser)
 router.get('/:id',verifyToken(), requirePortalUser, requirePermission('VIEW_USERS'), userController.getAdminUser)
