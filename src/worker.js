@@ -30,10 +30,11 @@ if (!connection) {
 }
 
 // Expose the worker's Node runtime metrics (event-loop lag, heap, GC, CPU) on its
-// own loopback port (9470), separate from the web app's 9464/9465 so ports never
-// collide. Scraped by Prometheus as the 'ave-worker' job.
+// own loopback port — default 9470, separate from the web app's 9464/9465. Set
+// WORKER_METRICS_PORT_BASE in the env to move it (e.g. staging on the same box as
+// prod uses 9570) so the two deployments never fight over the port.
 const { startMetricsServer } = require('./metrics');
-startMetricsServer(9470);
+startMetricsServer(Number(process.env.WORKER_METRICS_PORT_BASE) || 9470);
 
 // ── Notification worker ───────────────────────────────────────────────────────
 

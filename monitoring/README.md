@@ -108,6 +108,28 @@ to bound disk. If the box feels tight, use the **Grafana Cloud** path in
 dependencies (like `prom-client`) install and both processes restart automatically
 on every deploy — no manual step after the first setup.
 
+## Testing on staging first (same box as prod)
+Staging is a second checkout (`/home/ubuntu/backend-staging`) on the **same EC2
+box**, so it must use **different metrics ports** or it collides with prod. Give
+staging its own ports in its `.env`, then scrape them as a separate job.
+
+1. Merge/push your branch to `staging` → `deploy-staging.yml` installs `prom-client`
+   and reloads `app-staging` + `worker-staging`.
+2. In `/home/ubuntu/backend-staging/.env` add:
+   ```
+   METRICS_PORT_BASE=9564          # app-staging workers → 9564, 9565, …
+   WORKER_METRICS_PORT_BASE=9570   # worker-staging      → 9570
+   ```
+   then `pm2 reload ecosystem.staging.config.js --update-env`.
+3. Verify: `curl -s 127.0.0.1:9564/metrics | head` and `curl -s 127.0.0.1:9570/metrics | head`.
+4. Uncomment the **staging** jobs in `prometheus/prometheus.yml`, then
+   `docker compose restart prometheus`. The `env="staging"` label lets you filter
+   the same dashboard by environment.
+
+One Grafana/Prometheus instance monitors **both** environments — you don't run a
+second monitoring stack. Once you're happy, merge to `production` and prod keeps
+the default ports (9464/9465/9470).
+
 ## Reboots
 `restart: unless-stopped` brings the stack back after a reboot; PM2 (via `pm2 save`)
 brings the app + its metrics servers back.
