@@ -29,6 +29,12 @@ if (!connection) {
   process.exit(1);
 }
 
+// Expose the worker's Node runtime metrics (event-loop lag, heap, GC, CPU) on its
+// own loopback port (9470), separate from the web app's 9464/9465 so ports never
+// collide. Scraped by Prometheus as the 'ave-worker' job.
+const { startMetricsServer } = require('./metrics');
+startMetricsServer(9470);
+
 // ── Notification worker ───────────────────────────────────────────────────────
 
 // Run each job inside the originating request's correlation context so all downstream

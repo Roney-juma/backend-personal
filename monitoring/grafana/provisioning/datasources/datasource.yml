@@ -1,0 +1,11 @@
+# Auto-provision Prometheus as Grafana's default datasource on first start.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus          # fixed uid so provisioned dashboards can reference it
+    access: proxy
+    url: http://127.0.0.1:9090
+    isDefault: true
+    editable: true

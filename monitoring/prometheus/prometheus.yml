@@ -1,0 +1,31 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # The Node app — ONE target per PM2 cluster worker. Add/remove ports to match
+  # WEB_CONCURRENCY (worker N exposes METRICS_PORT_BASE + N; base default 9464).
+  - job_name: 'ave-backend'
+    static_configs:
+      - targets:
+          - '127.0.0.1:9464'   # PM2 worker 0
+          - '127.0.0.1:9465'   # PM2 worker 1
+        labels:
+          service: 'backend'
+
+  # The BullMQ background worker (single fork) — Node runtime metrics on 9470.
+  - job_name: 'ave-worker'
+    static_configs:
+      - targets: ['127.0.0.1:9470']
+        labels:
+          service: 'worker'
+
+  # Host CPU / memory / disk / network.
+  - job_name: 'node'
+    static_configs:
+      - targets: ['127.0.0.1:9100']
+
+  # Prometheus monitoring itself.
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['127.0.0.1:9090']
