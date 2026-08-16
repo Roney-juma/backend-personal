@@ -186,8 +186,12 @@ const claimSchema = new Schema({
     vehicleCondition: { type: String },
     partsSalvaged: [{ partName: { type: String }, description: { type: String } }],
     partsReplaced: [{ partName: { type: String }, cost: { type: Number } }],
-    receipts: [String],
     photos: [String],
+    reportDocument: {
+      url: { type: String },
+      fileName: { type: String },
+      uploadedAt: { type: Date },
+    },
     totalRepairCost: { type: Number },
     submittedAt: { type: Date },
   },
