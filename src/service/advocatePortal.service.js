@@ -228,36 +228,28 @@ async function requestAuthority(advocateId, caseId, { amount, amountMinor, ratio
   });
   await legalCase.save();
 
-  const notifications = require('./notification.service');
-  const User = require('../models/users.model');
-  const Role = require('../models/roles.model');
-
-  const roles = await Role.find({ company: legalCase.company, name: { $in: ['Legal Officer', 'Senior Legal Officer'] } })
-    .select('_id')
-    .lean();
-  const recipients = await User.find({ company: legalCase.company, role: { $in: roles.map((r) => r._id) }, active: true })
-    .select('_id')
-    .limit(10)
-    .lean();
-
+  const notify = require('./legalNotify.service');
   const advocate = await Advocate.findById(advocateId).select('name').lean();
 
-  for (const recipient of recipients) {
-    await notifications
-      .createAndEmit({
-        recipientId: recipient._id,
-        recipientType: 'admin',
-        type: 'legal_authority_request',
-        title: `Counsel requests authority — ${legalCase.caseNumber}`,
-        content:
-          `${advocate?.name || 'Counsel'} requests settlement authority of ` +
-          `${money.formatMinor(requestedMinor)} on ${legalCase.courtCaseNumber || legalCase.caseNumber}.\n\n${rationale}`,
-        claimId: legalCase.claim,
-      })
-      .catch((err) => logger.warn(`[advocate-portal] authority notify failed: ${err.message}`));
-  }
+  const msg = notify.templates.authorityRequested({
+    caseNumber: legalCase.courtCaseNumber || legalCase.caseNumber,
+    amount: money.formatMinor(requestedMinor),
+    advocate: advocate?.name,
+    rationale,
+  });
 
-  return { requestedMinor, notified: recipients.length };
+  // Reaches the legal team on every channel — an authority request that sits
+  // unseen in an in-app list is the one counsel chases by phone anyway.
+  const { notified } = await notify.sendToRoles({
+    company: legalCase.company,
+    roles: ['Legal Officer', 'Senior Legal Officer'],
+    type: 'legal_authority_request',
+    title: msg.title,
+    body: msg.body,
+    claimId: legalCase.claim,
+  });
+
+  return { requestedMinor, notified };
 }
 
 /** Upload a pleading. Forced to advocate_shared — see legalDocument.service. */

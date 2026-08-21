@@ -110,7 +110,74 @@ async function createRequest(params, actor = null) {
   logger.info(
     `[approval] ${subjectType} ${subjectId} — ${money.formatMinor(amountMinor)} requires ${band.approver}`
   );
+
+  // Tell whoever has to sign this off. An approval nobody was told about is the
+  // commonest reason a settlement sits untouched past the date it was needed.
+  notifyApprover(request, band).catch((err) =>
+    logger.error(`[approval] could not notify approver of ${request._id}: ${err.message}`)
+  );
+
   return request;
+}
+
+/**
+ * Notify the required approver that something is waiting on them.
+ *
+ * Fire-and-forget: a notification failure must never roll back a validly
+ * created approval request. The record is the source of truth; the message is
+ * a prompt.
+ */
+async function notifyApprover(request, band) {
+  const notify = require('./legalNotify.service');
+  const msg = notify.templates.approvalRequired({
+    reference: request.summary || `${request.subjectType} ${request.subjectId}`,
+    amount: money.formatMinor(request.amountMinor),
+    party: request.summary,
+    approver: request.requiredApprover,
+    reserve: band?.outsideMatrix
+      ? 'This amount is above every configured band and was routed to the highest approver.'
+      : null,
+  });
+
+  if (request.requiredApproverKind === 'user') {
+    return notify.sendToUser({
+      userId: request.requiredApprover,
+      type: 'legal_approval_required',
+      title: msg.title,
+      body: msg.body,
+      claimId: request.claim,
+    });
+  }
+
+  // A permission band names a permission rather than a role, so expand it to
+  // whichever roles in this tenant currently carry it. Doing that here means an
+  // insurer can rename or split roles without silently muting approvals.
+  let roles = [request.requiredApprover];
+  if (request.requiredApproverKind === 'permission') {
+    const holders = await Role.find({
+      company: request.company,
+      permissions: request.requiredApprover,
+    })
+      .select('name')
+      .lean();
+    if (!holders.length) {
+      logger.warn(
+        `[approval] no role in company ${request.company} holds ${request.requiredApprover} — ` +
+        `nobody was notified about ${money.formatMinor(request.amountMinor)}`
+      );
+      return { notified: 0 };
+    }
+    roles = holders.map((r) => r.name);
+  }
+
+  return notify.sendToRoles({
+    company: request.company,
+    roles,
+    type: 'legal_approval_required',
+    title: msg.title,
+    body: msg.body,
+    claimId: request.claim,
+  });
 }
 
 /**
@@ -207,6 +274,29 @@ async function decide(requestId, decision, notes, actor, req = null) {
     `[approval] ${request.subjectType} ${request.subjectId} ${decision} by ` +
     `${actor.fullName || actor.id} (${money.formatMinor(request.amountMinor)})`
   );
+
+  // The officer who proposed it needs to know either way — an approval nobody
+  // acts on is as costly as one nobody granted.
+  if (request.requestedBy) {
+    const notify = require('./legalNotify.service');
+    const msg = notify.templates.approvalDecided({
+      reference: request.summary || `${request.subjectType} ${request.subjectId}`,
+      decision,
+      amount: money.formatMinor(request.amountMinor),
+      by: actor.fullName || actor.name || 'an approver',
+      notes,
+    });
+    notify
+      .sendToUser({
+        userId: request.requestedBy,
+        type: 'legal_approval_decided',
+        title: msg.title,
+        body: msg.body,
+        claimId: request.claim,
+      })
+      .catch((err) => logger.error(`[approval] decision notice failed: ${err.message}`));
+  }
+
   return request;
 }
 
@@ -266,6 +356,12 @@ async function escalate(requestId, notes, actor) {
     `[approval] ${request.subjectType} ${request.subjectId} escalated ` +
     `${request.escalatedFrom} → ${next.approver}`
   );
+
+  // The new approver inherits the decision, so they inherit the notification.
+  notifyApprover(request, next).catch((err) =>
+    logger.error(`[approval] could not notify escalated approver: ${err.message}`)
+  );
+
   return request;
 }
 

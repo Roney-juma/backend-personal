@@ -30,6 +30,13 @@ const DAY_MS = 86400000;
  */
 const notifications = () => require('./notification.service');
 
+/**
+ * Legal notifications go out on every channel the recipient can receive:
+ * in-app, push, WhatsApp AND email. legalNotify composes the two underlying
+ * services so the WhatsApp message is not sent twice — see that file.
+ */
+const legalNotify = () => require('./legalNotify.service');
+
 /** Whole days from now until `date`. Negative once past. */
 const daysUntil = (date, now = new Date()) =>
   Math.ceil((new Date(date).getTime() - now.getTime()) / DAY_MS);
@@ -134,12 +141,11 @@ async function sendReminder(event, offsetDays, { overdue = false } = {}) {
   let sent = 0;
   for (const recipient of recipients) {
     try {
-      await notifications().createAndEmit({
-        recipientId: recipient.id,
-        recipientType: 'admin', // insurer-portal staff
+      await legalNotify().send({
+        to: { id: recipient.id, type: 'admin', email: recipient.email, name: recipient.name },
         type: isLimitation ? 'legal_time_bar' : 'legal_deadline',
         title,
-        content,
+        body: content,
         claimId: event.claim,
       });
       sent += 1;
@@ -311,19 +317,21 @@ async function runOverdueEscalation({ now = new Date() } = {}) {
     });
 
     const daysLate = Math.abs(daysUntil(event.dueAt, now));
+    const escalationMsg = legalNotify().templates.escalation({
+      title: event.title,
+      dueAt: event.dueAt,
+      daysLate,
+      role: next.role,
+      isLimitation: event.kind === EVENT_KINDS.LIMITATION,
+    });
+
     for (const recipient of recipients) {
-      await notifications()
-        .createAndEmit({
-          recipientId: recipient.id,
-          recipientType: 'admin',
+      await legalNotify()
+        .send({
+          to: { id: recipient.id, type: 'admin', email: recipient.email, name: recipient.name },
           type: 'legal_escalation',
-          title: `Escalated to ${next.role} — ${event.title}`,
-          content:
-            `This deadline passed ${daysLate} day(s) ago with no action recorded.\n` +
-            `Due: ${new Date(event.dueAt).toDateString()}\n` +
-            (event.kind === EVENT_KINDS.LIMITATION
-              ? 'This was a statutory time-bar. The claim may no longer be capable of being brought.'
-              : ''),
+          title: escalationMsg.title,
+          body: escalationMsg.body,
           claimId: event.claim,
         })
         .catch((err) => logger.error(`[legal-escalation] notify failed: ${err.message}`));

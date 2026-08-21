@@ -158,6 +158,50 @@ const DEFAULT_RESERVING_SCHEDULE = Object.freeze([
   { code: 'property_only',        label: 'Property damage only',      minMinor: 0, maxMinor: 0, defaultMinor: 0 },
 ]);
 
+// ── Referral triggers ────────────────────────────────────────────────────────
+
+/**
+ * Default automatic referral triggers (spec §5).
+ *
+ * `autoRefer: true` creates a referral in the Legal queue. `false` records the
+ * flag without referring — advisory only. The split matters: a queue that fills
+ * with every claim carrying any legal-ish signal is a queue people stop opening,
+ * so only the facts that genuinely need a lawyer refer by default.
+ *
+ * Every one of these is per-tenant. An insurer that wants a represented claimant
+ * to refer automatically simply flips its flag.
+ */
+const DEFAULT_REFERRAL_TRIGGERS = Object.freeze([
+  // Someone is taking formal action — these always need Legal.
+  { code: 'summons_received',        label: 'Summons received',            enabled: true, autoRefer: true },
+  { code: 'third_party_demand',      label: 'Third-party demand received', enabled: true, autoRefer: true },
+
+  // Severity — a fatality is never a routine claims matter.
+  { code: 'fatal_accident',          label: 'Fatal accident',              enabled: true, autoRefer: true },
+  { code: 'serious_bodily_injury',   label: 'Serious bodily injury',       enabled: true, autoRefer: true },
+
+  // Contested position.
+  { code: 'liability_disputed',      label: 'Liability disputed',          enabled: true, autoRefer: true },
+  { code: 'coverage_disputed',       label: 'Exposure above policy limit', enabled: true, autoRefer: true },
+
+  // Value. The threshold is the tenant's; this default is deliberately high so
+  // it does not fire on ordinary claims before anyone has tuned it.
+  {
+    code: 'claim_above_threshold',
+    label: 'Claim above value threshold',
+    enabled: true,
+    autoRefer: true,
+    params: { threshold: 1000000 },
+  },
+
+  // Advisory by default — real signals, but a lawyer is not automatically
+  // needed the moment they appear.
+  { code: 'claimant_represented',    label: 'Claimant represented by an advocate', enabled: true, autoRefer: false },
+  { code: 'multiple_claimants',      label: 'Multiple claimants',                  enabled: true, autoRefer: false },
+  { code: 'fraud_investigation',     label: 'Fraud investigation opened',          enabled: true, autoRefer: false },
+  { code: 'claimant_rejected_offer', label: 'Claimant rejected an offer',          enabled: true, autoRefer: false },
+]);
+
 // ── Ledger ───────────────────────────────────────────────────────────────────
 
 /**
@@ -282,6 +326,7 @@ module.exports = {
   DEFAULT_ESCALATION_CHAIN,
   DEFAULT_AUTHORITY_MATRIX,
   DEFAULT_RESERVING_SCHEDULE,
+  DEFAULT_REFERRAL_TRIGGERS,
   LEDGER_ENTRY_TYPES,
   RESERVE_BUCKETS,
   LEDGER_STATUS,

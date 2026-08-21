@@ -203,6 +203,28 @@ async function appointAdvocate(caseId, { advocate: advocateId, allocationMode, a
     (previous ? ` — reassigned from ${previous}` : '')
   );
 
+  // Counsel is not sitting in the portal waiting to be told. Email and WhatsApp
+  // are how an appointment actually reaches them, and an appointment they learn
+  // about late is a return date they prepare for late.
+  const notify = require('./legalNotify.service');
+  const msg = notify.templates.counselAppointed({
+    caseNumber: legalCase.caseNumber,
+    court: legalCase.court,
+    courtCase: legalCase.courtCaseNumber,
+    instructions,
+  });
+  notify
+    .sendToAdvocate({
+      advocateId: advocate._id,
+      type: 'legal_counsel_appointed',
+      title: msg.title,
+      body: msg.body,
+      claimId: legalCase.claim,
+    })
+    .catch((err) =>
+      logger.error(`[legal-case] could not notify ${advocate.name} of appointment: ${err.message}`)
+    );
+
   return { legalCase, advocate, reassignedFrom: previous };
 }
 

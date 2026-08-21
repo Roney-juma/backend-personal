@@ -58,7 +58,7 @@ async function overdueEscalation() {
 async function advocateReportChaser() {
   const LegalCase = require('../models/legalCase.model');
   const legalConfig = require('../service/legalConfig.service');
-  const notifications = require('../service/notification.service');
+  const notify = require('../service/legalNotify.service');
 
   const cases = await LegalCase.find({
     status: { $in: ['counsel_appointed', 'pre_litigation', 'litigation', 'settlement', 'appeal'] },
@@ -80,18 +80,21 @@ async function advocateReportChaser() {
       const daysSince = Math.floor((Date.now() - new Date(since).getTime()) / 86400000);
       if (daysSince < slaDays) continue;
 
-      // Chase the advocate; the portal exists for them to respond in.
+      // Chase the advocate on every channel — counsel is rarely sitting in the
+      // portal, so an in-app nudge alone is the one that gets missed.
       if (legalCase.advocate?._id) {
-        await notifications
-          .createAndEmit({
-            recipientId: legalCase.advocate._id,
-            recipientType: 'advocate',
+        const msg = notify.templates.progressReportOverdue({
+          caseNumber: legalCase.caseNumber,
+          courtCase: legalCase.courtCaseNumber,
+          days: daysSince,
+          court: legalCase.court,
+        });
+        await notify
+          .sendToAdvocate({
+            advocateId: legalCase.advocate._id,
             type: 'legal_progress_report_due',
-            title: `Progress report overdue — ${legalCase.caseNumber}`,
-            content:
-              `No progress report has been received for ${daysSince} days on ` +
-              `${legalCase.courtCaseNumber || legalCase.caseNumber}` +
-              (legalCase.court ? ` (${legalCase.court})` : '') + '.',
+            title: msg.title,
+            body: msg.body,
             claimId: legalCase.claim,
           })
           .catch((err) => logger.warn(`[legal-jobs] advocate chase failed: ${err.message}`));
@@ -118,6 +121,35 @@ async function advocatePerformanceRecompute() {
 }
 
 /**
+ * Evaluate open claims against each tenant's configured referral triggers.
+ *
+ * Only triggers the tenant marked `autoRefer` create a referral; the rest are
+ * advisory and surface as flags. A claim already referred is skipped —
+ * re-referring something Legal is already handling is the fastest way to make
+ * people ignore the queue.
+ */
+async function referralSweep() {
+  const InsuranceCompany = require('../models/insuranceCompany.model');
+  const referralService = require('../service/legalReferral.service');
+
+  const companies = await InsuranceCompany.find({}).select('_id').lean();
+  let evaluated = 0;
+  let referred = 0;
+
+  for (const c of companies) {
+    try {
+      const r = await referralService.sweep({ company: c._id });
+      evaluated += r.evaluated;
+      referred += r.referred;
+    } catch (err) {
+      logger.error(`[legal-jobs] referral sweep failed for company ${c._id}: ${err.message}`);
+    }
+  }
+
+  return { evaluated, referred, implemented: true };
+}
+
+/**
  * Seal newly written audit rows into the tamper-evident chain.
  *
  * Live from Phase 0: the chain is only meaningful if sealing has been running
@@ -134,6 +166,7 @@ const HANDLERS = {
   'overdue-escalation': overdueEscalation,
   'advocate-report-chaser': advocateReportChaser,
   'advocate-performance-recompute': advocatePerformanceRecompute,
+  'referral-sweep': referralSweep,
   'audit-seal': auditSealJob,
 };
 

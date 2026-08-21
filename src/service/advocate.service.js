@@ -403,6 +403,39 @@ async function issueCredentials(id, password, actor = null) {
   await advocate.save();
 
   logger.info(`[advocate] portal access issued to ${advocate.name}`);
+
+  // Two messages, on purpose. The password goes by email only; the "your access
+  // is ready" nudge goes in-app and on WhatsApp, where counsel will actually see
+  // it. Sending the password itself over WhatsApp would leave credentials to
+  // privileged case files sitting in a chat backup.
+  const notify = require('./legalNotify.service');
+  const pw = notify.templates.portalAccessEmail({
+    name: advocate.name,
+    email: advocate.email,
+    password: String(password),
+  });
+  const notice = notify.templates.portalAccess({ name: advocate.name });
+
+  notify
+    .send({
+      to: { id: advocate._id, type: 'advocate', email: advocate.email, name: advocate.name },
+      type: 'legal_portal_access',
+      title: pw.title,
+      body: pw.body,
+      channels: { inApp: false, whatsapp: false, push: false, email: true },
+    })
+    .catch((err) => logger.error(`[advocate] credential email failed: ${err.message}`));
+
+  notify
+    .sendToAdvocate({
+      advocateId: advocate._id,
+      type: 'legal_portal_access',
+      title: notice.title,
+      body: notice.body,
+      channels: { email: false },
+    })
+    .catch((err) => logger.error(`[advocate] access notice failed: ${err.message}`));
+
   return advocate;
 }
 
