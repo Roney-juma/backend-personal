@@ -6,8 +6,11 @@ const claimTokenSchema = new Schema({
   customerId: { type: Schema.Types.ObjectId, ref: 'Customer', required: true },
   token: { type: String, required: true, unique: true },
   used: { type: Boolean, default: false },
-  // Auto-expire the link. TTL index removes the doc once expiresAt passes.
-  expiresAt: { type: Date, index: { expires: 0 } },
+  // Auto-expire the link. The TTL deletes the doc 30 days AFTER expiresAt rather
+  // than at it: if the doc vanished the moment it expired, a late claimant would
+  // get "Invalid token" (record not found) instead of an accurate "this link has
+  // expired", and a half-finished AI intake transcript would disappear with it.
+  expiresAt: { type: Date, index: { expires: '30d' } },
 
   // ── Cross-device resumable AI intake ─────────────────────────────────────
   // The conversational claim-intake state is persisted here after every turn so
