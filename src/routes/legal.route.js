@@ -1,5 +1,6 @@
 const express = require('express');
 const controller = require('../controllers/legal.controller');
+const settlement = require('../controllers/settlement.controller');
 const verifyToken = require('../middlewheres/verifyToken');
 const requirePermission = require('../middlewheres/requirePermission');
 
@@ -128,6 +129,61 @@ router.post(
   requirePermission('MANAGE_LEGAL_DEADLINES'),
   controller.extendLimitation
 );
+
+// ── Approvals ────────────────────────────────────────────────────────────────
+
+// The queue, annotated with what the caller can actually decide.
+router.get(
+  '/approvals',
+  verifyToken(),
+  requirePermission('VIEW_SETTLEMENTS'),
+  settlement.listApprovals
+);
+
+// "Who would have to sign this off?" — before committing to a figure.
+router.get(
+  '/approvals/preview',
+  verifyToken(),
+  requirePermission('PROPOSE_SETTLEMENT'),
+  settlement.previewAuthority
+);
+
+// ── Reports ──────────────────────────────────────────────────────────────────
+router.get('/reports/monthly', verifyToken(), requirePermission('VIEW_LEGAL_REPORTS'), settlement.monthlyReport);
+router.get('/reports/aging', verifyToken(), requirePermission('VIEW_LEGAL_REPORTS'), settlement.agingReport);
+router.get(
+  '/reports/reserving-accuracy',
+  verifyToken(),
+  requirePermission('VIEW_LEGAL_REPORTS'),
+  settlement.reservingAccuracyReport
+);
+
+// ── Settlements ──────────────────────────────────────────────────────────────
+router.get('/settlements', verifyToken(), requirePermission('VIEW_SETTLEMENTS'), settlement.list);
+router.post('/settlements', verifyToken(), requirePermission('PROPOSE_SETTLEMENT'), settlement.propose);
+router.get('/settlements/:id', verifyToken(), requirePermission('VIEW_SETTLEMENTS'), settlement.getById);
+
+// Negotiation — recording their counter is not an authority decision.
+router.post('/settlements/:id/offers', verifyToken(), requirePermission('PROPOSE_SETTLEMENT'), settlement.addOffer);
+router.post('/settlements/:id/submit', verifyToken(), requirePermission('PROPOSE_SETTLEMENT'), settlement.submitForApproval);
+
+/**
+ * Two gates on a decision, deliberately: this permission says whether you may
+ * approve settlements at all, and the tenant's authority matrix (checked in
+ * approval.service) says whether you may approve THIS amount. A Claims Manager
+ * holding the permission still cannot sign off a figure reserved for the CEO.
+ */
+router.post('/settlements/:id/decide', verifyToken(), requirePermission('APPROVE_SETTLEMENT'), settlement.decide);
+router.post('/settlements/:id/escalate', verifyToken(), requirePermission('APPROVE_SETTLEMENT'), settlement.escalate);
+
+router.post('/settlements/:id/claimant-response', verifyToken(), requirePermission('PROPOSE_SETTLEMENT'), settlement.recordClaimantResponse);
+router.post('/settlements/:id/execute', verifyToken(), requirePermission('PROPOSE_SETTLEMENT'), settlement.execute);
+router.post('/settlements/:id/request-payment', verifyToken(), requirePermission('PROPOSE_SETTLEMENT'), settlement.requestPayment);
+
+// Finance moves the money.
+router.post('/settlements/:id/pay', verifyToken(), requirePermission('APPROVE_LEGAL_PAYMENT'), settlement.markPaid);
+
+router.post('/settlements/:id/withdraw', verifyToken(), requirePermission('PROPOSE_SETTLEMENT'), settlement.withdraw);
 
 // ── Per-accident ─────────────────────────────────────────────────────────────
 

@@ -214,6 +214,45 @@ section('3. Property test — 2000 random posting sequences');
   check('all results are exact integers', Number.isSafeInteger(computePosition([]).netExposureMinor));
 }
 
+// ── 3b. Payment must not double-count ────────────────────────────────────────
+
+section('3b. Payment does not re-post exposure');
+{
+  /**
+   * Regression guard. Payment originally posted a second `settlement` entry for
+   * the full total, which doubled every settled matter in every exposure figure
+   * and every report. Payment marks the existing accruals paid instead — see
+   * legalLedger.markSourcePaid.
+   *
+   * The invariant: what a matter COST does not change when the money moves.
+   */
+  const accruals = [
+    entry('settlement', money.toMinor(4500000)),
+    entry('claimant_costs', money.toMinor(280000)),
+    entry('interest', money.toMinor(120000)),
+  ];
+
+  const onExecution = computePosition(group(accruals));
+  // Payment adds no rows — only flips status, which position() reads separately.
+  const onPayment = computePosition(group(accruals), money.toMinor(4900000));
+
+  check(
+    'net exposure is the sum of the accruals',
+    onExecution.netExposureMinor === money.toMinor(4900000),
+    `got ${money.formatMinor(onExecution.netExposureMinor)}`
+  );
+  check(
+    'paying does not change what the matter cost',
+    onPayment.netExposureMinor === onExecution.netExposureMinor,
+    `${money.formatMinor(onExecution.netExposureMinor)} → ${money.formatMinor(onPayment.netExposureMinor)}`
+  );
+  check(
+    'but paid-to-date now reflects the discharge',
+    onPayment.paidToDateMinor === money.toMinor(4900000)
+  );
+  check('and is zero before payment', onExecution.paidToDateMinor === 0);
+}
+
 // ── 4. Direction is derived, not trusted ─────────────────────────────────────
 
 section('4. Direction derivation');
