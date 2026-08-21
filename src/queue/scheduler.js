@@ -88,6 +88,14 @@ const SCHEDULES = [
     description: 'Recompute panel advocate performance from cases and the ledger',
   },
   {
+    name: 'referral-sweep',
+    // 06:00 daily, an hour before the escalation sweep — a claim auto-referred
+    // this morning should be in the queue the legal team opens at the start of
+    // the day, not arrive after they have already triaged it.
+    pattern: '0 6 * * *',
+    description: 'Evaluate open claims against the tenant referral triggers',
+  },
+  {
     name: 'audit-seal',
     // Every 15 minutes: tighter sealing narrows the window in which a tampered
     // row is not yet covered by a seal.

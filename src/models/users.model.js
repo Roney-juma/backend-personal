@@ -18,11 +18,17 @@ const usersSchema = new mongoose.Schema({
         type: String,
         required: true 
     },
-    email: { 
-        type: String, 
-        required: true, 
-        unique: true 
+    email: {
+        type: String,
+        required: true,
+        unique: true
     },
+    // Optional, and only used for outbound notification. Added with the Legal
+    // module: legal reminders (time-bars, court dates, escalations) go to staff,
+    // and WhatsApp is the channel people actually read. Without a number the
+    // mirror silently skips them and they still get email and in-app — so this
+    // is additive and no existing account breaks by lacking it.
+    phone: { type: String, trim: true },
     role: { 
         type: mongoose.Schema.Types.ObjectId, 
         ref: 'Role'

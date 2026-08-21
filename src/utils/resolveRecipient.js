@@ -4,6 +4,8 @@ const Garage = require('../models/garage.model');
 const Supplier = require('../models/supplier.model');
 const Investigator = require('../models/investigator.model');
 const InsuranceCompany = require('../models/insuranceCompany.model');
+const Users = require('../models/users.model');
+const Advocate = require('../models/advocate.model');
 
 /**
  * Resolve a notification recipient (by email) to:
@@ -19,24 +21,34 @@ const resolveRecipient = async (email) => {
   if (!e) return { phone: null, companyName: null };
 
   const safe = (p) => p.catch(() => null);
-  const [cust, asr, gar, sup, inv, co] = await Promise.all([
+  // `staff` and `adv` were added with the Legal module: before that, every
+  // notification recipient was a customer or an external service vendor, so
+  // insurer STAFF and panel ADVOCATES resolved to nothing — meaning their emails
+  // sent unbranded and were never mirrored to WhatsApp. Legal reminders go
+  // mostly to staff, so without these two the module's most important messages
+  // would be the least well delivered.
+  const [cust, asr, gar, sup, inv, co, staff, adv] = await Promise.all([
     safe(Customer.findOne({ email: e }).select('phone company').lean()),
     safe(Assessor.findOne({ email: e }).select('contactInfo company').lean()),
     safe(Garage.findOne({ email: e }).select('contactNumber company').lean()),
     safe(Supplier.findOne({ email: e }).select('phone insuranceCompany').lean()),
     safe(Investigator.findOne({ email: e }).select('contactNumber company').lean()),
     safe(InsuranceCompany.findOne({ email: e }).select('companyName phone').lean()),
+    safe(Users.findOne({ email: e }).select('phone company').lean()),
+    safe(Advocate.findOne({ email: e }).select('phone company').lean()),
   ]);
 
   const phone =
     cust?.phone || asr?.contactInfo?.phone || gar?.contactNumber ||
-    sup?.phone || inv?.contactNumber || co?.phone || null;
+    sup?.phone || inv?.contactNumber || co?.phone ||
+    staff?.phone || adv?.phone || null;
 
   // The recipient may BE an insurance company; otherwise resolve their tenant.
   let companyName = co?.companyName || null;
   if (!companyName) {
     const companyId =
-      cust?.company || asr?.company || gar?.company || sup?.insuranceCompany || inv?.company || null;
+      cust?.company || asr?.company || gar?.company || sup?.insuranceCompany ||
+      inv?.company || staff?.company || adv?.company || null;
     if (companyId) {
       const c = await safe(InsuranceCompany.findById(companyId).select('companyName').lean());
       companyName = c?.companyName || null;

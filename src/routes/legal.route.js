@@ -3,6 +3,7 @@ const controller = require('../controllers/legal.controller');
 const settlement = require('../controllers/settlement.controller');
 const litigation = require('../controllers/litigation.controller');
 const recovery = require('../controllers/recovery.controller');
+const referral = require('../controllers/legalReferral.controller');
 const Upload = require('../utils/upload');
 const verifyToken = require('../middlewheres/verifyToken');
 const requirePermission = require('../middlewheres/requirePermission');
@@ -54,6 +55,46 @@ router.post(
   verifyToken(),
   requirePermission('UPDATE_CLAIM'),
   controller.mergeClaims
+);
+
+// ── Referral ─────────────────────────────────────────────────────────────────
+// How an EXISTING claim reaches Legal — spec §5. A referral is a request, not
+// an instruction: raising is a claims-side act, accepting is a legal-side one,
+// and only accepting marks the claim as a legal matter.
+
+// The trigger catalogue, for the configuration screen. Before '/referrals/:id'.
+router.get(
+  '/referrals/triggers',
+  verifyToken(),
+  requirePermission('VIEW_LEGAL_CASES'),
+  referral.availableTriggers
+);
+
+router.get('/referrals', verifyToken(), requirePermission('VIEW_LEGAL_CASES'), referral.list);
+router.post('/referrals', verifyToken(), requirePermission('CREATE_LEGAL_REFERRAL'), referral.raise);
+router.get('/referrals/:id', verifyToken(), requirePermission('VIEW_LEGAL_CASES'), referral.getById);
+
+// Legal decides. Separate permission from raising, deliberately.
+router.post('/referrals/:id/accept', verifyToken(), requirePermission('APPROVE_LEGAL_REFERRAL'), referral.accept);
+router.post('/referrals/:id/return', verifyToken(), requirePermission('APPROVE_LEGAL_REFERRAL'), referral.returnToClaims);
+// The raiser can pull their own back.
+router.post('/referrals/:id/withdraw', verifyToken(), requirePermission('CREATE_LEGAL_REFERRAL'), referral.withdraw);
+
+// Raise straight from a claim — the path the claims screen uses.
+router.post(
+  '/claims/:claimId/refer',
+  verifyToken(),
+  requirePermission('CREATE_LEGAL_REFERRAL'),
+  referral.raise
+);
+
+// Dry-run the triggers against one claim without referring anything, so a
+// tenant can see why a claim would or would not be picked up before enabling.
+router.get(
+  '/claims/:claimId/referral-check',
+  verifyToken(),
+  requirePermission('VIEW_LEGAL_CASES'),
+  referral.evaluateClaim
 );
 
 // ── Time-bar register ────────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ const {
   DEFAULT_ESCALATION_CHAIN,
   DEFAULT_AUTHORITY_MATRIX,
   DEFAULT_RESERVING_SCHEDULE,
+  DEFAULT_REFERRAL_TRIGGERS,
   DEFAULT_ALLOCATION_WEIGHTS,
   DEFAULT_RISK_WEIGHTS,
   DEFAULT_RISK_THRESHOLDS,
@@ -161,7 +162,7 @@ const legalConfigSchema = new Schema(
     overdueReminderEveryDays: { type: Number, default: 3 },
 
     // ── Referral ─────────────────────────────────────────────────────────────
-    referralTriggers: { type: [referralTriggerSchema], default: [] },
+    referralTriggers: { type: [referralTriggerSchema], default: () => [...DEFAULT_REFERRAL_TRIGGERS] },
 
     // ── Legal risk (severity of exposure, not fraud suspicion) ───────────────
     riskWeights: {
