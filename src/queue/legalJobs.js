@@ -50,20 +50,71 @@ async function overdueEscalation() {
 }
 
 /**
- * Chase panel advocates whose progress reports are outstanding — Phase 3.
+ * Chase panel advocates whose progress reports are overdue.
+ *
+ * An advocate who has gone quiet on a live matter is the commonest way an
+ * insurer discovers a problem late. The SLA is per-tenant.
  */
 async function advocateReportChaser() {
-  logger.info('[legal-jobs] advocate-report-chaser: not yet implemented (Phase 3)');
-  return { chased: 0, implemented: false };
+  const LegalCase = require('../models/legalCase.model');
+  const legalConfig = require('../service/legalConfig.service');
+  const notifications = require('../service/notification.service');
+
+  const cases = await LegalCase.find({
+    status: { $in: ['counsel_appointed', 'pre_litigation', 'litigation', 'settlement', 'appeal'] },
+    advocate: { $ne: null },
+    instructionsIssuedAt: { $ne: null },
+  })
+    .populate('advocate', 'name email company')
+    .limit(1000)
+    .lean();
+
+  let chased = 0;
+
+  for (const legalCase of cases) {
+    try {
+      const config = await legalConfig.get(legalCase.company);
+      const slaDays = config.slas?.advocateProgressReport || 30;
+
+      const since = legalCase.lastProgressReportAt || legalCase.instructionsIssuedAt;
+      const daysSince = Math.floor((Date.now() - new Date(since).getTime()) / 86400000);
+      if (daysSince < slaDays) continue;
+
+      // Chase the advocate; the portal exists for them to respond in.
+      if (legalCase.advocate?._id) {
+        await notifications
+          .createAndEmit({
+            recipientId: legalCase.advocate._id,
+            recipientType: 'advocate',
+            type: 'legal_progress_report_due',
+            title: `Progress report overdue — ${legalCase.caseNumber}`,
+            content:
+              `No progress report has been received for ${daysSince} days on ` +
+              `${legalCase.courtCaseNumber || legalCase.caseNumber}` +
+              (legalCase.court ? ` (${legalCase.court})` : '') + '.',
+            claimId: legalCase.claim,
+          })
+          .catch((err) => logger.warn(`[legal-jobs] advocate chase failed: ${err.message}`));
+      }
+      chased += 1;
+    } catch (err) {
+      logger.error(`[legal-jobs] chaser failed on ${legalCase.caseNumber}: ${err.message}`);
+    }
+  }
+
+  return { chased, scanned: cases.length, implemented: true };
 }
 
 /**
- * Recompute panel advocate performance from cases and the ledger, feeding the
- * allocation engine — Phase 3.
+ * Recompute panel advocate performance from cases, settlements and the ledger.
+ *
+ * Feeds the allocation engine, so it only needs to be a day fresh — but it must
+ * never be stale in a way that advantages an advocate in ranking.
  */
 async function advocatePerformanceRecompute() {
-  logger.info('[legal-jobs] advocate-performance-recompute: not yet implemented (Phase 3)');
-  return { advocates: 0, implemented: false };
+  const advocateService = require('../service/advocate.service');
+  const result = await advocateService.recomputeAllPerformance();
+  return { ...result, implemented: true };
 }
 
 /**

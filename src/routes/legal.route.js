@@ -1,6 +1,8 @@
 const express = require('express');
 const controller = require('../controllers/legal.controller');
 const settlement = require('../controllers/settlement.controller');
+const litigation = require('../controllers/litigation.controller');
+const Upload = require('../utils/upload');
 const verifyToken = require('../middlewheres/verifyToken');
 const requirePermission = require('../middlewheres/requirePermission');
 
@@ -184,6 +186,84 @@ router.post('/settlements/:id/request-payment', verifyToken(), requirePermission
 router.post('/settlements/:id/pay', verifyToken(), requirePermission('APPROVE_LEGAL_PAYMENT'), settlement.markPaid);
 
 router.post('/settlements/:id/withdraw', verifyToken(), requirePermission('PROPOSE_SETTLEMENT'), settlement.withdraw);
+
+// ── Court diary ──────────────────────────────────────────────────────────────
+// Before '/cases/:id' so it is not swallowed as an id lookup.
+router.get('/diary', verifyToken(), requirePermission('VIEW_LEGAL_DIARY'), litigation.getDiary);
+router.post('/diary', verifyToken(), requirePermission('MANAGE_LEGAL_DIARY'), litigation.createEvent);
+
+// An adjournment closes the entry and creates its successor — never a date edit,
+// because the pattern of adjournments is what court-performance reporting reads.
+router.post('/diary/:eventId/adjourn', verifyToken(), requirePermission('MANAGE_LEGAL_DIARY'), litigation.adjournEvent);
+router.post('/diary/:eventId/complete', verifyToken(), requirePermission('MANAGE_LEGAL_DIARY'), litigation.completeEvent);
+router.post('/diary/:eventId/cancel', verifyToken(), requirePermission('MANAGE_LEGAL_DIARY'), litigation.cancelEvent);
+
+// ── Advocate panel ───────────────────────────────────────────────────────────
+router.get('/advocates', verifyToken(), requirePermission('VIEW_ADVOCATES'), litigation.listAdvocates);
+router.post('/advocates', verifyToken(), requirePermission('CREATE_ADVOCATE'), litigation.createAdvocate);
+
+// Ranked / random suggestion. Before '/advocates/:id'.
+router.get('/advocates/suggest', verifyToken(), requirePermission('ALLOCATE_ADVOCATE'), litigation.suggestAdvocate);
+
+router.get('/advocates/:id', verifyToken(), requirePermission('VIEW_ADVOCATES'), litigation.getAdvocate);
+router.put('/advocates/:id', verifyToken(), requirePermission('UPDATE_ADVOCATE'), litigation.updateAdvocate);
+router.post('/advocates/:id/approval', verifyToken(), requirePermission('UPDATE_ADVOCATE'), litigation.setAdvocateApproval);
+router.post('/advocates/:id/suspend', verifyToken(), requirePermission('UPDATE_ADVOCATE'), litigation.suspendAdvocate);
+router.post('/advocates/:id/recompute', verifyToken(), requirePermission('VIEW_ADVOCATES'), litigation.recomputeAdvocatePerformance);
+router.post('/advocates/:id/credentials', verifyToken(), requirePermission('UPDATE_ADVOCATE'), litigation.issueAdvocateCredentials);
+
+// ── Documents ────────────────────────────────────────────────────────────────
+router.get('/documents', verifyToken(), requirePermission('VIEW_LEGAL_DOCUMENTS'), litigation.listDocuments);
+router.post(
+  '/documents',
+  verifyToken(),
+  requirePermission('UPLOAD_LEGAL_DOCUMENT'),
+  Upload.single('file'),
+  litigation.uploadDocument
+);
+
+/**
+ * Downloads are API-mediated on purpose: the service checks the privilege class,
+ * mints a short-lived signed link, and logs the attempt — refusals included.
+ * Spec §22's access history only means anything if this is the only door, which
+ * is why the storage key never leaves the server.
+ */
+router.get(
+  '/documents/:documentId/download',
+  verifyToken(),
+  requirePermission('VIEW_LEGAL_DOCUMENTS'),
+  litigation.downloadDocument
+);
+router.get(
+  '/documents/:documentId/access-log',
+  verifyToken(),
+  requirePermission('VIEW_LEGAL_DOCUMENTS'),
+  litigation.documentAccessLog
+);
+router.post(
+  '/documents/:documentId/reclassify',
+  verifyToken(),
+  requirePermission('VIEW_PRIVILEGED_DOCUMENTS'),
+  litigation.reclassifyDocument
+);
+router.post(
+  '/documents/:documentId/filed',
+  verifyToken(),
+  requirePermission('UPLOAD_LEGAL_DOCUMENT'),
+  litigation.markDocumentFiled
+);
+
+// ── Legal cases (litigation) ─────────────────────────────────────────────────
+router.get('/cases', verifyToken(), requirePermission('VIEW_LEGAL_CASES'), litigation.listCases);
+router.post('/cases', verifyToken(), requirePermission('CREATE_LEGAL_REFERRAL'), litigation.createCase);
+router.get('/cases/:id', verifyToken(), requirePermission('VIEW_LEGAL_CASES'), litigation.getCase);
+router.get('/cases/:id/diary', verifyToken(), requirePermission('VIEW_LEGAL_DIARY'), litigation.getCaseDiary);
+router.post('/cases/:id/appoint-advocate', verifyToken(), requirePermission('APPOINT_ADVOCATE'), litigation.appointAdvocate);
+router.get('/cases/:id/instruction-pack', verifyToken(), requirePermission('VIEW_LEGAL_CASES'), litigation.instructionPack);
+router.post('/cases/:id/instructions', verifyToken(), requirePermission('UPDATE_LEGAL_CASE'), litigation.issueInstructions);
+router.post('/cases/:id/judgment', verifyToken(), requirePermission('UPDATE_LEGAL_CASE'), litigation.recordJudgment);
+router.post('/cases/:id/appeal', verifyToken(), requirePermission('CREATE_LEGAL_REFERRAL'), litigation.createAppeal);
+router.post('/cases/:id/close', verifyToken(), requirePermission('CLOSE_LEGAL_CASE'), litigation.closeCase);
 
 // ── Per-accident ─────────────────────────────────────────────────────────────
 
