@@ -19,6 +19,7 @@ const FEATURES = {
   FRAUD_REASONING: 'fraud-reasoning',
   VEHICLE_FINGERPRINT: 'vehicle-fingerprint',
   STAFF_ASSISTANT: 'staff-assistant',
+  LEGAL_ASSISTANT: 'legal-assistant',
 };
 
 // Continuity comparisons are stage-scoped: the same features billed at a
@@ -53,6 +54,8 @@ function actionFor(feature, stage) {
       return { action: 'vehicle-identification', label: 'Vehicle identification' };
     case FEATURES.STAFF_ASSISTANT:
       return { action: 'staff-assistant', label: 'Staff assistant' };
+    case FEATURES.LEGAL_ASSISTANT:
+      return { action: 'legal-assistant', label: 'Legal assistant' };
     default:
       return { action: 'other', label: 'Other AI usage' };
   }

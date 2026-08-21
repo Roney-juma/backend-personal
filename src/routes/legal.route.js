@@ -2,6 +2,7 @@ const express = require('express');
 const controller = require('../controllers/legal.controller');
 const settlement = require('../controllers/settlement.controller');
 const litigation = require('../controllers/litigation.controller');
+const recovery = require('../controllers/recovery.controller');
 const Upload = require('../utils/upload');
 const verifyToken = require('../middlewheres/verifyToken');
 const requirePermission = require('../middlewheres/requirePermission');
@@ -264,6 +265,60 @@ router.post('/cases/:id/instructions', verifyToken(), requirePermission('UPDATE_
 router.post('/cases/:id/judgment', verifyToken(), requirePermission('UPDATE_LEGAL_CASE'), litigation.recordJudgment);
 router.post('/cases/:id/appeal', verifyToken(), requirePermission('CREATE_LEGAL_REFERRAL'), litigation.createAppeal);
 router.post('/cases/:id/close', verifyToken(), requirePermission('CLOSE_LEGAL_CASE'), litigation.closeCase);
+
+// ── Recovery (subrogation) ───────────────────────────────────────────────────
+// The mirror image of a third-party claim: us recovering from whoever was at
+// fault. Money moves the other way and posts as credits to the same ledger.
+router.get('/recoveries', verifyToken(), requirePermission('VIEW_RECOVERIES'), recovery.list);
+router.post('/recoveries', verifyToken(), requirePermission('MANAGE_RECOVERY'), recovery.create);
+
+// Before '/recoveries/:id'.
+router.get('/recoveries/position', verifyToken(), requirePermission('VIEW_RECOVERIES'), recovery.position);
+// Recoveries nobody has chased — where recovery money is actually lost.
+router.get('/recoveries/stale', verifyToken(), requirePermission('VIEW_RECOVERIES'), recovery.stale);
+
+router.get('/recoveries/:id', verifyToken(), requirePermission('VIEW_RECOVERIES'), recovery.getById);
+router.post('/recoveries/:id/chase', verifyToken(), requirePermission('MANAGE_RECOVERY'), recovery.chase);
+router.post('/recoveries/:id/agree', verifyToken(), requirePermission('MANAGE_RECOVERY'), recovery.agree);
+router.post('/recoveries/:id/receipt', verifyToken(), requirePermission('MANAGE_RECOVERY'), recovery.recordReceipt);
+router.post('/recoveries/:id/expense', verifyToken(), requirePermission('MANAGE_RECOVERY'), recovery.recordExpense);
+
+// A write-off stops pursuing money the insurer is owed, so it sits behind
+// payment authority rather than ordinary recovery management.
+router.post('/recoveries/:id/write-off', verifyToken(), requirePermission('APPROVE_LEGAL_PAYMENT'), recovery.writeOff);
+
+// ── Analytics ────────────────────────────────────────────────────────────────
+router.get('/analytics/courts', verifyToken(), requirePermission('VIEW_LEGAL_REPORTS'), recovery.courtPerformance);
+router.get('/analytics/advocates', verifyToken(), requirePermission('VIEW_LEGAL_REPORTS'), recovery.advocateScorecard);
+// The feedback loop: what claims actually settle at, against the tenant's own
+// reserving schedule.
+router.get('/analytics/reserving', verifyToken(), requirePermission('VIEW_LEGAL_REPORTS'), recovery.reservingFeedback);
+
+// ── Risk & assistant ─────────────────────────────────────────────────────────
+router.post(
+  '/third-party-claims/:id/risk',
+  verifyToken(),
+  requirePermission('VIEW_THIRD_PARTY_CLAIMS'),
+  recovery.scoreRisk
+);
+router.get(
+  '/third-party-claims/:id/similar',
+  verifyToken(),
+  requirePermission('VIEW_THIRD_PARTY_CLAIMS'),
+  recovery.similarMatters
+);
+
+/**
+ * The AI legal assistant. Read-only by construction — it holds no tool that
+ * writes — and its output is a draft for a Legal Officer, never advice or an
+ * authorisation. See ai/agents/legalAssistant.agent.js.
+ */
+router.post(
+  '/assistant',
+  verifyToken(),
+  requirePermission('VIEW_THIRD_PARTY_CLAIMS'),
+  recovery.askAssistant
+);
 
 // ── Per-accident ─────────────────────────────────────────────────────────────
 

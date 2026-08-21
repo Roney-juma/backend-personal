@@ -31,3 +31,4 @@ module.exports.LegalLedgerEntry = require('./legalLedgerEntry.model');
 module.exports.Advocate = require('./advocate.model');
 module.exports.ApprovalRequest = require('./approvalRequest.model');
 module.exports.Settlement = require('./settlement.model');
+module.exports.Recovery = require('./recovery.model');

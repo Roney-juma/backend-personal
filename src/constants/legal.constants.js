@@ -244,7 +244,27 @@ const DEFAULT_RISK_WEIGHTS = Object.freeze({
   multiple_claimants: 0.05,
 });
 
-const DEFAULT_RISK_THRESHOLDS = Object.freeze({ medium: 30, high: 55, critical: 75 });
+/**
+ * Band thresholds on the 0–100 legal-risk scale.
+ *
+ * Calibrated against what the weights above can ACTUALLY reach, not against the
+ * nominal 100. `bodily_injury` and `fatality` are mutually exclusive (a fatal
+ * claim is not also scored as an injury), so the realistic ceiling for a very
+ * bad claim is around 80 — fatality 25 + high value 15 + liability dispute 15 +
+ * advocate 10 + multiple claimants 5 + coverage dispute 5 + fraud 5.
+ *
+ * Thresholds set against the nominal 100 would leave a fatal claim with disputed
+ * liability and a represented claimant scoring 50 and banding as MEDIUM, when
+ * spec §18 makes HIGH a mandatory legal referral. That claim is exactly what a
+ * mandatory referral is for.
+ *
+ * At these values:
+ *   bodily injury alone                                20 → low
+ *   fatality alone                                     25 → medium
+ *   fatality + dispute + represented claimant          50 → high (referral)
+ *   the above + high value                             65 → critical
+ */
+const DEFAULT_RISK_THRESHOLDS = Object.freeze({ medium: 25, high: 45, critical: 65 });
 
 const RISK_BANDS = Object.freeze(['low', 'medium', 'high', 'critical']);
 
