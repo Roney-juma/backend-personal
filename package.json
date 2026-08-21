@@ -9,7 +9,10 @@
     "backup:setup": "node scripts/setup-backup-infra.js",
     "backup:db": "node scripts/backup-db.js",
     "restore:db": "node scripts/restore-db.js",
-    "dr:replicate": "node scripts/setup-s3-replication.js"
+    "dr:replicate": "node scripts/setup-s3-replication.js",
+    "legal:seed": "node scripts/seed-legal-config.js",
+    "legal:test": "node scripts/test-legal-ledger.js && node scripts/test-legal-guards.js",
+    "audit:verify": "node scripts/verify-audit-chain.js"
   },
   "author": "",
   "license": "ISC",

@@ -1,4 +1,6 @@
 const mongoose = require('mongoose');
+const appendOnly = require('./plugins/appendOnly');
+const hashChain = require('./plugins/hashChain');
 
 const auditLogSchema = new mongoose.Schema({
  // Who performed the action
@@ -62,6 +64,13 @@ auditLogSchema.index({ severity: 1, createdAt: -1 });
 auditLogSchema.index({ category: 1, createdAt: -1 });
 auditLogSchema.index({ statusCode: 1, createdAt: -1 });
 auditLogSchema.index({ resourceId: 1, createdAt: -1 });
+
+// Tamper-evidence: every row is sequenced and content-hashed on insert, then
+// covered by a periodic AuditSeal (see service/auditSeal.service.js). Spec §23
+// requires the legal audit record to be immutable; appendOnly stops our own
+// code from rewriting history, the hash chain makes any other route detectable.
+auditLogSchema.plugin(hashChain, { chainKey: 'audit' });
+auditLogSchema.plugin(appendOnly);
 
 const AuditLog = mongoose.model('AuditLog', auditLogSchema);
 

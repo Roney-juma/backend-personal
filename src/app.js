@@ -128,6 +128,17 @@ server.listen(PORT, (error) => {
 // Per-worker Prometheus metrics endpoint (loopback only — see src/metrics.js).
 startMetricsServer();
 
+// ── Legal module scheduled work ──────────────────────────────────────────────
+// Limitation clocks and court deadlines expire whether or not anyone opens the
+// app, so the Legal module is the first part of AVICS to need time-driven jobs.
+// Registration is idempotent and BullMQ deduplicates repeatables by jobId, so
+// every instance calling this still produces exactly one job per interval.
+if (process.env.LEGAL_MODULE_ENABLED === 'true') {
+  require('./queue/scheduler')
+    .registerSchedules()
+    .catch((err) => logger.error(`Legal scheduler registration failed: ${err.message}`));
+}
+
 // ── Graceful shutdown ────────────────────────────────────────────────────────
 let shuttingDown = false;
 const shutdown = (signal, exitCode = 0) => {

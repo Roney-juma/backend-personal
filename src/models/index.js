@@ -16,3 +16,17 @@ module.exports.ApiKey = require('./apiKey.model');
 module.exports.SupportTicket = require('./supportTicket.model');
 module.exports.CompanyActivity = require('./companyActivity.model');
 module.exports.ProviderAuditLog = require('./providerAuditLog.model');
+
+// Legal & Litigation. The Claim stays the master accident record; these hang off
+// it — see AVICS-Legal-Module-Work-Plan.html for the design.
+module.exports.Counter = require('./counter.model');
+module.exports.AuditSeal = require('./auditSeal.model');
+module.exports.LegalConfig = require('./legalConfig.model');
+module.exports.ThirdPartyClaim = require('./thirdPartyClaim.model');
+module.exports.LegalCase = require('./legalCase.model');
+module.exports.LegalEvent = require('./legalEvent.model');
+module.exports.LegalDocument = require('./legalDocument.model');
+module.exports.LegalDocumentAccess = require('./legalDocument.model').LegalDocumentAccess;
+module.exports.LegalLedgerEntry = require('./legalLedgerEntry.model');
+module.exports.Advocate = require('./advocate.model');
+module.exports.ApprovalRequest = require('./approvalRequest.model');
