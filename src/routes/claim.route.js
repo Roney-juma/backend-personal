@@ -3,9 +3,11 @@ const express = require("express")
 const verifyToken = require("../middlewheres/verifyToken");
 const requirePortalUser = require("../middlewheres/requirePortalUser");
 const requirePermission = require("../middlewheres/requirePermission");
+const verifyClaimToken = require("../middlewheres/verifyClaimToken");
 
 const router = express.Router();
 
+router.get('/file-claim/:token/validate', verifyClaimToken, claimController.validateClaimLink);
 router.post('/file-claim/:token', claimController.fileClaim);
 
 router.use(verifyToken())

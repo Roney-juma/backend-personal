@@ -169,6 +169,10 @@ const generateAiClaimLink = async (email, company) => {
 };
 
 
+// A claim-link failure the claimant can act on (bad/used/expired link), carrying
+// the HTTP status the controller should answer with. Anything else stays a 500.
+const linkError = (status, message) => Object.assign(new Error(message), { status });
+
 // File the claim for Web
 
 const fileClaimService = async (token, claimDetails, req) => {
@@ -176,13 +180,13 @@ const fileClaimService = async (token, claimDetails, req) => {
     const claimToken = await ClaimToken.findOne({ token });
 
     if (!claimToken) {
-      throw new Error('Invalid token');
+      throw linkError(401, 'This claim link is not valid. Please request a new one.');
     }
     if (claimToken.used) {
-      throw new Error('This link has already been used');
+      throw linkError(410, 'This link has already been used');
     }
     if (claimToken.expiresAt && claimToken.expiresAt.getTime() < Date.now()) {
-      throw new Error('This link has expired');
+      throw linkError(410, 'This link has expired');
     }
     const customer = await Customer.findById(claimToken.customerId);
 
@@ -245,7 +249,8 @@ const fileClaimService = async (token, claimDetails, req) => {
     return newClaim;
 
   } catch (error) {
-    throw new Error(error.message);
+    // Rethrow as-is so the status set by linkError() survives to the controller.
+    throw error;
   }
 };
 

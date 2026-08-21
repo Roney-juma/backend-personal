@@ -8,6 +8,10 @@ const logger = require('../middlewheres/logger');
 // their intended indexes — otherwise a deliberately DB-only index would be dropped.
 const MODELS = [
   require('../models/roles.model'),
+  // claimtokens.expiresAt_1 shipped as expireAfterSeconds:0 (delete at expiry);
+  // it is now a 30-day grace TTL, and only syncIndexes applies an options change
+  // to an existing index.
+  require('../models/claimToken.model'),
 ];
 
 /**

@@ -79,8 +79,29 @@ const fileClaim = async (req, res) => {
 
     res.status(201).json({ message: 'Claim filed successfully', claim: newClaim });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Server error' });
+    const status = err.status || 500;
+    const message = err.message || 'Server error';
+    // `error` kept for older clients that read that key.
+    res.status(status).json({ message, error: message });
   }
+};
+
+/**
+ * GET /claims/file-claim/:token/validate — public pre-flight for the claim form.
+ * verifyClaimToken has already rejected a missing/used/expired link, so reaching
+ * here means the link is good; the claimant learns that before filling the form
+ * instead of after submitting it.
+ */
+const validateClaimLink = async (req, res) => {
+  res.status(200).json({
+    valid: true,
+    customer: {
+      firstName: req.customer.firstName,
+      lastName: req.customer.lastName,
+      email: req.customer.email,
+    },
+    expiresAt: req.claimToken.expiresAt,
+  });
 };
 
 
@@ -567,6 +588,7 @@ module.exports = {
   generateClaimLinkController,
   generateAiClaimLinkController,
   fileClaim,
+  validateClaimLink,
   createClaim,
   getClaims,
   getClaimsByCustomer,
