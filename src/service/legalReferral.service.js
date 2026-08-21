@@ -413,6 +413,35 @@ async function list({ company, status, urgency, source, page = 1, limit = 25 }) 
     LegalReferral.countDocuments(filter),
   ]);
 
+  // Accepting a referral is only half a handoff. What decides whether anything
+  // actually happened is whether the accident has a third-party claim on file:
+  // until one exists no limitation clock is running for anybody, and the nightly
+  // trigger sweep has already stopped watching the claim. Counted here so the
+  // queue can show an accepted referral that has produced nothing.
+  const claimIds = items.map((i) => i.claim?._id || i.claim).filter(Boolean);
+  if (claimIds.length) {
+    const rows = await ThirdPartyClaim.find({ claim: { $in: claimIds } })
+      .select('claim')
+      .lean();
+    const byClaim = new Map();
+    for (const row of rows) {
+      const key = String(row.claim);
+      byClaim.set(key, (byClaim.get(key) || 0) + 1);
+    }
+    for (const item of items) {
+      item.thirdPartyClaimCount = byClaim.get(String(item.claim?._id || item.claim)) || 0;
+    }
+  }
+
+  // Age of the decision, computed here rather than in the browser so the queue
+  // is not at the mercy of a client clock.
+  const now = Date.now();
+  for (const item of items) {
+    item.daysSinceDecision = item.decidedAt
+      ? Math.floor((now - new Date(item.decidedAt).getTime()) / 86400000)
+      : null;
+  }
+
   return { items, total, page: Number(page), pages: Math.ceil(total / Number(limit)) };
 }
 

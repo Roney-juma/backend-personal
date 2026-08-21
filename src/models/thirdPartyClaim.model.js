@@ -263,6 +263,11 @@ const thirdPartyClaimSchema = new Schema(
     // the claimants sue on a single plaint.
     legalCase: { type: Schema.Types.ObjectId, ref: 'LegalCase', index: true },
 
+    // The referral this claimant was registered from, when Legal reached the
+    // accident that way. Optional — most third-party claims arrive as a demand
+    // with no referral behind them.
+    referral: { type: Schema.Types.ObjectId, ref: 'LegalReferral', index: true },
+
     // How we learned about this claimant.
     source: {
       type: String,
