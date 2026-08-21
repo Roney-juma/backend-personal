@@ -20,6 +20,29 @@ const policySchema = new mongoose.Schema({
     year: { type: Number },
     chassisNumber: { type: String, trim: true },
   },
+
+  /**
+   * Third-party liability cover. Populated by the insurer's book import.
+   *
+   * These cap what the insurer answers for when the insured's vehicle injures
+   * someone or damages their property, so the Legal module cannot compute an
+   * exposure without them. Amounts are integer minor units (see utils/money.js);
+   * null means unlimited for that head, which is common for bodily injury.
+   */
+  liabilityLimits: {
+    propertyDamageMinor: { type: Number, default: null },
+    bodilyInjuryMinor: { type: Number, default: null },
+    // Caps the accident as a whole across every claimant, which is what actually
+    // bites when one accident produces several injured parties.
+    aggregateMinor: { type: Number, default: null },
+  },
+  excessMinor: { type: Number, default: null },
+  exclusions: [{ type: String }],
+  endorsements: [{
+    code: { type: String },
+    description: { type: String },
+    effectiveFrom: { type: Date },
+  }],
 }, { _id: false });
 
 const customerSchema = new mongoose.Schema(
@@ -130,6 +153,10 @@ customerSchema.index(
 );
 // Multikey index covering every policy in the array, for book lookups.
 customerSchema.index({ company: 1, 'policies.policyNumber': 1 });
+// A third-party demand names a VEHICLE REGISTRATION, not a policy number — the
+// claimant has no idea what the policy number is. Without this the "which cover
+// answers this demand?" lookup is a full collection scan.
+customerSchema.index({ company: 1, 'policies.vehicle.registration': 1 });
 // Activation lookup: find an imported record by email within one insurer.
 customerSchema.index({ company: 1, status: 1 });
 
