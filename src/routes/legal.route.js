@@ -1,5 +1,9 @@
 const express = require('express');
 const controller = require('../controllers/legal.controller');
+const settlement = require('../controllers/settlement.controller');
+const litigation = require('../controllers/litigation.controller');
+const recovery = require('../controllers/recovery.controller');
+const Upload = require('../utils/upload');
 const verifyToken = require('../middlewheres/verifyToken');
 const requirePermission = require('../middlewheres/requirePermission');
 
@@ -127,6 +131,193 @@ router.post(
   verifyToken(),
   requirePermission('MANAGE_LEGAL_DEADLINES'),
   controller.extendLimitation
+);
+
+// ── Approvals ────────────────────────────────────────────────────────────────
+
+// The queue, annotated with what the caller can actually decide.
+router.get(
+  '/approvals',
+  verifyToken(),
+  requirePermission('VIEW_SETTLEMENTS'),
+  settlement.listApprovals
+);
+
+// "Who would have to sign this off?" — before committing to a figure.
+router.get(
+  '/approvals/preview',
+  verifyToken(),
+  requirePermission('PROPOSE_SETTLEMENT'),
+  settlement.previewAuthority
+);
+
+// ── Reports ──────────────────────────────────────────────────────────────────
+router.get('/reports/monthly', verifyToken(), requirePermission('VIEW_LEGAL_REPORTS'), settlement.monthlyReport);
+router.get('/reports/aging', verifyToken(), requirePermission('VIEW_LEGAL_REPORTS'), settlement.agingReport);
+router.get(
+  '/reports/reserving-accuracy',
+  verifyToken(),
+  requirePermission('VIEW_LEGAL_REPORTS'),
+  settlement.reservingAccuracyReport
+);
+
+// ── Settlements ──────────────────────────────────────────────────────────────
+router.get('/settlements', verifyToken(), requirePermission('VIEW_SETTLEMENTS'), settlement.list);
+router.post('/settlements', verifyToken(), requirePermission('PROPOSE_SETTLEMENT'), settlement.propose);
+router.get('/settlements/:id', verifyToken(), requirePermission('VIEW_SETTLEMENTS'), settlement.getById);
+
+// Negotiation — recording their counter is not an authority decision.
+router.post('/settlements/:id/offers', verifyToken(), requirePermission('PROPOSE_SETTLEMENT'), settlement.addOffer);
+router.post('/settlements/:id/submit', verifyToken(), requirePermission('PROPOSE_SETTLEMENT'), settlement.submitForApproval);
+
+/**
+ * Two gates on a decision, deliberately: this permission says whether you may
+ * approve settlements at all, and the tenant's authority matrix (checked in
+ * approval.service) says whether you may approve THIS amount. A Claims Manager
+ * holding the permission still cannot sign off a figure reserved for the CEO.
+ */
+router.post('/settlements/:id/decide', verifyToken(), requirePermission('APPROVE_SETTLEMENT'), settlement.decide);
+router.post('/settlements/:id/escalate', verifyToken(), requirePermission('APPROVE_SETTLEMENT'), settlement.escalate);
+
+router.post('/settlements/:id/claimant-response', verifyToken(), requirePermission('PROPOSE_SETTLEMENT'), settlement.recordClaimantResponse);
+router.post('/settlements/:id/execute', verifyToken(), requirePermission('PROPOSE_SETTLEMENT'), settlement.execute);
+router.post('/settlements/:id/request-payment', verifyToken(), requirePermission('PROPOSE_SETTLEMENT'), settlement.requestPayment);
+
+// Finance moves the money.
+router.post('/settlements/:id/pay', verifyToken(), requirePermission('APPROVE_LEGAL_PAYMENT'), settlement.markPaid);
+
+router.post('/settlements/:id/withdraw', verifyToken(), requirePermission('PROPOSE_SETTLEMENT'), settlement.withdraw);
+
+// ── Court diary ──────────────────────────────────────────────────────────────
+// Before '/cases/:id' so it is not swallowed as an id lookup.
+router.get('/diary', verifyToken(), requirePermission('VIEW_LEGAL_DIARY'), litigation.getDiary);
+router.post('/diary', verifyToken(), requirePermission('MANAGE_LEGAL_DIARY'), litigation.createEvent);
+
+// An adjournment closes the entry and creates its successor — never a date edit,
+// because the pattern of adjournments is what court-performance reporting reads.
+router.post('/diary/:eventId/adjourn', verifyToken(), requirePermission('MANAGE_LEGAL_DIARY'), litigation.adjournEvent);
+router.post('/diary/:eventId/complete', verifyToken(), requirePermission('MANAGE_LEGAL_DIARY'), litigation.completeEvent);
+router.post('/diary/:eventId/cancel', verifyToken(), requirePermission('MANAGE_LEGAL_DIARY'), litigation.cancelEvent);
+
+// ── Advocate panel ───────────────────────────────────────────────────────────
+router.get('/advocates', verifyToken(), requirePermission('VIEW_ADVOCATES'), litigation.listAdvocates);
+router.post('/advocates', verifyToken(), requirePermission('CREATE_ADVOCATE'), litigation.createAdvocate);
+
+// Ranked / random suggestion. Before '/advocates/:id'.
+router.get('/advocates/suggest', verifyToken(), requirePermission('ALLOCATE_ADVOCATE'), litigation.suggestAdvocate);
+
+router.get('/advocates/:id', verifyToken(), requirePermission('VIEW_ADVOCATES'), litigation.getAdvocate);
+router.put('/advocates/:id', verifyToken(), requirePermission('UPDATE_ADVOCATE'), litigation.updateAdvocate);
+router.post('/advocates/:id/approval', verifyToken(), requirePermission('UPDATE_ADVOCATE'), litigation.setAdvocateApproval);
+router.post('/advocates/:id/suspend', verifyToken(), requirePermission('UPDATE_ADVOCATE'), litigation.suspendAdvocate);
+router.post('/advocates/:id/recompute', verifyToken(), requirePermission('VIEW_ADVOCATES'), litigation.recomputeAdvocatePerformance);
+router.post('/advocates/:id/credentials', verifyToken(), requirePermission('UPDATE_ADVOCATE'), litigation.issueAdvocateCredentials);
+
+// ── Documents ────────────────────────────────────────────────────────────────
+router.get('/documents', verifyToken(), requirePermission('VIEW_LEGAL_DOCUMENTS'), litigation.listDocuments);
+router.post(
+  '/documents',
+  verifyToken(),
+  requirePermission('UPLOAD_LEGAL_DOCUMENT'),
+  Upload.single('file'),
+  litigation.uploadDocument
+);
+
+/**
+ * Downloads are API-mediated on purpose: the service checks the privilege class,
+ * mints a short-lived signed link, and logs the attempt — refusals included.
+ * Spec §22's access history only means anything if this is the only door, which
+ * is why the storage key never leaves the server.
+ */
+router.get(
+  '/documents/:documentId/download',
+  verifyToken(),
+  requirePermission('VIEW_LEGAL_DOCUMENTS'),
+  litigation.downloadDocument
+);
+router.get(
+  '/documents/:documentId/access-log',
+  verifyToken(),
+  requirePermission('VIEW_LEGAL_DOCUMENTS'),
+  litigation.documentAccessLog
+);
+router.post(
+  '/documents/:documentId/reclassify',
+  verifyToken(),
+  requirePermission('VIEW_PRIVILEGED_DOCUMENTS'),
+  litigation.reclassifyDocument
+);
+router.post(
+  '/documents/:documentId/filed',
+  verifyToken(),
+  requirePermission('UPLOAD_LEGAL_DOCUMENT'),
+  litigation.markDocumentFiled
+);
+
+// ── Legal cases (litigation) ─────────────────────────────────────────────────
+router.get('/cases', verifyToken(), requirePermission('VIEW_LEGAL_CASES'), litigation.listCases);
+router.post('/cases', verifyToken(), requirePermission('CREATE_LEGAL_REFERRAL'), litigation.createCase);
+router.get('/cases/:id', verifyToken(), requirePermission('VIEW_LEGAL_CASES'), litigation.getCase);
+router.get('/cases/:id/diary', verifyToken(), requirePermission('VIEW_LEGAL_DIARY'), litigation.getCaseDiary);
+router.post('/cases/:id/appoint-advocate', verifyToken(), requirePermission('APPOINT_ADVOCATE'), litigation.appointAdvocate);
+router.get('/cases/:id/instruction-pack', verifyToken(), requirePermission('VIEW_LEGAL_CASES'), litigation.instructionPack);
+router.post('/cases/:id/instructions', verifyToken(), requirePermission('UPDATE_LEGAL_CASE'), litigation.issueInstructions);
+router.post('/cases/:id/judgment', verifyToken(), requirePermission('UPDATE_LEGAL_CASE'), litigation.recordJudgment);
+router.post('/cases/:id/appeal', verifyToken(), requirePermission('CREATE_LEGAL_REFERRAL'), litigation.createAppeal);
+router.post('/cases/:id/close', verifyToken(), requirePermission('CLOSE_LEGAL_CASE'), litigation.closeCase);
+
+// ── Recovery (subrogation) ───────────────────────────────────────────────────
+// The mirror image of a third-party claim: us recovering from whoever was at
+// fault. Money moves the other way and posts as credits to the same ledger.
+router.get('/recoveries', verifyToken(), requirePermission('VIEW_RECOVERIES'), recovery.list);
+router.post('/recoveries', verifyToken(), requirePermission('MANAGE_RECOVERY'), recovery.create);
+
+// Before '/recoveries/:id'.
+router.get('/recoveries/position', verifyToken(), requirePermission('VIEW_RECOVERIES'), recovery.position);
+// Recoveries nobody has chased — where recovery money is actually lost.
+router.get('/recoveries/stale', verifyToken(), requirePermission('VIEW_RECOVERIES'), recovery.stale);
+
+router.get('/recoveries/:id', verifyToken(), requirePermission('VIEW_RECOVERIES'), recovery.getById);
+router.post('/recoveries/:id/chase', verifyToken(), requirePermission('MANAGE_RECOVERY'), recovery.chase);
+router.post('/recoveries/:id/agree', verifyToken(), requirePermission('MANAGE_RECOVERY'), recovery.agree);
+router.post('/recoveries/:id/receipt', verifyToken(), requirePermission('MANAGE_RECOVERY'), recovery.recordReceipt);
+router.post('/recoveries/:id/expense', verifyToken(), requirePermission('MANAGE_RECOVERY'), recovery.recordExpense);
+
+// A write-off stops pursuing money the insurer is owed, so it sits behind
+// payment authority rather than ordinary recovery management.
+router.post('/recoveries/:id/write-off', verifyToken(), requirePermission('APPROVE_LEGAL_PAYMENT'), recovery.writeOff);
+
+// ── Analytics ────────────────────────────────────────────────────────────────
+router.get('/analytics/courts', verifyToken(), requirePermission('VIEW_LEGAL_REPORTS'), recovery.courtPerformance);
+router.get('/analytics/advocates', verifyToken(), requirePermission('VIEW_LEGAL_REPORTS'), recovery.advocateScorecard);
+// The feedback loop: what claims actually settle at, against the tenant's own
+// reserving schedule.
+router.get('/analytics/reserving', verifyToken(), requirePermission('VIEW_LEGAL_REPORTS'), recovery.reservingFeedback);
+
+// ── Risk & assistant ─────────────────────────────────────────────────────────
+router.post(
+  '/third-party-claims/:id/risk',
+  verifyToken(),
+  requirePermission('VIEW_THIRD_PARTY_CLAIMS'),
+  recovery.scoreRisk
+);
+router.get(
+  '/third-party-claims/:id/similar',
+  verifyToken(),
+  requirePermission('VIEW_THIRD_PARTY_CLAIMS'),
+  recovery.similarMatters
+);
+
+/**
+ * The AI legal assistant. Read-only by construction — it holds no tool that
+ * writes — and its output is a draft for a Legal Officer, never advice or an
+ * authorisation. See ai/agents/legalAssistant.agent.js.
+ */
+router.post(
+  '/assistant',
+  verifyToken(),
+  requirePermission('VIEW_THIRD_PARTY_CLAIMS'),
+  recovery.askAssistant
 );
 
 // ── Per-accident ─────────────────────────────────────────────────────────────

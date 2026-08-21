@@ -141,6 +141,15 @@ const legalCaseSchema = new Schema(
     allocationMode: { type: String, enum: ['ranked', 'random', 'manual'] },
     allocationScore: { type: Number },
     instructionsIssuedAt: { type: Date },
+    // Drives the progress-report chaser: an advocate who has gone quiet on a
+    // live matter is the commonest way an insurer finds out about a problem late.
+    lastProgressReportAt: { type: Date },
+    progressReports: [{
+      summary: { type: String },
+      nextSteps: { type: String },
+      submittedAt: { type: Date, default: Date.now },
+      submittedBy: { type: Schema.Types.ObjectId, ref: 'Advocate' },
+    }],
     instructionsAcceptedAt: { type: Date },
     specificInstructions: { type: String },
 

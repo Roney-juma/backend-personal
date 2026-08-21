@@ -158,6 +158,48 @@ async function reverse(entryId, reason, actor = null, opts = {}) {
   return reversal;
 }
 
+/**
+ * Mark every entry raised by one source document as paid.
+ *
+ * Payment does NOT change exposure. A settled claim cost what it cost whether or
+ * not Finance has moved the money yet — "how much did this matter cost us" and
+ * "how much of it has been discharged" are different questions on different
+ * axes. Posting a second entry at payment time would double-count the whole
+ * matter, so payment flips the existing accruals instead.
+ *
+ * This is the one permitted in-place write on the ledger, and it is deliberately
+ * narrow: `status` is lifecycle bookkeeping, exactly like `sealId` on an audit
+ * row. Amount, direction, date and source are never touched, so nothing that
+ * feeds a financial figure can change. Hence the explicit `allowMutation` —
+ * every other update path stays blocked by the append-only plugin.
+ *
+ * @param {Object} sourceRef  { model, id }
+ * @param {Object} [actor]
+ * @returns {Promise<number>} entries marked
+ */
+async function markSourcePaid(sourceRef, actor = null) {
+  if (!sourceRef?.model || !sourceRef?.id) {
+    throw new ApiError(400, 'markSourcePaid needs a source model and id');
+  }
+
+  const result = await LegalLedgerEntry.updateMany(
+    {
+      'sourceRef.model': sourceRef.model,
+      'sourceRef.id': toObjectId(sourceRef.id),
+      status: { $in: ['accrued', 'approved'] },
+    },
+    { $set: { status: 'paid' } },
+    { allowMutation: true }
+  );
+
+  logger.info(
+    `[legal-ledger] ${result.modifiedCount} entr${result.modifiedCount === 1 ? 'y' : 'ies'} from ` +
+    `${sourceRef.model} ${sourceRef.id} marked paid` +
+    (actor ? ` by ${actor.fullName || actor.id}` : '')
+  );
+  return result.modifiedCount;
+}
+
 // ── Aggregation ──────────────────────────────────────────────────────────────
 
 /**
@@ -360,6 +402,7 @@ function toObjectId(v) {
 module.exports = {
   post,
   reverse,
+  markSourcePaid,
   position,
   computePosition,
   entries,

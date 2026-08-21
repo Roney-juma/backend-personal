@@ -9,7 +9,7 @@ const notificationSchema = new Schema({
   },
   recipientType: {
     type: String,
-    enum: ['assessor', 'garage', 'supplier', 'customer', 'admin', 'investigator'],
+    enum: ['assessor', 'garage', 'supplier', 'customer', 'admin', 'investigator', 'advocate'],
     required: true,
   },
   type: {
