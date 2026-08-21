@@ -1,5 +1,6 @@
 const logger = require('../middlewheres/logger');
 const auditSeal = require('../service/auditSeal.service');
+const legalReminder = require('../service/legalReminder.service');
 
 /**
  * Handlers for the Legal module's scheduled jobs.
@@ -14,38 +15,38 @@ const auditSeal = require('../service/auditSeal.service');
  * ranges) and skip anything already recorded, never to rely on the job running
  * exactly once.
  *
- * Phase 0 wires the scheduler, the audit sealer and the job skeletons. The
- * reminder, escalation and performance handlers are filled in with their
- * features in Phases 1 and 3 — they are registered now, and no-op with a clear
- * log line, so the schedule itself is proven in staging before anything depends
- * on it.
+ * Phase 1 implements the diary, limitation and escalation sweeps. The advocate
+ * handlers stay stubbed until the panel and portal land in Phase 3 — they are
+ * registered now, and no-op with a clear log line, so the schedule itself is
+ * proven in staging before anything depends on it.
  */
 
 /**
  * Send reminders for court dates, filing deadlines and tasks falling due.
- * Filled in with the diary — Phase 1 (limitation) and Phase 3 (court diary).
+ *
+ * Idempotent through LegalEvent.remindersSent — an offset already recorded is
+ * never sent twice, however many times this is retried.
  */
 async function diaryReminders() {
-  logger.info('[legal-jobs] diary-reminders: not yet implemented (Phase 1)');
-  return { sent: 0, implemented: false };
+  return { ...(await legalReminder.runDiaryReminders()), implemented: true };
 }
 
 /**
  * Warn on approaching statutory time-bars and mark expired ones.
- * The single most consequential job in the module — Phase 1.
+ *
+ * The most consequential job in the module: after the date passes the claim can
+ * no longer be brought, and a defence we failed to file is lost by default.
  */
 async function limitationSweep() {
-  logger.info('[legal-jobs] limitation-sweep: not yet implemented (Phase 1)');
-  return { warned: 0, expired: 0, implemented: false };
+  return { ...(await legalReminder.runLimitationSweep()), implemented: true };
 }
 
 /**
  * Mark events that passed their due date as missed and walk them up the
- * tenant's escalation chain — Phase 1.
+ * tenant's configured escalation chain.
  */
 async function overdueEscalation() {
-  logger.info('[legal-jobs] overdue-escalation: not yet implemented (Phase 1)');
-  return { missed: 0, escalated: 0, implemented: false };
+  return { ...(await legalReminder.runOverdueEscalation()), implemented: true };
 }
 
 /**
