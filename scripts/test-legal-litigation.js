@@ -11,7 +11,7 @@
  * No database and no test framework.
  */
 
-const { canView } = require('../src/service/legalDocument.service');
+const { canView, downloadFilename } = require('../src/service/legalDocument.service');
 const { CONFIDENTIALITY, DEFAULT_ALLOCATION_WEIGHTS } = require('../src/constants/legal.constants');
 const money = require('../src/utils/money');
 
@@ -280,6 +280,58 @@ console.log('\n6. Judgment');
 
   const total = money.sumMinor([K(8000000), K(640000), K(450000)]);
   check('judgment total is award plus interest plus costs', total === K(9090000));
+}
+
+// ── 6b. Download naming ──────────────────────────────────────────────────────
+
+/**
+ * A document saved without its extension is a file the operating system will
+ * not open, which the user experiences as a corrupt download rather than a
+ * naming bug — so the extension is not cosmetic.
+ */
+console.log('\n6b. What a download is saved as');
+{
+  const doc = (over = {}) => ({
+    title: 'Witness statement',
+    storageKey: 'legal/c1/1712_ab_Witness Statement.pdf',
+    mimeType: 'application/pdf',
+    ...over,
+  });
+
+  check(
+    'the extension comes from the stored file, not the title',
+    downloadFilename(doc()).name === 'Witness statement.pdf',
+    downloadFilename(doc()).name
+  );
+  check(
+    'a key with no extension falls back to the mime type',
+    downloadFilename(doc({ storageKey: 'legal/c1/1712_ab_defence' })).name === 'Witness statement.pdf'
+  );
+  check(
+    'a title that already carries the extension does not double it',
+    downloadFilename(doc({ title: 'Bundle.pdf' })).name === 'Bundle.pdf'
+  );
+  check(
+    'characters illegal in a filename are replaced',
+    !/[\\/:*?"<>|]/.test(downloadFilename(doc({ title: 'Ruling 12/08 "final"' })).name)
+  );
+  check(
+    'a space stays a space rather than becoming %20',
+    !downloadFilename(doc()).name.includes('%20')
+  );
+
+  const swahili = downloadFilename(doc({ title: 'Mahakama — hukumu' }));
+  check('non-ASCII survives in the RFC 5987 name', swahili.name.includes('—'));
+  check(
+    'and is stripped from the Latin-1 fallback',
+    // eslint-disable-next-line no-control-regex
+    !/[^\x20-\x7E]/.test(swahili.ascii)
+  );
+  check(
+    'an untitled document still gets a name',
+    downloadFilename(doc({ title: '' })).name === 'document.pdf',
+    downloadFilename(doc({ title: '' })).name
+  );
 }
 
 // ── 7. Panel credentials ─────────────────────────────────────────────────────
