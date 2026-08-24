@@ -450,6 +450,36 @@ async function credentialChecks() {
 
   check('the created advocate is returned to the caller', Boolean(advocate));
 
+  // ── Fee notes ──────────────────────────────────────────────────────────────
+  // Loaded here rather than at the top of the file: vendorInvoice.service pulls
+  // in notification.service, which reads the JWT keypair at import time and is
+  // stubbed above.
+  const { resolveAdvocateFee } = require('../src/service/vendorInvoice.service');
+
+  const itemised = resolveAdvocateFee({
+    items: [
+      { description: 'Drawing defence', quantity: 1, unitPrice: 45000 },
+      { description: 'Attendance, 3 mentions', quantity: 3, unitPrice: 15000 },
+    ],
+  });
+  check('an itemised fee note totals its lines', itemised.total === 90000, String(itemised.total));
+  check('quantity multiplies the unit price', itemised.items[1].total === 45000);
+
+  const flat = resolveAdvocateFee({ amount: 120000, description: 'Instruction fee' });
+  check('a single figure is accepted', flat.total === 120000);
+  check('and keeps the description it was given', flat.items[0].description === 'Instruction fee');
+  check(
+    'an undescribed figure still says what it is for',
+    resolveAdvocateFee({ amount: 5000 }).items[0].description === 'Legal fees'
+  );
+
+  check('a fee note with no amount resolves to zero', resolveAdvocateFee({}).total === 0);
+  check('a negative line is discarded', resolveAdvocateFee({ items: [{ unitPrice: -100 }] }).total === 0);
+  check(
+    'zero-value lines do not create an empty invoice',
+    resolveAdvocateFee({ items: [{ description: 'Nil', unitPrice: 0 }] }).total === 0
+  );
+
   // ── Removal ────────────────────────────────────────────────────────────────
   const LegalCase = require('../src/models/legalCase.model');
 
