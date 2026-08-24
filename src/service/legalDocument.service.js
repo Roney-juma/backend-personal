@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const path = require('path');
 const AWS = require('aws-sdk');
 const LegalDocument = require('../models/legalDocument.model');
 const { LegalDocumentAccess } = require('../models/legalDocument.model');
@@ -190,12 +191,21 @@ async function requestAccess(documentId, actor, { req = null, isAdvocate = false
   if (!allowed) throw new ApiError(403, reason);
 
   const expiresIn = config.documentLinkTtlSeconds || 300;
+  const { name, ascii } = downloadFilename(document);
+
   const url = await s3Client().getSignedUrlPromise('getObject', {
     Bucket: BUCKET(),
     Key: document.storageKey,
     Expires: expiresIn,
-    // Force a download with the human title rather than the opaque key.
-    ResponseContentDisposition: `attachment; filename="${encodeURIComponent(document.title)}"`,
+    // Saved under the human title, but with the real extension — see
+    // downloadFilename. Both forms are sent: the quoted one for older clients,
+    // filename* for anything with characters Latin-1 cannot carry.
+    ResponseContentDisposition:
+      `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`,
+    // Without this S3 serves whatever it stored the object as, which for an
+    // upload that arrived with no type is application/octet-stream — another
+    // way to end up with a file nothing will open.
+    ...(document.mimeType ? { ResponseContentType: document.mimeType } : {}),
   });
 
   return {
@@ -211,6 +221,54 @@ async function requestAccess(documentId, actor, { req = null, isAdvocate = false
       checksum: document.checksum,
     },
   };
+}
+
+/**
+ * Extensions for the types the legal file actually carries, so a document whose
+ * key somehow lost its own can still be opened.
+ */
+const EXT_BY_MIME = {
+  'application/pdf': '.pdf',
+  'application/msword': '.doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  'application/vnd.ms-excel': '.xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/tiff': '.tif',
+  'text/plain': '.txt',
+};
+
+/**
+ * The name the file is saved under.
+ *
+ * Built from the human title, but the EXTENSION has to come from the file
+ * itself: a document titled "Witness statement" saved with no `.pdf` is a file
+ * the operating system cannot open, which reads to the user as a corrupt
+ * download rather than a naming problem. The original extension lives on the
+ * end of the storage key; the mime type is the fallback.
+ *
+ * Percent-encoding is NOT applied to the quoted form — doing so turns a space
+ * into a literal "%20" in the saved name. Non-ASCII titles are carried by the
+ * RFC 5987 `filename*` parameter instead, which is what that parameter is for.
+ */
+function downloadFilename(document) {
+  const ext = path.extname(document.storageKey || '') || EXT_BY_MIME[document.mimeType] || '';
+
+  const base = String(document.title || 'document')
+    // Characters that are illegal in a filename, or would end the quoted string.
+    .replace(/[\\/:*?"<>|]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 150) || 'document';
+
+  const name = base.toLowerCase().endsWith(ext.toLowerCase()) ? base : `${base}${ext}`;
+
+  // Latin-1 is all a quoted filename may legally contain; anything else is
+  // dropped here and recovered from filename* by any modern browser.
+  const ascii = name.replace(/[^\x20-\x7E]/g, '_');
+
+  return { name, ascii };
 }
 
 /** Append-only record of every view, download and refusal. */
@@ -345,4 +403,7 @@ module.exports = {
   reclassify,
   markFiled,
   canView,
+  // Exported for the checks in scripts/test-legal-litigation.js: a download
+  // named without its extension is indistinguishable from a corrupt file.
+  downloadFilename,
 };
