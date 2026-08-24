@@ -282,10 +282,134 @@ console.log('\n6. Judgment');
   check('judgment total is award plus interest plus costs', total === K(9090000));
 }
 
-console.log(`\n${'─'.repeat(60)}`);
-console.log(`${passed} passed, ${failed} failed`);
-if (failed > 0) {
-  console.log('\nPhase 3 litigation checks NOT met.');
-  process.exit(1);
+// ── 7. Panel credentials ─────────────────────────────────────────────────────
+
+/**
+ * Adding an advocate now issues portal access and emails it. The risk in that
+ * is the password reaching a channel it should not, or the account being left
+ * unusable because the mail failed — so both are checked here.
+ *
+ * Still no database: the model and the notifier are stubbed in place.
+ */
+async function credentialChecks() {
+  console.log('\n7. Panel credentials');
+
+  // Stub the two underlying notifiers in the require cache BEFORE legalNotify
+  // loads, exactly as test-legal-referral does — legalNotify captures direct
+  // references to both, and notification.service reads the JWT keypair at
+  // import time. The real legalNotify then runs, so the channel split being
+  // asserted below is the one production uses rather than a stub of it.
+  const inApp = [];
+  const emails = [];
+
+  const notificationPath = require.resolve('../src/service/notification.service');
+  require.cache[notificationPath] = {
+    id: notificationPath, filename: notificationPath, loaded: true,
+    exports: { createAndEmit: async (payload) => { inApp.push(payload); return payload; } },
+  };
+  const emailPath = require.resolve('../src/service/email.service');
+  require.cache[emailPath] = {
+    id: emailPath, filename: emailPath, loaded: true,
+    exports: {
+      sendEmailNotification: async (to, subject, body, options) => {
+        emails.push({ to, subject, body, options });
+        return true;
+      },
+    },
+  };
+
+  const Advocate = require('../src/models/advocate.model');
+  const advocateService = require('../src/service/advocate.service');
+
+  let saved = null;
+
+  Advocate.findOne = async () => null;
+  Advocate.create = async (doc) => {
+    saved = { ...doc, _id: 'adv-test' };
+    return saved;
+  };
+  // sendToAdvocate re-reads the advocate to resolve its contact details.
+  Advocate.findById = () => ({
+    select: () => ({ lean: async () => ({ _id: 'adv-test', name: saved?.name, email: saved?.email, phone: saved?.phone }) }),
+  });
+
+  const details = {
+    company: 'c1',
+    name: 'A. Counsel',
+    email: 'Counsel@Firm.co.ke',
+    phone: '0700000000',
+    firm: { name: 'Counsel & Co' },
+  };
+
+  const advocate = await advocateService.create({ ...details });
+  // create() does not await the send, so let the microtask queue drain.
+  await new Promise((r) => setImmediate(r));
+
+  check('a new advocate is given portal access', saved?.active_account === true);
+  check('the password is stored hashed, never in the clear', Boolean(saved?.password) && !String(saved.password).includes('#'));
+  check('they must change it on first sign-in', saved?.mustChangePassword === true);
+  check('the email is normalised to lower case', saved?.email === 'counsel@firm.co.ke');
+  check(
+    'adding to the panel does not approve for instructions',
+    saved?.approved === false,
+    'access to the portal is not clearance to be instructed'
+  );
+
+  check('exactly one email is sent', emails.length === 1, `sent ${emails.length}`);
+  check('it goes to the advocate', emails[0]?.to === 'counsel@firm.co.ke');
+
+  const tempPassword = (emails[0]?.body.match(/Temporary password:\s*(\S+)/) || [])[1];
+  check('the email carries the temporary password', Boolean(tempPassword));
+  check('the email carries the username', emails[0]?.body.includes('counsel@firm.co.ke'));
+
+  // The password opens privileged case files; a copy in a chat backup is a
+  // disclosure risk, so this channel split is the point of the whole path.
+  check('the password is not mirrored to WhatsApp', emails[0]?.options?.whatsapp === false);
+
+  check('an in-app notice is sent as well', inApp.length === 1, `sent ${inApp.length}`);
+  check(
+    'the in-app notice carries no password',
+    Boolean(tempPassword) && !String(inApp[0]?.content || '').includes(tempPassword),
+    inApp[0]?.content
+  );
+
+  // A bulk panel import must not mail everyone at once.
+  emails.length = 0;
+  inApp.length = 0;
+  await advocateService.create({ ...details, email: 'quiet@firm.co.ke', sendCredentials: false });
+  await new Promise((r) => setImmediate(r));
+  check('an import can add an advocate without mailing them', emails.length === 0 && inApp.length === 0);
+  check('that advocate has no portal access yet', saved?.active_account !== true);
+  check('sendCredentials is not persisted onto the record', !('sendCredentials' in (saved || {})));
+
+  // The generated password has to survive being read off a screen and typed.
+  // Checked over a sample rather than one draw: the first version of this put
+  // the ambiguous glyphs only in a random numeric suffix, so a single-draw
+  // check passed most of the time and failed roughly one run in three.
+  const sample = Array.from({ length: 200 }, () => advocateService.generateTempPassword());
+  check('a generated password meets the 8-character floor', sample.every((p) => p.length >= 8));
+  check(
+    'no generated password contains a glyph that is misread',
+    sample.every((p) => !/[0O1lI]/.test(p)),
+    sample.find((p) => /[0O1lI]/.test(p))
+  );
+  check('each carries a digit and a symbol', sample.every((p) => /[2-9]/.test(p) && /#/.test(p)));
+  check('every advocate gets a different one', new Set(sample).size === 200);
+
+  check('the created advocate is returned to the caller', Boolean(advocate));
 }
-console.log('\nPhase 3 litigation and allocation checks met.');
+
+credentialChecks()
+  .catch((err) => {
+    failed += 1;
+    console.log(`  FAIL panel credentials threw — ${err.message}`);
+  })
+  .then(() => {
+    console.log(`\n${'─'.repeat(60)}`);
+    console.log(`${passed} passed, ${failed} failed`);
+    if (failed > 0) {
+      console.log('\nPhase 3 litigation checks NOT met.');
+      process.exit(1);
+    }
+    console.log('\nPhase 3 litigation and allocation checks met.');
+  });
