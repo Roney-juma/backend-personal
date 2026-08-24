@@ -4,6 +4,8 @@ const SupplyBid = require('../models/supplyBids.model');
 const Assessor = require('../models/assessor.model');
 const Garage = require('../models/garage.model');
 const Supplier = require('../models/supplier.model');
+const Advocate = require('../models/advocate.model');
+const LegalCase = require('../models/legalCase.model');
 const notificationService = require('./notification.service');
 const { getRequesterCompany, belongsToCompany } = require('../utils/requesterCompany');
 const ApiError = require('../utils/ApiError');
@@ -23,6 +25,9 @@ const VENDORS = {
   Assessor: { model: Assessor, companyField: 'company', recipientType: 'assessor' },
   Garage: { model: Garage, companyField: 'company', recipientType: 'garage' },
   Supplier: { model: Supplier, companyField: 'insuranceCompany', recipientType: 'supplier' },
+  // Counsel's fee note is the same payable every other vendor raises, but it is
+  // the one type whose amount cannot be derived — see resolveAwardedAmount.
+  Advocate: { model: Advocate, companyField: 'company', recipientType: 'advocate' },
 };
 
 const isVendor = (accountType) => Boolean(VENDORS[accountType]);
@@ -73,6 +78,23 @@ const isVendorEligible = async (vendorType, vendorId, claim) => {
         })
       );
     }
+
+    /**
+     * Counsel may bill once they have actually taken the instruction.
+     *
+     * Deliberately NOT "once the matter is closed": a matter runs for years and
+     * counsel raises interim fee notes throughout — after a hearing, on filing a
+     * defence. Waiting for closure would mean an advocate could not bill until
+     * the case ended, which no firm would accept.
+     */
+    case 'Advocate':
+      return Boolean(
+        await LegalCase.exists({
+          claim: claim._id,
+          advocate: vendorId,
+          instructionsAcceptedAt: { $exists: true, $ne: null },
+        })
+      );
     default:
       return false;
   }
@@ -83,8 +105,52 @@ const isVendorEligible = async (vendorType, vendorId, claim) => {
 const ACTIVE_INVOICE_STATUSES = ['submitted', 'approved', 'paid'];
 
 /**
+ * Counsel's fee note, which is the one invoice on this platform whose amount is
+ * STATED rather than derived.
+ *
+ * Every other vendor here bid for the work, so the figure is whatever was
+ * awarded and the vendor cannot move it. Legal fees have no bid: they are court
+ * scale, an hourly record, or a negotiated retainer, and none of that is
+ * knowable from the claim. So the advocate states it and gives a breakdown.
+ *
+ * What replaces the guarantee is the approval step that already exists — a fee
+ * note is `submitted` until the insurer approves it, and nothing is paid on
+ * counsel's word alone. The rate agreement on the advocate record is the
+ * yardstick the approver checks it against.
+ */
+const resolveAdvocateFee = (body) => {
+  const supplied = Array.isArray(body.items) ? body.items : [];
+
+  const items = supplied
+    .map((i) => {
+      const quantity = Number(i.quantity) > 0 ? Number(i.quantity) : 1;
+      const unitPrice = round2(i.unitPrice ?? i.amount ?? i.total);
+      return {
+        description: String(i.description || '').trim() || 'Legal fees',
+        quantity,
+        unitPrice,
+        total: round2(quantity * unitPrice),
+      };
+    })
+    .filter((i) => i.total > 0)
+    .slice(0, 50);
+
+  if (items.length) {
+    const subtotal = round2(items.reduce((sum, i) => sum + i.total, 0));
+    return { items, subtotal, total: subtotal };
+  }
+
+  // A single figure with no breakdown is accepted but must still be described,
+  // so an approver is never asked to sign off an unexplained number.
+  const flat = round2(body.amount ?? body.total);
+  if (!(flat > 0)) return { items: [], subtotal: 0, total: 0 };
+  return oneLine(String(body.description || '').trim() || 'Legal fees', flat);
+};
+
+/**
  * Build the invoice line items from the vendor's *awarded bid* on this claim, so
  * the amount always reflects what was agreed — never a figure typed by the vendor.
+ * Not used for Advocate, who had no bid to award — see resolveAdvocateFee.
  * Returns { items, subtotal, total }.
  */
 const resolveAwardedAmount = async (vendorType, vendorId, claim) => {
@@ -153,7 +219,7 @@ const createInvoice = async (req) => {
   const actor = req.user;
   const vendorType = actor.accountType;
   if (!isVendor(vendorType)) {
-    throw new ApiError(403, 'Only assessors, garages and suppliers can submit invoices');
+    throw new ApiError(403, 'Only assessors, garages, suppliers and panel advocates can submit invoices');
   }
 
   const { claim: claimId, notes, attachments } = req.body;
@@ -190,20 +256,43 @@ const createInvoice = async (req) => {
     throw new ApiError(403, 'Your work on this car is not yet complete, or you are not assigned to it');
   }
 
-  // One active invoice per claim per vendor — a rejected or withdrawn one may be re-raised.
+  /**
+   * One active invoice per claim per vendor — a rejected or withdrawn one may
+   * be re-raised.
+   *
+   * Counsel is the exception: a matter runs for years and is billed in stages,
+   * so only an UNDECIDED fee note blocks the next one. Once the insurer has
+   * approved or paid it, the following stage may be billed.
+   */
+  const blocking = vendorType === 'Advocate' ? ['submitted'] : ACTIVE_INVOICE_STATUSES;
   const existing = await VendorInvoice.countDocuments({
     claim: claimId,
     vendor: actor.id,
-    status: { $in: ACTIVE_INVOICE_STATUSES },
+    status: { $in: blocking },
   });
   if (existing > 0) {
-    throw new ApiError(409, 'You have already submitted an invoice for this claim');
+    throw new ApiError(
+      409,
+      vendorType === 'Advocate'
+        ? 'You already have a fee note awaiting a decision on this matter'
+        : 'You have already submitted an invoice for this claim'
+    );
   }
 
-  // The amount comes from the awarded bid, not the request body.
-  const { items, subtotal, total } = await resolveAwardedAmount(vendorType, actor.id, claim);
+  // Derived from the awarded bid for everyone who bid for the work; stated by
+  // counsel, who did not — see resolveAdvocateFee.
+  const { items, subtotal, total } =
+    vendorType === 'Advocate'
+      ? resolveAdvocateFee(req.body)
+      : await resolveAwardedAmount(vendorType, actor.id, claim);
+
   if (!(total > 0)) {
-    throw new ApiError(400, 'No awarded bid amount was found for this claim');
+    throw new ApiError(
+      400,
+      vendorType === 'Advocate'
+        ? 'State the fee — either itemised, or a single amount with a description'
+        : 'No awarded bid amount was found for this claim'
+    );
   }
 
   const invoice = await VendorInvoice.create({
@@ -233,7 +322,7 @@ const getEligibleClaims = async (req) => {
   const actor = req.user;
   const vendorType = actor.accountType;
   if (!isVendor(vendorType)) {
-    throw new ApiError(403, 'Only assessors, garages and suppliers can request invoices');
+    throw new ApiError(403, 'Only assessors, garages, suppliers and panel advocates can request invoices');
   }
 
   // Tenant scope: a vendor only ever sees claims belonging to their own
@@ -257,6 +346,16 @@ const getEligibleClaims = async (req) => {
       ...tenantScope,
       'garageRepairReport.garageId': actor.id,
       'garageRepairReport.submittedAt': { $exists: true },
+    }).lean();
+  } else if (vendorType === 'Advocate') {
+    // Every accident counsel holds an accepted instruction on.
+    const instructedClaimIds = await LegalCase.find({
+      advocate: actor.id,
+      instructionsAcceptedAt: { $exists: true, $ne: null },
+    }).distinct('claim');
+    candidateClaims = await Claim.find({
+      ...tenantScope,
+      _id: { $in: instructedClaimIds },
     }).lean();
   } else {
     const deliveredClaimIds = await SupplyBid.find({
@@ -286,13 +385,22 @@ const getEligibleClaims = async (req) => {
 
   return Promise.all(
     eligible.map(async (claim) => {
-      const { total } = await resolveAwardedAmount(vendorType, actor.id, claim);
+      // Counsel has no awarded figure to pre-fill; they state the fee on the
+      // form. Returning null rather than 0 so the client shows an empty field
+      // instead of a zero someone might submit as-is.
+      const total =
+        vendorType === 'Advocate'
+          ? null
+          : (await resolveAwardedAmount(vendorType, actor.id, claim)).total;
+
       return {
         claimId: claim._id,
         status: claim.status,
         vehicle: claim.vehiclesInvolved?.[0] || null,
         location: claim.incidentDetails?.location,
         amount: total,
+        // Tells the client whether to render a read-only amount or ask for one.
+        amountIsFixed: vendorType !== 'Advocate',
         currency: 'KES',
       };
     })
@@ -515,4 +623,7 @@ module.exports = {
   rejectInvoice,
   markAsPaid,
   cancelInvoice,
+  // Exported for the checks in scripts/test-legal-litigation.js — this is the
+  // only vendor amount taken from the request, so it is worth pinning down.
+  resolveAdvocateFee,
 };
