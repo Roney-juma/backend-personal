@@ -48,7 +48,7 @@ router.post('/login', authLimiter, async (req, res) => {
       return res.status(200).json({ mfaRequired: true, mfaToken });
     }
 
-    const token = tokenService.GenerateToken(advocate);
+    const tokens = tokenService.GenerateToken(advocate);
 
     await writeAuditLog(req, {
       action: 'LOGIN',
@@ -60,9 +60,17 @@ router.post('/login', authLimiter, async (req, res) => {
       success: true,
     });
 
+    /**
+     * `tokens`, not `token`. The assessor and garage logins both return
+     * { user, tokens }, and the partner shell reads `data.tokens` — so the
+     * singular spelling here meant counsel signed in, was handed nothing the
+     * client could store, and had every authenticated call rejected after it.
+     * mustChangePassword also rides on the user document; it is repeated at the
+     * top level only because the first version of this response put it there.
+     */
     res.status(200).json({
-      token,
       user: advocate.toJSON(),
+      tokens,
       mustChangePassword: advocate.mustChangePassword,
     });
   } catch (error) {
