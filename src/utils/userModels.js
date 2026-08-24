@@ -8,4 +8,5 @@ module.exports = {
   Garage: require('../models/garage.model'),         // mobile garages
   Assessor: require('../models/assessor.model'),     // mobile assessors
   Supplier: require('../models/supplier.model'),     // mobile suppliers
+  Advocate: require('../models/advocate.model'),     // panel advocates (partner portal)
 };
