@@ -3,6 +3,7 @@ const Advocate = require('../models/advocate.model');
 const LegalCase = require('../models/legalCase.model');
 const LegalEvent = require('../models/legalEvent.model');
 const ThirdPartyClaim = require('../models/thirdPartyClaim.model');
+const Claim = require('../models/claim.model');
 const ApiError = require('../utils/ApiError');
 const logger = require('../middlewheres/logger');
 const {
@@ -126,7 +127,7 @@ async function myCases(advocateId, { status, scope = 'open' } = {}) {
 async function caseDetail(advocateId, caseId, actor) {
   const legalCase = await assertAssigned(advocateId, caseId);
 
-  const [exposures, diary, documents] = await Promise.all([
+  const [exposures, diary, documents, claim] = await Promise.all([
     ThirdPartyClaim.find({ _id: { $in: legalCase.thirdPartyClaims } })
       .select('referenceNumber party claimType injury opposingAdvocate liability limitation status')
       .lean(),
@@ -136,6 +137,27 @@ async function caseDetail(advocateId, caseId, actor) {
       actor,
       { isAdvocate: true }
     ),
+    /**
+     * The accident itself.
+     *
+     * Counsel cannot plead a defence without the facts of the collision — when
+     * and where it happened, which vehicles, who was driving, whether there is a
+     * police abstract and who the witnesses are. The instruction pack has always
+     * carried exactly this, so nothing new is being disclosed; it was simply
+     * unavailable once counsel moved from the pack to the matter on screen.
+     *
+     * Selected field by field rather than returned whole. A claim document also
+     * holds our own damage assessment, our reserve and our fraud position, and
+     * none of that is counsel's to see.
+     */
+    legalCase.claim
+      ? Claim.findById(legalCase.claim)
+          .select(
+            'incidentDetails vehiclesInvolved drivers witnesses policeReport ' +
+            'description status createdAt'
+          )
+          .lean()
+      : null,
   ]);
 
   return {
@@ -166,6 +188,20 @@ async function caseDetail(advocateId, caseId, actor) {
           startDate: legalCase.coverSnapshot.startDate,
           expiryDate: legalCase.coverSnapshot.expiryDate,
           exclusions: legalCase.coverSnapshot.exclusions,
+        }
+      : null,
+    // The accident, shaped the same way the instruction pack states it.
+    accident: claim
+      ? {
+          date: claim.incidentDetails?.date,
+          time: claim.incidentDetails?.time,
+          location: claim.incidentDetails?.location,
+          description: claim.incidentDetails?.description || claim.description,
+          vehicles: claim.vehiclesInvolved,
+          drivers: claim.drivers,
+          witnesses: claim.witnesses,
+          policeReport: claim.policeReport,
+          reportedAt: claim.createdAt,
         }
       : null,
     claimants: exposures,
