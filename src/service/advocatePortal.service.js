@@ -107,6 +107,11 @@ async function caseDetail(advocateId, caseId, actor) {
   ]);
 
   return {
+    // Returned so the client can act on the matter it is showing. Its absence
+    // meant every action taken from the detail view had to be handed the id
+    // separately, and one that read it off this payload posted to
+    // /cases/undefined/... instead.
+    _id: legalCase._id,
     caseNumber: legalCase.caseNumber,
     courtCaseNumber: legalCase.courtCaseNumber,
     court: legalCase.court,
