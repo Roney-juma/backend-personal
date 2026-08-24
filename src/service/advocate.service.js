@@ -1,4 +1,5 @@
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const Advocate = require('../models/advocate.model');
 const LegalCase = require('../models/legalCase.model');
 const LegalEvent = require('../models/legalEvent.model');
@@ -25,25 +26,72 @@ const legalConfig = require('./legalConfig.service');
 
 // ── Panel ────────────────────────────────────────────────────────────────────
 
+/**
+ * A temporary portal password.
+ *
+ * Generated per advocate rather than using a shared default: these credentials
+ * open privileged case files, and one well-known starting password across a
+ * whole panel is a password everybody already knows. Ambiguous glyphs are left
+ * out because this gets read off a screen and typed by hand.
+ */
+function generateTempPassword() {
+  // No 0/O and no 1/l/I anywhere, including the digits on the end — the pair is
+  // what makes either one ambiguous when read off a screen.
+  const LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  const DIGITS = '23456789';
+  const pick = (set, n) =>
+    Array.from(crypto.randomBytes(n), (b) => set[b % set.length]).join('');
+
+  // The symbol and the trailing digits are fixed positions rather than left to
+  // chance, so the value still satisfies a tightened password policy later.
+  return `${pick(LETTERS, 12)}#${pick(DIGITS, 2)}`;
+}
+
 async function create(data, actor = null) {
   if (!data.company) throw new ApiError(400, 'An advocate belongs to one insurer\'s panel');
   if (!data.firm?.name) throw new ApiError(400, 'The firm name is required');
+  if (!data.email) throw new ApiError(400, 'An email address is required — portal credentials are sent to it');
 
   const existing = await Advocate.findOne({ company: data.company, email: data.email?.toLowerCase() });
   if (existing) {
     throw new ApiError(409, 'That advocate is already on this panel');
   }
 
+  // `sendCredentials: false` lets a bulk panel import run without mailing every
+  // advocate at once; the credentials endpoint issues them individually later.
+  const withCredentials = data.sendCredentials !== false;
+  const tempPassword = withCredentials ? generateTempPassword() : null;
+  delete data.sendCredentials;
+
   const advocate = await Advocate.create({
     ...data,
-    email: data.email?.toLowerCase(),
+    email: data.email.toLowerCase(),
     // Approval is a separate, deliberate act — adding someone to the list is not
-    // the same as clearing them to receive instructions.
+    // the same as clearing them to receive instructions. It gates ALLOCATION,
+    // not sign-in: a new panel member can reach the portal and simply has no
+    // matters in it until they are instructed.
     approved: false,
     active: true,
+    ...(withCredentials
+      ? {
+          password: await bcrypt.hash(tempPassword, 10),
+          active_account: true,
+          mustChangePassword: true,
+        }
+      : {}),
   });
 
   logger.info(`[advocate] ${advocate.name} (${advocate.firm.name}) added to panel for ${data.company}`);
+
+  if (withCredentials) {
+    // Deliberately not awaited: a mail failure must not fail the creation and
+    // leave the caller retrying a name that is now a duplicate. The password can
+    // always be reissued from the panel screen.
+    sendCredentials(advocate, tempPassword).catch((err) =>
+      logger.error(`[advocate] credentials for ${advocate.email} could not be sent: ${err.message}`)
+    );
+  }
+
   return advocate;
 }
 
@@ -52,7 +100,14 @@ async function update(id, changes, actor = null) {
   if (!advocate) throw new ApiError(404, 'Advocate not found');
 
   // These have their own flows and must not be settable through a general update.
-  const PROTECTED = ['company', 'performance', 'password', 'mfaSecret', 'approved', 'accountType'];
+  // active_account and mustChangePassword are on the list because portal access
+  // now exists from the moment an advocate is added: without them, an ordinary
+  // panel edit could silently switch an account on, or clear the forced password
+  // change, without going through the credentials path or its audit entry.
+  const PROTECTED = [
+    'company', 'performance', 'password', 'mfaSecret', 'accountType',
+    'approved', 'active_account', 'mustChangePassword',
+  ];
   for (const key of PROTECTED) delete changes[key];
 
   Object.assign(advocate, changes);
@@ -384,58 +439,89 @@ async function suggest({ company, court, county, claimType, mode }) {
 // ── Portal credentials ───────────────────────────────────────────────────────
 
 /**
- * Issue portal access. The advocate signs into partner-fe with the same shell
- * assessors and garages use.
+ * Send one advocate their portal credentials.
+ *
+ * Two messages, on purpose. The password goes by EMAIL ALONE; the "your access
+ * is ready" nudge goes in-app and on WhatsApp, where counsel will actually see
+ * it. Sending the password itself over WhatsApp would leave credentials to
+ * privileged case files sitting in a chat backup on a phone that may be shared.
+ *
+ * Shared by panel creation and by a later re-issue so the wording, the channel
+ * split and the failure handling stay identical on both paths.
+ *
+ * @param {Object} advocate      a saved Advocate document
+ * @param {string} plainPassword the temporary password, before hashing
  */
-async function issueCredentials(id, password, actor = null) {
-  const advocate = await Advocate.findById(id);
-  if (!advocate) throw new ApiError(404, 'Advocate not found');
-  if (!advocate.approved) {
-    throw new ApiError(409, 'Approve the advocate for panel duty before granting portal access');
-  }
-  if (!password || String(password).length < 8) {
-    throw new ApiError(400, 'A portal password must be at least 8 characters');
-  }
-
-  advocate.password = await bcrypt.hash(String(password), 10);
-  advocate.active_account = true;
-  advocate.mustChangePassword = true;
-  await advocate.save();
-
-  logger.info(`[advocate] portal access issued to ${advocate.name}`);
-
-  // Two messages, on purpose. The password goes by email only; the "your access
-  // is ready" nudge goes in-app and on WhatsApp, where counsel will actually see
-  // it. Sending the password itself over WhatsApp would leave credentials to
-  // privileged case files sitting in a chat backup.
+async function sendCredentials(advocate, plainPassword) {
   const notify = require('./legalNotify.service');
+
   const pw = notify.templates.portalAccessEmail({
     name: advocate.name,
     email: advocate.email,
-    password: String(password),
+    password: String(plainPassword),
   });
   const notice = notify.templates.portalAccess({ name: advocate.name });
 
-  notify
-    .send({
+  const [mailed] = await Promise.allSettled([
+    notify.send({
       to: { id: advocate._id, type: 'advocate', email: advocate.email, name: advocate.name },
       type: 'legal_portal_access',
       title: pw.title,
       body: pw.body,
       channels: { inApp: false, whatsapp: false, push: false, email: true },
-    })
-    .catch((err) => logger.error(`[advocate] credential email failed: ${err.message}`));
-
-  notify
-    .sendToAdvocate({
+    }),
+    notify.sendToAdvocate({
       advocateId: advocate._id,
       type: 'legal_portal_access',
       title: notice.title,
       body: notice.body,
       channels: { email: false },
-    })
-    .catch((err) => logger.error(`[advocate] access notice failed: ${err.message}`));
+    }),
+  ]);
 
+  // The nudge is a convenience; the email carries the only copy of the password,
+  // so its failure is the one worth surfacing to the caller.
+  if (mailed.status === 'rejected') {
+    throw new ApiError(502, `Portal password email to ${advocate.email} failed: ${mailed.reason?.message}`);
+  }
+
+  logger.info(`[advocate] portal credentials sent to ${advocate.email}`);
+  return true;
+}
+
+/**
+ * Issue or re-issue portal access. The advocate signs into partner-fe with the
+ * same shell assessors and garages use.
+ *
+ * Credentials are created automatically when an advocate is added to the panel,
+ * so in practice this is the reset path — which is why it does NOT require the
+ * advocate to be approved. Approval gates allocation and instruction, not
+ * sign-in, and refusing to reset the password of an account that already has
+ * access would only strand whoever lost it.
+ *
+ * Omit `password` to have one generated.
+ */
+async function issueCredentials(id, password, actor = null) {
+  const advocate = await Advocate.findById(id);
+  if (!advocate) throw new ApiError(404, 'Advocate not found');
+
+  const plain = password ? String(password) : generateTempPassword();
+  if (plain.length < 8) {
+    throw new ApiError(400, 'A portal password must be at least 8 characters');
+  }
+
+  advocate.password = await bcrypt.hash(plain, 10);
+  advocate.active_account = true;
+  advocate.mustChangePassword = true;
+  // A reset clears a lockout; otherwise the new password is refused for the
+  // remainder of the lock window and it reads as though it never arrived.
+  advocate.failedLoginAttempts = 0;
+  advocate.lockUntil = undefined;
+  await advocate.save();
+
+  logger.info(`[advocate] portal access issued to ${advocate.name}`);
+
+  await sendCredentials(advocate, plain);
   return advocate;
 }
 
@@ -452,4 +538,6 @@ module.exports = {
   randomFromPanel,
   suggest,
   issueCredentials,
+  sendCredentials,
+  generateTempPassword,
 };

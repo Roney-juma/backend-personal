@@ -228,18 +228,26 @@ const createAdvocate = async (req, res) => {
     if (!company) return res.status(400).json({ message: 'Only insurer users manage an advocate panel' });
 
     const advocate = await advocateService.create({ ...req.body, company }, req.user);
+    const credentialsSent = Boolean(advocate.active_account);
 
     await writeAuditLog(req, {
       action: 'CREATE',
       module: 'Legal',
-      actionDescription: `Added ${advocate.name} (${advocate.firm.name}) to the advocate panel`,
+      actionDescription:
+        `Added ${advocate.name} (${advocate.firm.name}) to the advocate panel` +
+        (credentialsSent ? `; portal credentials emailed to ${advocate.email}` : ''),
       resourceType: 'Advocate',
       resourceId: advocate._id,
       statusCode: 201,
       success: true,
     });
 
-    res.status(201).json(advocate);
+    res.status(201).json({
+      ...advocate.toJSON(),
+      // So the panel screen can say what happened rather than leaving the user
+      // to wonder whether the advocate now has access.
+      credentialsSent,
+    });
   } catch (error) {
     handle(res, error);
   }
