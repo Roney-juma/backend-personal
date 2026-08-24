@@ -254,6 +254,11 @@ router.post('/advocates/:id/suspend', verifyToken(), requirePermission('UPDATE_A
 router.post('/advocates/:id/recompute', verifyToken(), requirePermission('VIEW_ADVOCATES'), litigation.recomputeAdvocatePerformance);
 router.post('/advocates/:id/credentials', verifyToken(), requirePermission('UPDATE_ADVOCATE'), litigation.issueAdvocateCredentials);
 
+// Removing a panel member is a soft delete and revokes their portal access.
+// Refused while they still hold open matters — suspension is what an insurer
+// wants mid-litigation, and it keeps the history intact.
+router.delete('/advocates/:id', verifyToken(), requirePermission('DELETE_ADVOCATE'), litigation.deleteAdvocate);
+
 // ── Documents ────────────────────────────────────────────────────────────────
 router.get('/documents', verifyToken(), requirePermission('VIEW_LEGAL_DOCUMENTS'), litigation.listDocuments);
 router.post(

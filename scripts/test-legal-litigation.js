@@ -397,6 +397,60 @@ async function credentialChecks() {
   check('every advocate gets a different one', new Set(sample).size === 200);
 
   check('the created advocate is returned to the caller', Boolean(advocate));
+
+  // ── Removal ────────────────────────────────────────────────────────────────
+  const LegalCase = require('../src/models/legalCase.model');
+
+  const panelMember = {
+    _id: 'adv-test',
+    name: 'A. Counsel',
+    email: 'counsel@firm.co.ke',
+    firm: { name: 'Counsel & Co' },
+    active: true,
+    active_account: true,
+    password: 'hashed',
+    mfaSecret: 'secret',
+    fcmToken: 'token',
+    save: async function save() { return this; },
+  };
+  Advocate.findById = async () => panelMember;
+
+  let softDeleted = null;
+  Advocate.softDeleteById = async (id) => { softDeleted = id; return panelMember; };
+
+  // Counsel with live litigation must not simply vanish.
+  LegalCase.countDocuments = async () => 2;
+  let refusal = null;
+  try {
+    await advocateService.remove('adv-test');
+  } catch (err) {
+    refusal = err;
+  }
+  check('an advocate holding open matters cannot be deleted', refusal?.statusCode === 409);
+  check('the refusal says how many matters are open', /\b2\b/.test(refusal?.message || ''), refusal?.message);
+  check('and points to suspension instead', /suspend/i.test(refusal?.message || ''));
+  check('nothing was deleted', softDeleted === null);
+  check('portal access was not revoked by the failed attempt', panelMember.active_account === true);
+
+  // With nothing live, removal proceeds.
+  LegalCase.countDocuments = async () => 0;
+  const removed = await advocateService.remove('adv-test');
+
+  check('an advocate with no open matters is removed', softDeleted === 'adv-test');
+  check('the removal is a soft delete, not a destroy', Boolean(removed.advocate));
+  check('portal access is revoked', panelMember.active_account === false);
+  check('the stored password is cleared', panelMember.password === undefined);
+  check('the MFA secret is cleared', panelMember.mfaSecret === undefined);
+  check('they are excluded from allocation', panelMember.active === false);
+
+  Advocate.findById = async () => null;
+  let missing = null;
+  try {
+    await advocateService.remove('gone');
+  } catch (err) {
+    missing = err;
+  }
+  check('deleting an advocate that does not exist is a 404', missing?.statusCode === 404);
 }
 
 credentialChecks()
