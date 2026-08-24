@@ -5,6 +5,13 @@ const LegalEvent = require('../models/legalEvent.model');
 const ThirdPartyClaim = require('../models/thirdPartyClaim.model');
 const ApiError = require('../utils/ApiError');
 const logger = require('../middlewheres/logger');
+const {
+  createResetToken,
+  verifyResetToken,
+  resetEmailBody,
+} = require('../utils/passwordReset');
+const { assertValidPassword } = require('../utils/passwordPolicy');
+const emailService = require('./email.service');
 const documentService = require('./legalDocument.service');
 const diaryService = require('./legalDiary.service');
 const legalCaseService = require('./legalCase.service');
@@ -330,8 +337,104 @@ async function assertAssigned(advocateId, caseId) {
   return legalCase;
 }
 
+// ── Password recovery ────────────────────────────────────────────────────────
+
+/**
+ * Start a password reset.
+ *
+ * Counsel receives a temporary password by email when they are added to a
+ * panel, and must change it on first sign-in. Without this they would have to
+ * ask the insurer's legal team to reissue it every time they mislaid it, which
+ * turns a self-service problem into a support call — and puts staff in the
+ * habit of minting passwords for external parties.
+ *
+ * Mirrors the assessor flow, including its account-enumeration defence: the
+ * same response is returned whether or not the address is on any panel.
+ */
+async function forgotPassword(email) {
+  const advocate = await Advocate.findOne({ email: String(email || '').toLowerCase() });
+
+  // A suspended or removed advocate must not be able to let themselves back in.
+  if (advocate && advocate.active && advocate.active_account) {
+    const { rawToken, hashedToken, expires } = await createResetToken();
+    // updateOne, so the model's pre-save hooks cannot re-hash anything.
+    await Advocate.updateOne(
+      { _id: advocate._id },
+      { $set: { resetPasswordToken: hashedToken, resetPasswordExpires: expires } }
+    );
+
+    await emailService.sendEmailNotification(
+      advocate.email,
+      'Your AVICS panel portal password reset code',
+      resetEmailBody(advocate.name, rawToken)
+    );
+    logger.info(`[advocate-portal] reset code issued to ${advocate.email}`);
+  }
+
+  return { message: 'If an account exists for that email, a reset link has been sent.' };
+}
+
+async function resetPassword(email, token, newPassword) {
+  const advocate = await Advocate.findOne({ email: String(email || '').toLowerCase() });
+  if (!advocate || !(await verifyResetToken(token, advocate))) {
+    throw new ApiError(400, 'Reset token is invalid or has expired');
+  }
+  if (!advocate.active || !advocate.active_account) {
+    throw new ApiError(403, 'This panel account is not active');
+  }
+
+  assertValidPassword(newPassword);
+
+  const hashed = await bcrypt.hash(newPassword, 10);
+  await Advocate.updateOne(
+    { _id: advocate._id },
+    {
+      // A completed reset also satisfies the forced first-login change, and
+      // clears any lockout — otherwise the new password is refused for the rest
+      // of the window and reads as though the reset never worked.
+      $set: { password: hashed, mustChangePassword: false, failedLoginAttempts: 0 },
+      $unset: { resetPasswordToken: '', resetPasswordExpires: '', lockUntil: '' },
+    }
+  );
+
+  logger.info(`[advocate-portal] password reset completed for ${advocate.email}`);
+  return { message: 'Password has been reset successfully' };
+}
+
+// ── Self-service profile ─────────────────────────────────────────────────────
+
+/**
+ * Update the signed-in advocate's own contact details.
+ *
+ * Deliberately narrow. Panel standing — approval, the rate agreement, contract
+ * dates, performance — belongs to the insurer, so counsel can correct how they
+ * are reached and nothing else. The identity comes from the token; no id is
+ * accepted from the request.
+ */
+async function updateProfile(advocateId, changes = {}) {
+  const advocate = await Advocate.findById(advocateId);
+  if (!advocate) throw new ApiError(404, 'Advocate not found');
+
+  const SELF_EDITABLE = ['name', 'phone', 'practiceAreas', 'counties', 'courts', 'location', 'fcmToken'];
+  for (const key of SELF_EDITABLE) {
+    if (changes[key] !== undefined) advocate[key] = changes[key];
+  }
+  // The firm's own contact block, but never its banking or panel terms.
+  if (changes.firm) {
+    advocate.firm.address = changes.firm.address ?? advocate.firm.address;
+    advocate.firm.physicalAddress = changes.firm.physicalAddress ?? advocate.firm.physicalAddress;
+    advocate.firm.contactPersons = changes.firm.contactPersons ?? advocate.firm.contactPersons;
+  }
+
+  await advocate.save();
+  return advocate;
+}
+
 module.exports = {
   login,
+  forgotPassword,
+  resetPassword,
+  updateProfile,
   myCases,
   caseDetail,
   acceptInstructions,

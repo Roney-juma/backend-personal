@@ -3,6 +3,8 @@ const portal = require('../service/advocatePortal.service');
 const tokenService = require('../service/token.service');
 const verifyToken = require('../middlewheres/verifyToken');
 const authLimiter = require('../middlewheres/authLimiter');
+const passwordController = require('../controllers/password.controller');
+const mfaController = require('../controllers/mfa.controller');
 const Upload = require('../utils/upload');
 const { writeAuditLog } = require('../utils/auditHelper');
 
@@ -36,6 +38,16 @@ const handle = (res, error) =>
 router.post('/login', authLimiter, async (req, res) => {
   try {
     const advocate = await portal.login(req.body.email, req.body.password);
+
+    // Same challenge shape the assessor and garage logins use, so the partner
+    // shell's existing MFA step works here unchanged. Without this the MFA
+    // routes below would let counsel enable a second factor that sign-in never
+    // asked for — worse than not offering it at all.
+    if (advocate.mfaEnabled) {
+      const mfaToken = tokenService.generateMfaChallengeToken(advocate._id, 'Advocate');
+      return res.status(200).json({ mfaRequired: true, mfaToken });
+    }
+
     const token = tokenService.GenerateToken(advocate);
 
     await writeAuditLog(req, {
@@ -57,6 +69,66 @@ router.post('/login', authLimiter, async (req, res) => {
     handle(res, error);
   }
 });
+
+/**
+ * Password recovery and the forced first-login change.
+ *
+ * These exist because an advocate is emailed a temporary password when they
+ * join a panel and must change it before doing anything. Without them the
+ * partner shell sends counsel to a change-password screen with no endpoint
+ * behind it, and a mislaid password becomes a support call to the insurer.
+ *
+ * change-password and the MFA routes run on the shared controllers that already
+ * serve assessors and garages: Advocate is registered in utils/userModels.js,
+ * so none of that logic is duplicated here.
+ */
+router.post('/forgot-password', authLimiter, async (req, res) => {
+  try {
+    if (!req.body.email) return res.status(400).json({ message: 'Email is required' });
+    res.status(200).json(await portal.forgotPassword(req.body.email));
+  } catch (error) {
+    handle(res, error);
+  }
+});
+
+router.post('/reset-password', authLimiter, async (req, res) => {
+  try {
+    const { email, token, newPassword } = req.body;
+    if (!email || !token || !newPassword) {
+      return res.status(400).json({ message: 'Email, token and newPassword are required' });
+    }
+    res.status(200).json(await portal.resetPassword(email, token, newPassword));
+  } catch (error) {
+    handle(res, error);
+  }
+});
+
+router.post(
+  '/change-password',
+  verifyToken(),
+  requireAdvocate,
+  passwordController.changePassword('Advocate')
+);
+
+// ── Own profile ──────────────────────────────────────────────────────────────
+// Contact details only. Panel standing — approval, rates, contract terms — is
+// the insurer's to set, and the id comes from the token, never the request.
+router.put('/profile', verifyToken(), requireAdvocate, async (req, res) => {
+  try {
+    const advocate = await portal.updateProfile(req.user.id, req.body);
+    res.status(200).json(advocate.toJSON());
+  } catch (error) {
+    handle(res, error);
+  }
+});
+
+// ── MFA ──────────────────────────────────────────────────────────────────────
+// verify-login is pre-authentication by nature; the rest act on the caller's
+// own account, which is why they are bound to 'Advocate' at this layer.
+router.post('/mfa/verify-login', authLimiter, mfaController.verifyLogin);
+router.post('/mfa/setup', verifyToken(), requireAdvocate, mfaController.setup('Advocate'));
+router.post('/mfa/enable', verifyToken(), requireAdvocate, mfaController.enable('Advocate'));
+router.post('/mfa/disable', verifyToken(), requireAdvocate, mfaController.disable('Advocate'));
 
 // ── Matters ──────────────────────────────────────────────────────────────────
 
