@@ -68,17 +68,49 @@ async function login(email, password) {
 }
 
 /** Every matter assigned to this advocate. The only list they ever see. */
-async function myCases(advocateId, { status } = {}) {
+/**
+ * Counsel's matters.
+ *
+ * `scope` is what the portal asks on: 'open' (the default), 'closed', or 'all'.
+ * Closed matters were previously unreachable — a matter counsel had run for
+ * three years vanished the day it was closed, taking the diary, the documents
+ * and their own progress reports with it. Counsel still needs that file: to
+ * bill against it, to answer a query on it, and to lift a pleading from it.
+ *
+ * `status` remains supported for an exact status.
+ */
+const OPEN_SCOPE = { $nin: ['closed'] };
+
+async function myCases(advocateId, { status, scope = 'open' } = {}) {
   const filter = { advocate: advocateId };
-  if (status) filter.status = Array.isArray(status) ? { $in: status } : status;
-  else filter.status = { $nin: ['closed'] };
+
+  if (status) {
+    filter.status = Array.isArray(status) ? { $in: status } : status;
+  } else if (scope === 'closed') {
+    filter.status = 'closed';
+  } else if (scope !== 'all') {
+    filter.status = OPEN_SCOPE;
+  }
+
+  /**
+   * Sorted by what the reader is looking for. An open matter is read forwards —
+   * what is due next; a closed one backwards — what ended most recently. Under
+   * 'all', closedAt ascending puts the still-open matters (which have none)
+   * first, so the live work stays at the top where it belongs.
+   */
+  const sort =
+    scope === 'closed' && !status
+      ? { closedAt: -1 }
+      : scope === 'all' && !status
+        ? { closedAt: 1, nextActionAt: 1 }
+        : { nextActionAt: 1 };
 
   const cases = await LegalCase.find(filter)
     .select(
       'caseNumber courtCaseNumber court courtStation status filedAt nextActionAt nextActionLabel ' +
-      'instructionsIssuedAt instructionsAcceptedAt lastProgressReportAt matterType plaintiffs'
+      'instructionsIssuedAt instructionsAcceptedAt lastProgressReportAt matterType plaintiffs closedAt'
     )
-    .sort({ nextActionAt: 1 })
+    .sort(sort)
     .lean();
 
   return cases;

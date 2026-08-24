@@ -2,6 +2,7 @@ const Settlement = require('../models/settlement.model');
 const ThirdPartyClaim = require('../models/thirdPartyClaim.model');
 const Counter = require('../models/counter.model');
 const ApiError = require('../utils/ApiError');
+const { searchRegex } = require('../utils/searchRegex');
 const logger = require('../middlewheres/logger');
 const money = require('../utils/money');
 const approvals = require('./approval.service');
@@ -473,11 +474,16 @@ async function withdraw(settlementId, reason, actor = null) {
 
 // ── Reads ────────────────────────────────────────────────────────────────────
 
-async function list({ company, status, thirdPartyClaim, page = 1, limit = 25 }) {
+async function list({ company, status, thirdPartyClaim, search, page = 1, limit = 25 }) {
   const filter = {};
   if (company) filter.company = company;
   if (status) filter.status = Array.isArray(status) ? { $in: status } : status;
   if (thirdPartyClaim) filter.thirdPartyClaim = thirdPartyClaim;
+
+  const rx = searchRegex(search);
+  if (rx) {
+    filter.$or = [{ reference: rx }, { 'payee.name': rx }, { paymentReference: rx }];
+  }
 
   const skip = (Math.max(1, Number(page)) - 1) * Number(limit);
   const [items, total] = await Promise.all([

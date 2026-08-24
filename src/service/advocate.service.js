@@ -6,6 +6,7 @@ const LegalEvent = require('../models/legalEvent.model');
 const Settlement = require('../models/settlement.model');
 const LegalLedgerEntry = require('../models/legalLedgerEntry.model');
 const ApiError = require('../utils/ApiError');
+const { searchRegex } = require('../utils/searchRegex');
 const logger = require('../middlewheres/logger');
 const money = require('../utils/money');
 const legalConfig = require('./legalConfig.service');
@@ -203,18 +204,44 @@ async function remove(id, actor = null) {
   return { advocate, openMattersRemaining: 0 };
 }
 
-async function list({ company, approved, active, search, county, court }) {
+/**
+ * The panel.
+ *
+ * Paginated like every other legal listing, and shaped the same way —
+ * { items, total, page, pages } — so one component on the client can drive all
+ * of them. A panel is small enough today that a caller may still ask for
+ * everything at once with a large limit.
+ */
+async function list({ company, approved, active, search, county, court, page = 1, limit = 25 }) {
   const filter = { company };
   if (approved !== undefined) filter.approved = approved === true || approved === 'true';
   if (active !== undefined) filter.active = active === true || active === 'true';
   if (county) filter.counties = county;
   if (court) filter.courts = court;
-  if (search) {
-    const rx = new RegExp(String(search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-    filter.$or = [{ name: rx }, { 'firm.name': rx }, { email: rx }, { lskNumber: rx }];
+
+  const rx = searchRegex(search);
+  if (rx) {
+    filter.$or = [
+      { name: rx },
+      { 'firm.name': rx },
+      { email: rx },
+      { lskNumber: rx },
+      { 'firm.lskNumber': rx },
+      { phone: rx },
+    ];
   }
 
-  return Advocate.find(filter).sort({ 'performance.rating': -1, name: 1 }).lean();
+  const skip = (Math.max(1, Number(page)) - 1) * Number(limit);
+  const [items, total] = await Promise.all([
+    Advocate.find(filter)
+      .sort({ 'performance.rating': -1, name: 1 })
+      .skip(skip)
+      .limit(Number(limit))
+      .lean(),
+    Advocate.countDocuments(filter),
+  ]);
+
+  return { items, total, page: Number(page), pages: Math.ceil(total / Number(limit)) || 1 };
 }
 
 async function getById(id) {

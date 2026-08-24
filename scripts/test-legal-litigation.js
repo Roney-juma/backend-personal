@@ -282,6 +282,41 @@ console.log('\n6. Judgment');
   check('judgment total is award plus interest plus costs', total === K(9090000));
 }
 
+// ── 6a. Search terms ─────────────────────────────────────────────────────────
+
+/**
+ * Legal references and firm names are full of regex operators. An unescaped one
+ * is either a 500 in the user's face or, worse, a filter that quietly matches
+ * far more than they asked for.
+ */
+console.log('\n6a. Search terms');
+{
+  const { searchRegex } = require('../src/utils/searchRegex');
+
+  check('an empty term does not filter at all', searchRegex('') === null);
+  check('whitespace is not a search', searchRegex('   ') === null);
+  check('undefined is not a search', searchRegex(undefined) === null);
+
+  check(
+    'a bare dot matches a dot, not everything',
+    searchRegex('.').test('.') && !searchRegex('.').test('abc')
+  );
+  check(
+    'brackets in a firm name do not throw',
+    searchRegex('Otieno & Co (Advocates)').test('otieno & co (advocates)')
+  );
+  check(
+    'a reference with a slash matches',
+    searchRegex('tpc-2026/0041').test('TPC-2026/0041')
+  );
+  check('matching is case-insensitive', searchRegex('WANJIKU').test('Grace Wanjiku'));
+  check('it matches partway through', searchRegex('anjik').test('Grace Wanjiku'));
+  check(
+    'an absurdly long term is truncated rather than run',
+    searchRegex('a'.repeat(500)).source.length <= 100
+  );
+}
+
 // ── 6b. Download naming ──────────────────────────────────────────────────────
 
 /**

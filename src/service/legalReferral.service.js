@@ -4,6 +4,7 @@ const Customer = require('../models/customerModel');
 const ThirdPartyClaim = require('../models/thirdPartyClaim.model');
 const Counter = require('../models/counter.model');
 const ApiError = require('../utils/ApiError');
+const { searchRegex } = require('../utils/searchRegex');
 const logger = require('../middlewheres/logger');
 const money = require('../utils/money');
 const legalConfig = require('./legalConfig.service');
@@ -395,12 +396,27 @@ async function notifyDecided(referral, decision) {
 
 // ── Reads ────────────────────────────────────────────────────────────────────
 
-async function list({ company, status, urgency, source, page = 1, limit = 25 }) {
+async function list({ company, status, urgency, source, search, page = 1, limit = 25 }) {
   const filter = {};
   if (company) filter.company = company;
   if (status) filter.status = status;
   if (urgency) filter.urgency = urgency;
   if (source) filter.source = source;
+
+  // The snapshot is what a referral is read by — a registration or an insured's
+  // name, not an id someone would have to look up first.
+  const rx = searchRegex(search);
+  if (rx) {
+    filter.$or = [
+      { reference: rx },
+      { legalIssue: rx },
+      { raisedByName: rx },
+      { 'snapshot.insuredName': rx },
+      { 'snapshot.claimantName': rx },
+      { 'snapshot.vehicleRegistration': rx },
+      { 'snapshot.policyNumber': rx },
+    ];
+  }
 
   const skip = (Math.max(1, Number(page)) - 1) * Number(limit);
   const [items, total] = await Promise.all([

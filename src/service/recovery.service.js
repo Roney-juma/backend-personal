@@ -3,6 +3,7 @@ const Claim = require('../models/claim.model');
 const ThirdPartyClaim = require('../models/thirdPartyClaim.model');
 const Counter = require('../models/counter.model');
 const ApiError = require('../utils/ApiError');
+const { searchRegex } = require('../utils/searchRegex');
 const logger = require('../middlewheres/logger');
 const money = require('../utils/money');
 const legalLedger = require('./legalLedger.service');
@@ -294,12 +295,25 @@ async function recordExpense(recoveryId, { amount, amountMinor, description }, a
 
 // ── Reads ────────────────────────────────────────────────────────────────────
 
-async function list({ company, status, claim, handler, page = 1, limit = 25 }) {
+async function list({ company, status, claim, handler, search, page = 1, limit = 25 }) {
   const filter = {};
   if (company) filter.company = company;
   if (status) filter.status = Array.isArray(status) ? { $in: status } : status;
   if (claim) filter.claim = claim;
   if (handler) filter.handler = handler;
+
+  // A recovery is chased by who owes us, so the target's own details are what
+  // anyone looking for one actually has.
+  const rx = searchRegex(search);
+  if (rx) {
+    filter.$or = [
+      { reference: rx },
+      { 'recoverFrom.name': rx },
+      { 'recoverFrom.insurer': rx },
+      { 'recoverFrom.policyNumber': rx },
+      { 'recoverFrom.claimReference': rx },
+    ];
+  }
 
   const skip = (Math.max(1, Number(page)) - 1) * Number(limit);
   const [items, total] = await Promise.all([
