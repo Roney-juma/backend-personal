@@ -150,6 +150,59 @@ async function suspend(id, reason, actor = null) {
   return { advocate, openMattersRemaining: open };
 }
 
+/**
+ * Remove an advocate from the panel.
+ *
+ * A soft delete, like every other delete on the platform: closed matters keep
+ * pointing at whoever defended them, and the reason a case settled where it did
+ * is not something to destroy because a contract ended years later.
+ *
+ * Refused while the advocate still holds open matters. Deleting counsel in the
+ * middle of live litigation leaves court files with nobody answering for them,
+ * and the diary still chasing progress reports from an advocate who is gone —
+ * suspension is what an insurer actually wants in that situation, and it keeps
+ * the history intact while excluding them from new work.
+ *
+ * @returns {Promise<{ advocate: Object, openMattersRemaining: number }>}
+ */
+async function remove(id, actor = null) {
+  const advocate = await Advocate.findById(id);
+  if (!advocate) throw new ApiError(404, 'Advocate not found');
+
+  const open = await LegalCase.countDocuments({
+    advocate: advocate._id,
+    status: { $nin: ['closed', 'resolution'] },
+  });
+  if (open > 0) {
+    throw new ApiError(
+      409,
+      `${advocate.name} is still counsel on ${open} open ${open === 1 ? 'matter' : 'matters'}. ` +
+      'Reassign those matters, or suspend the advocate instead — suspending stops new instructions ' +
+      'without abandoning live litigation.'
+    );
+  }
+
+  // Revoke portal access as part of the removal. The soft-delete plugin already
+  // hides the record from the login lookup, but a security property should not
+  // rest on a query hook alone — and clearing the credentials means a later
+  // restore has to issue new ones rather than silently reviving an old password.
+  advocate.active_account = false;
+  advocate.password = undefined;
+  advocate.mfaSecret = undefined;
+  advocate.fcmToken = undefined;
+  advocate.active = false;
+  await advocate.save();
+
+  await Advocate.softDeleteById(advocate._id);
+
+  logger.warn(
+    `[advocate] ${advocate.name} (${advocate.firm?.name}) removed from the panel by ` +
+    `${actor?.fullName || actor?.email || 'unknown'} — portal access revoked`
+  );
+
+  return { advocate, openMattersRemaining: 0 };
+}
+
 async function list({ company, approved, active, search, county, court }) {
   const filter = { company };
   if (approved !== undefined) filter.approved = approved === true || approved === 'true';
@@ -530,6 +583,7 @@ module.exports = {
   update,
   setApproval,
   suspend,
+  remove,
   list,
   getById,
   recomputePerformance,

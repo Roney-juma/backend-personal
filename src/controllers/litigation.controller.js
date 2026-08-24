@@ -27,6 +27,24 @@ async function scopedCase(req) {
   return { legalCase, company };
 }
 
+/**
+ * Resolve an advocate the caller is actually entitled to act on.
+ *
+ * Panels are confidential per insurer, so every advocate route needs this —
+ * holding UPDATE_ADVOCATE at one insurer must not let you approve, suspend,
+ * delete or reset the portal password of another insurer's counsel. Absent
+ * rather than forbidden, deliberately: 403 on an id that is not yours still
+ * confirms it exists, which tells you who is on a rival's panel.
+ */
+async function scopedAdvocate(req) {
+  const company = await getRequesterCompany(req);
+  const advocate = await Advocate.findById(req.params.id).select('company');
+  if (!advocate || !belongsToCompany(advocate.company, company)) {
+    throw new ApiError(404, 'Advocate not found');
+  }
+  return { advocate, company };
+}
+
 // ── Cases ────────────────────────────────────────────────────────────────────
 
 const listCases = async (req, res) => {
@@ -269,6 +287,7 @@ const updateAdvocate = async (req, res) => {
 
 const setAdvocateApproval = async (req, res) => {
   try {
+    await scopedAdvocate(req);
     const advocate = await advocateService.setApproval(req.params.id, req.body.approved, req.user);
 
     await writeAuditLog(req, {
@@ -290,6 +309,7 @@ const setAdvocateApproval = async (req, res) => {
 
 const suspendAdvocate = async (req, res) => {
   try {
+    await scopedAdvocate(req);
     const result = await advocateService.suspend(req.params.id, req.body.reason, req.user);
 
     await writeAuditLog(req, {
@@ -305,6 +325,32 @@ const suspendAdvocate = async (req, res) => {
     });
 
     res.status(200).json(result);
+  } catch (error) {
+    handle(res, error);
+  }
+};
+
+const deleteAdvocate = async (req, res) => {
+  try {
+    await scopedAdvocate(req);
+    const { advocate } = await advocateService.remove(req.params.id, req.user);
+
+    await writeAuditLog(req, {
+      action: 'DELETE',
+      module: 'Legal',
+      actionDescription:
+        `Removed ${advocate.name} (${advocate.firm?.name}) from the advocate panel; ` +
+        'portal access revoked',
+      resourceType: 'Advocate',
+      resourceId: advocate._id,
+      statusCode: 200,
+      success: true,
+      // The record survives the delete, so the audit entry records what was
+      // removed rather than only that something was.
+      changes: { old: { name: advocate.name, email: advocate.email, firm: advocate.firm?.name }, new: null },
+    });
+
+    res.status(200).json({ message: `${advocate.name} removed from the panel` });
   } catch (error) {
     handle(res, error);
   }
@@ -333,6 +379,7 @@ const suggestAdvocate = async (req, res) => {
 
 const recomputeAdvocatePerformance = async (req, res) => {
   try {
+    await scopedAdvocate(req);
     const performance = await advocateService.recomputePerformance(req.params.id);
     res.status(200).json(performance);
   } catch (error) {
@@ -342,6 +389,7 @@ const recomputeAdvocatePerformance = async (req, res) => {
 
 const issueAdvocateCredentials = async (req, res) => {
   try {
+    await scopedAdvocate(req);
     const advocate = await advocateService.issueCredentials(req.params.id, req.body.password, req.user);
 
     await writeAuditLog(req, {
@@ -556,6 +604,7 @@ module.exports = {
   updateAdvocate,
   setAdvocateApproval,
   suspendAdvocate,
+  deleteAdvocate,
   suggestAdvocate,
   recomputeAdvocatePerformance,
   issueAdvocateCredentials,
