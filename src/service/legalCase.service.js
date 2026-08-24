@@ -5,6 +5,7 @@ const Customer = require('../models/customerModel');
 const Advocate = require('../models/advocate.model');
 const Counter = require('../models/counter.model');
 const ApiError = require('../utils/ApiError');
+const { searchRegex } = require('../utils/searchRegex');
 const logger = require('../middlewheres/logger');
 const money = require('../utils/money');
 const legalLedger = require('./legalLedger.service');
@@ -500,13 +501,26 @@ async function close(caseId, data, actor = null) {
 
 // ── Reads ────────────────────────────────────────────────────────────────────
 
-async function list({ company, status, matterType, advocate, court, page = 1, limit = 25 }) {
+async function list({ company, status, matterType, advocate, court, search, page = 1, limit = 25 }) {
   const filter = {};
   if (company) filter.company = company;
   if (status) filter.status = Array.isArray(status) ? { $in: status } : status;
   if (matterType) filter.matterType = matterType;
   if (advocate) filter.advocate = advocate;
   if (court) filter.court = court;
+
+  // Whatever a legal officer has to hand: our reference, the court's, or a party.
+  const rx = searchRegex(search);
+  if (rx) {
+    filter.$or = [
+      { caseNumber: rx },
+      { courtCaseNumber: rx },
+      { court: rx },
+      { courtStation: rx },
+      { 'plaintiffs.name': rx },
+      { 'defendants.name': rx },
+    ];
+  }
 
   const skip = (Math.max(1, Number(page)) - 1) * Number(limit);
   const [items, total] = await Promise.all([
