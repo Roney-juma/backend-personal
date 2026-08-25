@@ -13,7 +13,8 @@
     "legal:seed": "node scripts/seed-legal-config.js",
     "legal:test": "node scripts/test-legal-ledger.js && node scripts/test-legal-guards.js && node scripts/test-legal-exposure.js && node scripts/test-legal-authority.js && node scripts/test-legal-litigation.js && node scripts/test-legal-recovery.js && node scripts/test-legal-referral.js",
     "audit:verify": "node scripts/verify-audit-chain.js",
-    "rbac:audit": "node scripts/audit-rbac-readiness.js"
+    "rbac:audit": "node scripts/audit-rbac-readiness.js",
+    "workspace:rename-tasks": "node scripts/rename-issues-to-tasks.js"
   },
   "author": "",
   "license": "ISC",

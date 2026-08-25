@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const Meeting = require('../models/meeting.model');
-const Issue = require('../models/issue.model');
+const Task = require('../models/task.model');
 const notify = require('./workspaceNotify.service');
 const logger = require('../middlewheres/logger');
 
@@ -154,14 +154,14 @@ const getAll = async ({ page = 1, limit = 25, sort = '-startAt', ...rest } = {})
   return { meetings, total, page: Number(page), limit: Number(limit), pages: Math.ceil(total / Number(limit)) };
 };
 
-/** Detail view: the meeting plus every issue raised against it. */
+/** Detail view: the meeting plus every task raised against it. */
 const getById = async (id) => {
   const meeting = await Meeting.findById(id).populate(POPULATE);
   if (!meeting) return null;
-  const issues = await Issue.find({ meeting: id })
+  const tasks = await Task.find({ meeting: id })
     .populate({ path: 'assignee', select: 'fullName email' })
     .sort({ createdAt: -1 });
-  return { meeting, issues };
+  return { meeting, tasks };
 };
 
 const update = async (id, data) => {
@@ -259,7 +259,7 @@ const complete = async (
   // Circulating minutes is a deliberate act, so it is opt-in: saving attendance
   // or adding a decision should not blast the room with a half-written record.
   if (sendMinutes) {
-    Issue.find({ meeting: id })
+    Task.find({ meeting: id })
       .select('title assigneeName dueAt')
       .then((actionItems) => notify.meetingMinutes(populated, actionItems))
       .catch((err) => logger.warn(`[meeting] minutes emails failed for ${populated.reference}: ${err.message}`));
@@ -284,10 +284,10 @@ const remove = async (id, scope = 'one') => {
 
 /**
  * Calendar feed for a date range. Returns a flat, render-ready event list —
- * meetings, plus (optionally) issue due dates so deadlines and sessions appear
+ * meetings, plus (optionally) task due dates so deadlines and sessions appear
  * on the same grid instead of in two places nobody cross-checks.
  */
-const calendar = async ({ from, to, type, organiser, includeIssues = 'true' }) => {
+const calendar = async ({ from, to, type, organiser, includeTasks = 'true' }) => {
   const start = from ? new Date(from) : new Date();
   const end = to ? new Date(to) : addInterval(start, 'monthly', 1);
 
@@ -321,17 +321,17 @@ const calendar = async ({ from, to, type, organiser, includeIssues = 'true' }) =
     colour: m.colour ?? null,
   }));
 
-  if (String(includeIssues) !== 'false') {
-    const issues = await Issue.find({
+  if (String(includeTasks) !== 'false') {
+    const tasks = await Task.find({
       dueAt: { $gte: start, $lte: end },
       status: { $nin: ['closed', 'wont_fix'] },
     })
       .populate({ path: 'assignee', select: 'fullName' })
       .sort({ dueAt: 1 });
 
-    issues.forEach((i) => {
+    tasks.forEach((i) => {
       events.push({
-        kind: 'issue',
+        kind: 'task',
         id: String(i._id),
         reference: i.reference,
         title: i.title,

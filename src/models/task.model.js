@@ -2,17 +2,17 @@ const mongoose = require('mongoose');
 const softDelete = require('./plugins/softDelete');
 
 /**
- * Issue — anything the platform team is tracking internally: a bug, a client
+ * Task — anything the platform team is tracking internally: a bug, a client
  * remark from a demo, a blocker, a risk, an action item out of a meeting.
  *
  * One tracker rather than several. An action item raised in a meeting is an
- * Issue with `meeting` set and `source: 'meeting'`; a remark a prospect made
- * during a demo is an Issue with `source: 'client_demo'` and the same meeting
+ * Task with `meeting` set and `source: 'meeting'`; a remark a prospect made
+ * during a demo is an Task with `source: 'client_demo'` and the same meeting
  * link. That way nothing lives only inside a minutes document, and the meeting
- * detail page can simply list the issues pointing at it.
+ * detail page can simply list the tasks pointing at it.
  */
 
-const ISSUE_TYPES = [
+const TASK_TYPES = [
   'bug',
   'feature_request',
   'client_feedback',
@@ -25,7 +25,7 @@ const ISSUE_TYPES = [
   'other',
 ];
 
-const ISSUE_STATUSES = ['open', 'in_progress', 'blocked', 'in_review', 'resolved', 'closed', 'wont_fix'];
+const TASK_STATUSES = ['open', 'in_progress', 'blocked', 'in_review', 'resolved', 'closed', 'wont_fix'];
 
 const PRIORITIES = ['low', 'medium', 'high', 'critical'];
 
@@ -83,16 +83,16 @@ const historySchema = new mongoose.Schema(
   { _id: false }
 );
 
-const issueSchema = new mongoose.Schema(
+const taskSchema = new mongoose.Schema(
   {
     reference: { type: String, unique: true },
 
     title: { type: String, required: true, trim: true },
     description: { type: String, trim: true },
 
-    type: { type: String, enum: ISSUE_TYPES, default: 'task', index: true },
+    type: { type: String, enum: TASK_TYPES, default: 'task', index: true },
     priority: { type: String, enum: PRIORITIES, default: 'medium', index: true },
-    status: { type: String, enum: ISSUE_STATUSES, default: 'open', index: true },
+    status: { type: String, enum: TASK_STATUSES, default: 'open', index: true },
     area: { type: String, enum: AREAS, default: 'other' },
 
     assignee: { type: mongoose.Schema.Types.ObjectId, ref: 'ProviderUser', index: true },
@@ -102,7 +102,7 @@ const issueSchema = new mongoose.Schema(
     watchers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ProviderUser' }],
 
     // Where it came from. `meeting` is set for anything raised in a session —
-    // the meeting detail page lists its issues by querying this field.
+    // the meeting detail page lists its tasks by querying this field.
     source: { type: String, enum: SOURCES, default: 'internal' },
     meeting: { type: mongoose.Schema.Types.ObjectId, ref: 'Meeting', index: true },
     // Optional client context: a live tenant, or a prospect by name.
@@ -122,35 +122,35 @@ const issueSchema = new mongoose.Schema(
     comments: [commentSchema],
     history: [historySchema],
 
-    // Free-form links to other issues (duplicates, blockers, follow-ups).
-    relatedIssues: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Issue' }],
+    // Free-form links to other tasks (duplicates, blockers, follow-ups).
+    relatedTasks: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Task' }],
   },
   { timestamps: true }
 );
 
-issueSchema.plugin(softDelete);
+taskSchema.plugin(softDelete);
 
-// Board columns, "my issues", and the overdue query respectively.
-issueSchema.index({ status: 1, priority: -1, updatedAt: -1 });
-issueSchema.index({ assignee: 1, status: 1 });
-issueSchema.index({ dueAt: 1, status: 1 });
-issueSchema.index({ title: 'text', description: 'text' });
+// Board columns, "my tasks", and the overdue query respectively.
+taskSchema.index({ status: 1, priority: -1, updatedAt: -1 });
+taskSchema.index({ assignee: 1, status: 1 });
+taskSchema.index({ dueAt: 1, status: 1 });
+taskSchema.index({ title: 'text', description: 'text' });
 
-issueSchema.pre('save', async function assignReference(next) {
+taskSchema.pre('save', async function assignReference(next) {
   if (this.reference) return next();
   const now = new Date();
   const yyyymm = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const count = await mongoose.model('Issue').countDocuments({}).setOptions({ withDeleted: true });
-  this.reference = `ISS-${yyyymm}-${String(count + 1).padStart(4, '0')}`;
+  const count = await mongoose.model('Task').countDocuments({}).setOptions({ withDeleted: true });
+  this.reference = `TSK-${yyyymm}-${String(count + 1).padStart(4, '0')}`;
   next();
 });
 
-const Issue = mongoose.model('Issue', issueSchema);
+const Task = mongoose.model('Task', taskSchema);
 
-Issue.ISSUE_TYPES = ISSUE_TYPES;
-Issue.ISSUE_STATUSES = ISSUE_STATUSES;
-Issue.PRIORITIES = PRIORITIES;
-Issue.AREAS = AREAS;
-Issue.SOURCES = SOURCES;
+Task.TASK_TYPES = TASK_TYPES;
+Task.TASK_STATUSES = TASK_STATUSES;
+Task.PRIORITIES = PRIORITIES;
+Task.AREAS = AREAS;
+Task.SOURCES = SOURCES;
 
-module.exports = Issue;
+module.exports = Task;

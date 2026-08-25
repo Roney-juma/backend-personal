@@ -41,8 +41,8 @@ router.use('/dashboard',     require('./providerDashboard.route'));
 router.use('/audit-logs',    require('./providerAuditLog.route'));
 router.use('/demo-requests', require('./demoRequest.route'));
 
-// Internal workspace: the platform team's own meetings/calendar and issue tracker.
+// Internal workspace: the platform team's own meetings/calendar and task tracker.
 router.use('/meetings',      require('./meeting.route'));
-router.use('/issues',        require('./issue.route'));
+router.use('/tasks',         require('./task.route'));
 
 module.exports = router;
