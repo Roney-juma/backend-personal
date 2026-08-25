@@ -1,4 +1,4 @@
-const Issue = require('../models/issue.model');
+const Task = require('../models/task.model');
 const notify = require('./workspaceNotify.service');
 const logger = require('../middlewheres/logger');
 
@@ -27,11 +27,11 @@ const actorFields = (actor) => ({
 /** Address of a populated ref, or null when it was never populated/set. */
 const emailOf = (ref) => (ref && typeof ref === 'object' ? ref.email ?? null : null);
 
-/** Everyone who should hear about an issue, minus whoever caused the event. */
-const followersOf = (issue, excludeId) => {
+/** Everyone who should hear about an task, minus whoever caused the event. */
+const followersOf = (task, excludeId) => {
   const out = [];
   const seen = new Set();
-  [issue.assignee, issue.reporter].forEach((ref) => {
+  [task.assignee, task.reporter].forEach((ref) => {
     const email = emailOf(ref);
     if (!email) return;
     if (excludeId && String(ref._id) === String(excludeId)) return;
@@ -46,20 +46,20 @@ const followersOf = (issue, excludeId) => {
 const create = async (data, actor) => {
   const who = actorFields(actor);
   const { notify: shouldNotify = true, ...rest } = data;
-  const issue = new Issue({
+  const task = new Task({
     ...rest,
     reporter: rest.reporter ?? who.id,
     reporterName: rest.reporterName ?? who.name,
   });
-  await issue.save();
-  const populated = await Issue.findById(issue._id).populate(POPULATE);
+  await task.save();
+  const populated = await Task.findById(task._id).populate(POPULATE);
 
   // Assigning to yourself needs no email — you already know.
   const assigneeId = populated.assignee?._id;
   if (shouldNotify && assigneeId && String(assigneeId) !== String(who.id)) {
     notify
-      .issueAssigned(populated, emailOf(populated.assignee), populated.assignee.fullName)
-      .catch((err) => logger.warn(`[issue] assignment email failed for ${populated.reference}: ${err.message}`));
+      .taskAssigned(populated, emailOf(populated.assignee), populated.assignee.fullName)
+      .catch((err) => logger.warn(`[task] assignment email failed for ${populated.reference}: ${err.message}`));
   }
 
   return populated;
@@ -99,14 +99,14 @@ const buildFilter = ({ status, priority, type, area, assignee, reporter, source,
 const getAll = async ({ page = 1, limit = 50, sort = '-updatedAt', ...rest } = {}) => {
   const filter = buildFilter(rest);
   const skip = (Number(page) - 1) * Number(limit);
-  const [issues, total] = await Promise.all([
-    Issue.find(filter).populate(POPULATE).sort(sort).skip(skip).limit(Number(limit)),
-    Issue.countDocuments(filter),
+  const [tasks, total] = await Promise.all([
+    Task.find(filter).populate(POPULATE).sort(sort).skip(skip).limit(Number(limit)),
+    Task.countDocuments(filter),
   ]);
-  return { issues, total, page: Number(page), limit: Number(limit), pages: Math.ceil(total / Number(limit)) };
+  return { tasks, total, page: Number(page), limit: Number(limit), pages: Math.ceil(total / Number(limit)) };
 };
 
-const getById = async (id) => Issue.findById(id).populate(POPULATE);
+const getById = async (id) => Task.findById(id).populate(POPULATE);
 
 /**
  * Update with an automatic audit trail. Only the fields that actually changed
@@ -115,20 +115,20 @@ const getById = async (id) => Issue.findById(id).populate(POPULATE);
  */
 const update = async (id, rawData, actor) => {
   const { notify: shouldNotify = true, ...data } = rawData;
-  const issue = await Issue.findById(id);
-  if (!issue) return null;
+  const task = await Task.findById(id);
+  if (!task) return null;
   const who = actorFields(actor);
 
-  const previousAssignee = issue.assignee ? String(issue.assignee) : null;
-  const previousStatus = issue.status;
+  const previousAssignee = task.assignee ? String(task.assignee) : null;
+  const previousStatus = task.status;
 
   const TRACKED = ['status', 'priority', 'assignee', 'type', 'area', 'dueAt'];
   TRACKED.forEach((field) => {
     if (!(field in data)) return;
-    const before = issue[field] == null ? '' : String(issue[field]);
+    const before = task[field] == null ? '' : String(task[field]);
     const after = data[field] == null ? '' : String(data[field]);
     if (before !== after) {
-      issue.history.push({
+      task.history.push({
         field,
         from: before || null,
         to: after || null,
@@ -140,37 +140,37 @@ const update = async (id, rawData, actor) => {
 
   Object.entries(data).forEach(([key, value]) => {
     if (['_id', 'reference', 'history', 'comments', 'createdAt', 'updatedAt'].includes(key)) return;
-    issue[key] = value;
+    task[key] = value;
   });
 
   if (data.status) {
-    if (data.status === 'in_progress' && !issue.startedAt) issue.startedAt = new Date();
-    if (data.status === 'resolved') issue.resolvedAt = issue.resolvedAt ?? new Date();
-    if (data.status === 'closed' || data.status === 'wont_fix') issue.closedAt = issue.closedAt ?? new Date();
+    if (data.status === 'in_progress' && !task.startedAt) task.startedAt = new Date();
+    if (data.status === 'resolved') task.resolvedAt = task.resolvedAt ?? new Date();
+    if (data.status === 'closed' || data.status === 'wont_fix') task.closedAt = task.closedAt ?? new Date();
     if (!TERMINAL.includes(data.status)) {
-      issue.resolvedAt = null;
-      issue.closedAt = null;
+      task.resolvedAt = null;
+      task.closedAt = null;
     }
   }
 
-  await issue.save();
-  const populated = await Issue.findById(id).populate(POPULATE);
+  await task.save();
+  const populated = await Task.findById(id).populate(POPULATE);
   if (!shouldNotify) return populated;
 
   // Reassignment: tell the new owner (unless they did it themselves).
   const nowAssignee = populated.assignee?._id ? String(populated.assignee._id) : null;
   if (nowAssignee && nowAssignee !== previousAssignee && nowAssignee !== String(who.id)) {
     notify
-      .issueAssigned(populated, emailOf(populated.assignee), populated.assignee.fullName)
-      .catch((err) => logger.warn(`[issue] assignment email failed for ${populated.reference}: ${err.message}`));
+      .taskAssigned(populated, emailOf(populated.assignee), populated.assignee.fullName)
+      .catch((err) => logger.warn(`[task] assignment email failed for ${populated.reference}: ${err.message}`));
   }
 
   // Closing out: tell the people following it, not the person who closed it.
   if (data.status && data.status !== previousStatus && TERMINAL.includes(data.status)) {
     const recipients = followersOf(populated, who.id);
     if (recipients.length > 0) {
-      notify.issueResolved(populated, recipients).catch((err) =>
-        logger.warn(`[issue] resolution emails failed for ${populated.reference}: ${err.message}`));
+      notify.taskResolved(populated, recipients).catch((err) =>
+        logger.warn(`[task] resolution emails failed for ${populated.reference}: ${err.message}`));
     }
   }
 
@@ -179,28 +179,28 @@ const update = async (id, rawData, actor) => {
 
 const addComment = async (id, body, actor) => {
   const who = actorFields(actor);
-  const issue = await Issue.findByIdAndUpdate(
+  const task = await Task.findByIdAndUpdate(
     id,
     { $push: { comments: { body, author: who.id, authorName: who.name } } },
     { new: true }
   ).populate(POPULATE);
-  if (!issue) return null;
+  if (!task) return null;
 
-  const recipients = followersOf(issue, who.id);
+  const recipients = followersOf(task, who.id);
   if (recipients.length > 0) {
     notify
-      .issueCommented(issue, { body, authorName: who.name }, recipients)
-      .catch((err) => logger.warn(`[issue] comment emails failed for ${issue.reference}: ${err.message}`));
+      .taskCommented(task, { body, authorName: who.name }, recipients)
+      .catch((err) => logger.warn(`[task] comment emails failed for ${task.reference}: ${err.message}`));
   }
 
-  return issue;
+  return task;
 };
 
-const remove = async (id) => Issue.softDeleteById(id);
+const remove = async (id) => Task.softDeleteById(id);
 
 /**
  * Board/report numbers. Everything here is computed server-side so the page
- * does not have to pull every issue just to count them.
+ * does not have to pull every task just to count them.
  */
 const summary = async () => {
   const now = new Date();
@@ -209,33 +209,33 @@ const summary = async () => {
 
   const [byStatus, byPriority, byType, byArea, overdue, unassigned, dueSoon, resolved30, topAssignees, resolutionTimes] =
     await Promise.all([
-      Issue.aggregate([{ $match: { deletedAt: null } }, { $group: { _id: '$status', count: { $sum: 1 } } }]),
-      Issue.aggregate([
+      Task.aggregate([{ $match: { deletedAt: null } }, { $group: { _id: '$status', count: { $sum: 1 } } }]),
+      Task.aggregate([
         { $match: { deletedAt: null, status: { $nin: TERMINAL } } },
         { $group: { _id: '$priority', count: { $sum: 1 } } },
       ]),
-      Issue.aggregate([
+      Task.aggregate([
         { $match: { deletedAt: null, status: { $nin: TERMINAL } } },
         { $group: { _id: '$type', count: { $sum: 1 } } },
         { $sort: { count: -1 } },
       ]),
-      Issue.aggregate([
+      Task.aggregate([
         { $match: { deletedAt: null, status: { $nin: TERMINAL } } },
         { $group: { _id: '$area', count: { $sum: 1 } } },
         { $sort: { count: -1 } },
       ]),
-      Issue.countDocuments({ dueAt: { $lt: now }, status: { $nin: TERMINAL } }),
-      Issue.countDocuments({ assignee: null, status: { $nin: TERMINAL } }),
-      Issue.countDocuments({ dueAt: { $gte: now, $lte: in7 }, status: { $nin: TERMINAL } }),
-      Issue.countDocuments({ resolvedAt: { $gte: last30 } }),
-      Issue.aggregate([
+      Task.countDocuments({ dueAt: { $lt: now }, status: { $nin: TERMINAL } }),
+      Task.countDocuments({ assignee: null, status: { $nin: TERMINAL } }),
+      Task.countDocuments({ dueAt: { $gte: now, $lte: in7 }, status: { $nin: TERMINAL } }),
+      Task.countDocuments({ resolvedAt: { $gte: last30 } }),
+      Task.aggregate([
         { $match: { deletedAt: null, status: { $nin: TERMINAL }, assignee: { $ne: null } } },
         { $group: { _id: '$assignee', name: { $first: '$assigneeName' }, count: { $sum: 1 } } },
         { $sort: { count: -1 } },
         { $limit: 8 },
       ]),
       // Mean days from creation to resolution over the last 30 days.
-      Issue.aggregate([
+      Task.aggregate([
         { $match: { deletedAt: null, resolvedAt: { $gte: last30 } } },
         { $project: { days: { $divide: [{ $subtract: ['$resolvedAt', '$createdAt'] }, 1000 * 60 * 60 * 24] } } },
         { $group: { _id: null, avgDays: { $avg: '$days' }, count: { $sum: 1 } } },

@@ -2,11 +2,11 @@ const emailService = require('./email.service');
 const logger = require('../middlewheres/logger');
 
 /**
- * Email notifications for the internal workspace (meetings + issues).
+ * Email notifications for the internal workspace (meetings + tasks).
  *
  * Every export here is fire-and-forget by contract: callers invoke them WITHOUT
  * awaiting, and each one swallows its own failures into a warning. A mail outage
- * must never fail the request that scheduled the meeting or assigned the issue.
+ * must never fail the request that scheduled the meeting or assigned the task.
  *
  * Note that `sendEmailNotification` also mirrors to WhatsApp where a phone can be
  * resolved for the address — that behaviour is centralised there on purpose, so
@@ -38,20 +38,45 @@ const agendaBlock = (meeting) => {
   return `\nAgenda:\n${lines.join('\n')}\n`;
 };
 
-/** Unique, non-empty recipient addresses. Skips attendees we have no email for. */
+/**
+ * Everyone who should receive mail about a meeting, deduplicated by address.
+ *
+ * "Attendees" is broader than the attendees array: the client contact person is
+ * who the meeting is *with* and is rarely also typed in as a guest, and the
+ * organiser needs their own copy — otherwise a session booked for two other
+ * people leaves the person who arranged it with no record of it.
+ *
+ * Addresses we do not have are skipped silently; a named attendee with no email
+ * is a display detail, not an error.
+ */
 const recipientsOf = (meeting, { excludeEmail } = {}) => {
   const seen = new Set();
   const out = [];
-  (meeting.attendees ?? []).forEach((a) => {
-    // A populated staff attendee carries the address on the user document.
-    const email = a.email || (a.user && typeof a.user === 'object' ? a.user.email : null);
+
+  const add = (email, name) => {
     if (!email) return;
-    const key = String(email).toLowerCase();
-    if (key === String(excludeEmail ?? '').toLowerCase()) return;
+    const key = String(email).trim().toLowerCase();
+    if (!key) return;
+    if (key === String(excludeEmail ?? '').trim().toLowerCase()) return;
     if (seen.has(key)) return;
     seen.add(key);
-    out.push({ email, name: a.name });
+    out.push({ email, name });
+  };
+
+  (meeting.attendees ?? []).forEach((a) => {
+    // A populated staff attendee carries the address on the user document.
+    add(a.email || (a.user && typeof a.user === 'object' ? a.user.email : null), a.name);
   });
+
+  // The client contact — the whole point of a client-facing session.
+  add(meeting.client?.contactEmail, meeting.client?.contactName || meeting.client?.name);
+
+  // The organiser's own copy. Deduplicated above if they are also an attendee.
+  add(
+    meeting.organiser && typeof meeting.organiser === 'object' ? meeting.organiser.email : null,
+    meeting.organiserName,
+  );
+
   return out;
 };
 
@@ -154,67 +179,70 @@ const meetingMinutes = async (meeting, actionItems = []) => {
 };
 
 /**
- * Issue assigned to someone. `assigneeEmail` is resolved by the caller, which
+ * Task assigned to someone. `assigneeEmail` is resolved by the caller, which
  * already has the populated document.
  */
-const issueAssigned = async (issue, assigneeEmail, assigneeName) => {
+const taskAssigned = async (task, assigneeEmail, assigneeName) => {
   if (!assigneeEmail) return;
-  const subject = `Assigned to you: ${issue.reference} — ${issue.title}`;
+  const subject = `Assigned to you: ${task.reference} — ${task.title}`;
   const body =
     `Hello ${assigneeName || 'there'},\n\n` +
-    `An issue has been assigned to you.\n\n` +
-    `Reference: ${issue.reference}\n` +
-    `Title:     ${issue.title}\n` +
-    `Type:      ${issue.type}\n` +
-    `Priority:  ${issue.priority}\n` +
-    `Area:      ${issue.area}\n` +
-    (issue.dueAt ? `Due:       ${new Date(issue.dueAt).toLocaleDateString('en-GB')}\n` : '') +
-    (issue.description ? `\nDescription:\n${issue.description}\n` : '') +
-    (issue.reporterName ? `\nRaised by: ${issue.reporterName}\n` : '') +
+    `An task has been assigned to you.\n\n` +
+    `Reference: ${task.reference}\n` +
+    `Title:     ${task.title}\n` +
+    `Type:      ${task.type}\n` +
+    `Priority:  ${task.priority}\n` +
+    `Area:      ${task.area}\n` +
+    (task.dueAt ? `Due:       ${new Date(task.dueAt).toLocaleDateString('en-GB')}\n` : '') +
+    (task.description ? `\nDescription:\n${task.description}\n` : '') +
+    (task.reporterName ? `\nRaised by: ${task.reporterName}\n` : '') +
     `\n— ${APP_NAME}`;
 
   try {
     await emailService.sendEmailNotification(assigneeEmail, subject, body);
   } catch (err) {
-    logger.warn(`[workspaceNotify] issueAssigned email failed | to=${assigneeEmail} | ${err.message}`);
+    logger.warn(`[workspaceNotify] taskAssigned email failed | to=${assigneeEmail} | ${err.message}`);
   }
 };
 
 /** Someone commented — tell the assignee and reporter, but never the author. */
-const issueCommented = async (issue, comment, recipients = []) => {
-  const subject = `New comment on ${issue.reference}: ${issue.title}`;
+const taskCommented = async (task, comment, recipients = []) => {
+  const subject = `New comment on ${task.reference}: ${task.title}`;
   const body = (r) =>
     `Hello ${r.name || 'there'},\n\n` +
-    `${comment.authorName || 'Someone'} commented on an issue you are following.\n\n` +
+    `${comment.authorName || 'Someone'} commented on an task you are following.\n\n` +
     `${comment.body}\n\n` +
-    `Reference: ${issue.reference}\n` +
-    `Title:     ${issue.title}\n` +
-    `Status:    ${issue.status}\n\n` +
+    `Reference: ${task.reference}\n` +
+    `Title:     ${task.title}\n` +
+    `Status:    ${task.status}\n\n` +
     `— ${APP_NAME}`;
 
-  await fanOut(recipients, subject, body, 'issueCommented');
+  await fanOut(recipients, subject, body, 'taskCommented');
 };
 
-/** Issue closed out — let the reporter know their item landed. */
-const issueResolved = async (issue, recipients = []) => {
-  const subject = `Resolved: ${issue.reference} — ${issue.title}`;
+/** Task closed out — let the reporter know their item landed. */
+const taskResolved = async (task, recipients = []) => {
+  const subject = `Resolved: ${task.reference} — ${task.title}`;
   const body = (r) =>
     `Hello ${r.name || 'there'},\n\n` +
-    `An issue you are following has been marked ${issue.status}.\n\n` +
-    `Reference: ${issue.reference}\n` +
-    `Title:     ${issue.title}\n` +
-    (issue.resolution ? `\nResolution:\n${issue.resolution}\n` : '') +
+    `An task you are following has been marked ${task.status}.\n\n` +
+    `Reference: ${task.reference}\n` +
+    `Title:     ${task.title}\n` +
+    (task.resolution ? `\nResolution:\n${task.resolution}\n` : '') +
     `\n— ${APP_NAME}`;
 
-  await fanOut(recipients, subject, body, 'issueResolved');
+  await fanOut(recipients, subject, body, 'taskResolved');
 };
 
 module.exports = {
+  // Exported so callers can report who will be contacted without sending, and
+  // so the dedup/ordering rules are directly testable.
+  recipientsOf,
   meetingScheduled,
   meetingUpdated,
   meetingCancelled,
   meetingMinutes,
-  issueAssigned,
-  issueCommented,
-  issueResolved,
+  taskAssigned,
+  taskCommented,
+  taskResolved,
 };
