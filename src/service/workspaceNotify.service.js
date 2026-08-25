@@ -1,0 +1,220 @@
+const emailService = require('./email.service');
+const logger = require('../middlewheres/logger');
+
+/**
+ * Email notifications for the internal workspace (meetings + issues).
+ *
+ * Every export here is fire-and-forget by contract: callers invoke them WITHOUT
+ * awaiting, and each one swallows its own failures into a warning. A mail outage
+ * must never fail the request that scheduled the meeting or assigned the issue.
+ *
+ * Note that `sendEmailNotification` also mirrors to WhatsApp where a phone can be
+ * resolved for the address — that behaviour is centralised there on purpose, so
+ * nothing extra is needed (or wanted) here.
+ */
+
+const APP_NAME = 'AVICS';
+
+const fmtWhen = (date) => {
+  if (!date) return 'TBC';
+  return new Date(date).toLocaleString('en-GB', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+};
+
+/** Where the meeting happens, in one line, whatever the format. */
+const fmtWhere = (meeting) => {
+  if (meeting.format === 'in_person') return meeting.location || 'In person — location TBC';
+  const link = meeting.meetingLink ? `Online — ${meeting.meetingLink}` : 'Online — link to follow';
+  if (meeting.format === 'hybrid') return `${meeting.location || 'In person — location TBC'} / ${link}`;
+  return link;
+};
+
+const agendaBlock = (meeting) => {
+  const items = (meeting.agenda ?? []).filter((a) => a.item);
+  if (items.length === 0) return '';
+  const lines = items.map((a, i) => `  ${i + 1}. ${a.item}${a.presenterName ? ` (${a.presenterName})` : ''}`);
+  return `\nAgenda:\n${lines.join('\n')}\n`;
+};
+
+/** Unique, non-empty recipient addresses. Skips attendees we have no email for. */
+const recipientsOf = (meeting, { excludeEmail } = {}) => {
+  const seen = new Set();
+  const out = [];
+  (meeting.attendees ?? []).forEach((a) => {
+    // A populated staff attendee carries the address on the user document.
+    const email = a.email || (a.user && typeof a.user === 'object' ? a.user.email : null);
+    if (!email) return;
+    const key = String(email).toLowerCase();
+    if (key === String(excludeEmail ?? '').toLowerCase()) return;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ email, name: a.name });
+  });
+  return out;
+};
+
+/** Send one email per recipient, never rejecting. Returns how many were sent. */
+const fanOut = async (recipients, subject, bodyFor, context) => {
+  if (recipients.length === 0) return 0;
+  const results = await Promise.allSettled(
+    recipients.map((r) => emailService.sendEmailNotification(r.email, subject, bodyFor(r))),
+  );
+  results.forEach((res, i) => {
+    if (res.status === 'rejected') {
+      logger.warn(`[workspaceNotify] ${context} email failed | to=${recipients[i].email} | ${res.reason?.message}`);
+    }
+  });
+  return results.filter((r) => r.status === 'fulfilled').length;
+};
+
+/**
+ * New meeting on the calendar — invite everyone with an address.
+ * For a recurring series this is called ONCE with `seriesCount`, so attendees
+ * get a single invitation naming the cadence rather than one mail per occurrence.
+ */
+const meetingScheduled = async (meeting, { seriesCount } = {}) => {
+  const recipients = recipientsOf(meeting);
+  const subject = `Meeting invitation: ${meeting.title}`;
+  const repeats =
+    seriesCount && seriesCount > 1
+      ? `Repeats: ${meeting.recurrence?.frequency ?? 'recurring'} — ${seriesCount} occurrences, first shown above\n`
+      : '';
+  const body = (r) =>
+    `Hello ${r.name || 'there'},\n\n` +
+    `You have been invited to a meeting.\n\n` +
+    `What:  ${meeting.title}\n` +
+    `When:  ${fmtWhen(meeting.startAt)}${meeting.durationMinutes ? ` (${meeting.durationMinutes} minutes)` : ''}\n` +
+    `Where: ${fmtWhere(meeting)}\n` +
+    `Organiser: ${meeting.organiserName || 'AVE Africa'}\n` +
+    repeats +
+    (meeting.purpose ? `\nPurpose:\n${meeting.purpose}\n` : '') +
+    agendaBlock(meeting) +
+    `\nReference: ${meeting.reference}\n\n` +
+    `— ${APP_NAME}`;
+
+  const sent = await fanOut(recipients, subject, body, 'meetingScheduled');
+  logger.info(`[workspaceNotify] meeting ${meeting.reference} invitations sent | ${sent}/${recipients.length}`);
+};
+
+/** Time, location or format moved — tell people what changed. */
+const meetingUpdated = async (meeting, changes = []) => {
+  const recipients = recipientsOf(meeting);
+  const subject = `Updated: ${meeting.title}`;
+  const changeLines = changes.length ? `\nWhat changed:\n${changes.map((c) => `  - ${c}`).join('\n')}\n` : '';
+  const body = (r) =>
+    `Hello ${r.name || 'there'},\n\n` +
+    `A meeting on your calendar has been updated.\n` +
+    changeLines +
+    `\nWhat:  ${meeting.title}\n` +
+    `When:  ${fmtWhen(meeting.startAt)}\n` +
+    `Where: ${fmtWhere(meeting)}\n` +
+    `\nReference: ${meeting.reference}\n\n` +
+    `— ${APP_NAME}`;
+
+  await fanOut(recipients, subject, body, 'meetingUpdated');
+};
+
+const meetingCancelled = async (meeting) => {
+  const recipients = recipientsOf(meeting);
+  const subject = `Cancelled: ${meeting.title}`;
+  const body = (r) =>
+    `Hello ${r.name || 'there'},\n\n` +
+    `The following meeting has been cancelled.\n\n` +
+    `What: ${meeting.title}\n` +
+    `When: ${fmtWhen(meeting.startAt)}\n` +
+    (meeting.cancelledReason ? `\nReason: ${meeting.cancelledReason}\n` : '') +
+    `\nReference: ${meeting.reference}\n\n` +
+    `— ${APP_NAME}`;
+
+  await fanOut(recipients, subject, body, 'meetingCancelled');
+};
+
+/** Minutes published after a session is closed out. */
+const meetingMinutes = async (meeting, actionItems = []) => {
+  const recipients = recipientsOf(meeting);
+  const decisions = (meeting.decisions ?? []).map((d) => `  - ${d.text}`).join('\n');
+  const actions = actionItems
+    .map((i) => `  - ${i.title} (${i.assigneeName || 'unassigned'}${i.dueAt ? `, due ${new Date(i.dueAt).toLocaleDateString('en-GB')}` : ''})`)
+    .join('\n');
+
+  const subject = `Minutes: ${meeting.title}`;
+  const body = (r) =>
+    `Hello ${r.name || 'there'},\n\n` +
+    `Here is the record of ${meeting.title} held on ${fmtWhen(meeting.startAt)}.\n` +
+    (meeting.outcome ? `\nOutcome: ${meeting.outcome}\n` : '') +
+    (meeting.minutes ? `\nNotes:\n${meeting.minutes}\n` : '') +
+    (decisions ? `\nDecisions:\n${decisions}\n` : '') +
+    (actions ? `\nAction items:\n${actions}\n` : '') +
+    `\nReference: ${meeting.reference}\n\n` +
+    `— ${APP_NAME}`;
+
+  await fanOut(recipients, subject, body, 'meetingMinutes');
+};
+
+/**
+ * Issue assigned to someone. `assigneeEmail` is resolved by the caller, which
+ * already has the populated document.
+ */
+const issueAssigned = async (issue, assigneeEmail, assigneeName) => {
+  if (!assigneeEmail) return;
+  const subject = `Assigned to you: ${issue.reference} — ${issue.title}`;
+  const body =
+    `Hello ${assigneeName || 'there'},\n\n` +
+    `An issue has been assigned to you.\n\n` +
+    `Reference: ${issue.reference}\n` +
+    `Title:     ${issue.title}\n` +
+    `Type:      ${issue.type}\n` +
+    `Priority:  ${issue.priority}\n` +
+    `Area:      ${issue.area}\n` +
+    (issue.dueAt ? `Due:       ${new Date(issue.dueAt).toLocaleDateString('en-GB')}\n` : '') +
+    (issue.description ? `\nDescription:\n${issue.description}\n` : '') +
+    (issue.reporterName ? `\nRaised by: ${issue.reporterName}\n` : '') +
+    `\n— ${APP_NAME}`;
+
+  try {
+    await emailService.sendEmailNotification(assigneeEmail, subject, body);
+  } catch (err) {
+    logger.warn(`[workspaceNotify] issueAssigned email failed | to=${assigneeEmail} | ${err.message}`);
+  }
+};
+
+/** Someone commented — tell the assignee and reporter, but never the author. */
+const issueCommented = async (issue, comment, recipients = []) => {
+  const subject = `New comment on ${issue.reference}: ${issue.title}`;
+  const body = (r) =>
+    `Hello ${r.name || 'there'},\n\n` +
+    `${comment.authorName || 'Someone'} commented on an issue you are following.\n\n` +
+    `${comment.body}\n\n` +
+    `Reference: ${issue.reference}\n` +
+    `Title:     ${issue.title}\n` +
+    `Status:    ${issue.status}\n\n` +
+    `— ${APP_NAME}`;
+
+  await fanOut(recipients, subject, body, 'issueCommented');
+};
+
+/** Issue closed out — let the reporter know their item landed. */
+const issueResolved = async (issue, recipients = []) => {
+  const subject = `Resolved: ${issue.reference} — ${issue.title}`;
+  const body = (r) =>
+    `Hello ${r.name || 'there'},\n\n` +
+    `An issue you are following has been marked ${issue.status}.\n\n` +
+    `Reference: ${issue.reference}\n` +
+    `Title:     ${issue.title}\n` +
+    (issue.resolution ? `\nResolution:\n${issue.resolution}\n` : '') +
+    `\n— ${APP_NAME}`;
+
+  await fanOut(recipients, subject, body, 'issueResolved');
+};
+
+module.exports = {
+  meetingScheduled,
+  meetingUpdated,
+  meetingCancelled,
+  meetingMinutes,
+  issueAssigned,
+  issueCommented,
+  issueResolved,
+};

@@ -235,8 +235,12 @@ async function diary({ company, from, to, status, responsible, court, kind, incl
     .populate('legalCase', 'caseNumber courtCaseNumber court')
     .lean();
 
+  // A query string carries "false" as a string, which is truthy — so the flag
+  // silently never turned anything off for an HTTP caller.
+  const wantOverdue = includeOverdue !== false && includeOverdue !== 'false';
+
   let overdue = [];
-  if (includeOverdue) {
+  if (wantOverdue) {
     overdue = await LegalEvent.find({
       ...base,
       status: { $in: ['scheduled', 'pending', 'missed'] },

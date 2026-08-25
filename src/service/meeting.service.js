@@ -1,6 +1,8 @@
 const mongoose = require('mongoose');
 const Meeting = require('../models/meeting.model');
 const Issue = require('../models/issue.model');
+const notify = require('./workspaceNotify.service');
+const logger = require('../middlewheres/logger');
 
 const POPULATE = [
   { path: 'organiser', select: 'fullName email profilePictureUrl' },
@@ -48,10 +50,13 @@ const actorFields = (actor) => ({
  */
 const create = async (data, actor) => {
   const who = actorFields(actor);
+  // `notify` is a request flag, not a stored field — strip it before it reaches
+  // the document.
+  const { notify: shouldNotify = true, ...rest } = data;
   const base = {
-    ...data,
-    organiser: data.organiser ?? who.id,
-    organiserName: data.organiserName ?? who.name,
+    ...rest,
+    organiser: rest.organiser ?? who.id,
+    organiserName: rest.organiserName ?? who.name,
   };
 
   const frequency = base.recurrence?.frequency ?? 'none';
@@ -60,7 +65,13 @@ const create = async (data, actor) => {
   if (frequency === 'none' || count <= 1) {
     const meeting = new Meeting(base);
     await meeting.save();
-    return Meeting.findById(meeting._id).populate(POPULATE);
+    const populated = await Meeting.findById(meeting._id).populate(POPULATE);
+    if (shouldNotify) {
+      // Fire-and-forget: a mail outage must not fail the scheduling request.
+      notify.meetingScheduled(populated).catch((err) =>
+        logger.warn(`[meeting] invitation emails failed for ${populated.reference}: ${err.message}`));
+    }
+    return populated;
   }
 
   const seriesId = new mongoose.Types.ObjectId();
@@ -79,7 +90,15 @@ const create = async (data, actor) => {
     created.push(occurrence);
   }
 
-  return Meeting.findById(created[0]._id).populate(POPULATE);
+  const populated = await Meeting.findById(created[0]._id).populate(POPULATE);
+  if (shouldNotify) {
+    // One invitation for the series, not one per occurrence — the alternative is
+    // 52 near-identical emails landing at once.
+    notify
+      .meetingScheduled(populated, { seriesCount: created.length })
+      .catch((err) => logger.warn(`[meeting] series invitations failed for ${populated.reference}: ${err.message}`));
+  }
+  return populated;
 };
 
 const buildFilter = ({ type, status, organiser, clientCompany, from, to, q, tag }) => {
@@ -122,11 +141,47 @@ const getById = async (id) => {
 };
 
 const update = async (id, data) => {
-  const payload = { ...data };
+  const { notify: shouldNotify = true, ...payload } = data;
   // Keep the completion timestamp honest without making callers set it.
   if (payload.status === 'completed' && !payload.completedAt) payload.completedAt = new Date();
   if (payload.status && payload.status !== 'completed') payload.completedAt = null;
-  return Meeting.findByIdAndUpdate(id, payload, { new: true, runValidators: true }).populate(POPULATE);
+
+  // Read the old values first so we can describe what actually moved. Without
+  // this the "updated" email says something changed but not what.
+  const before = await Meeting.findById(id).select('startAt endAt location meetingLink format status');
+  if (!before) return null;
+
+  const meeting = await Meeting.findByIdAndUpdate(id, payload, { new: true, runValidators: true }).populate(POPULATE);
+  if (!meeting || !shouldNotify) return meeting;
+
+  if (payload.status === 'cancelled' && before.status !== 'cancelled') {
+    notify.meetingCancelled(meeting).catch((err) =>
+      logger.warn(`[meeting] cancellation emails failed for ${meeting.reference}: ${err.message}`));
+    return meeting;
+  }
+
+  const changes = [];
+  if (payload.startAt && new Date(payload.startAt).getTime() !== before.startAt?.getTime()) {
+    changes.push(`Moved to ${new Date(meeting.startAt).toLocaleString('en-GB')}`);
+  }
+  if (payload.location !== undefined && payload.location !== before.location) {
+    changes.push(`Location is now ${meeting.location || 'TBC'}`);
+  }
+  if (payload.meetingLink !== undefined && payload.meetingLink !== before.meetingLink) {
+    changes.push('The meeting link changed');
+  }
+  if (payload.format && payload.format !== before.format) {
+    changes.push(`Format is now ${meeting.format.replace('_', ' ')}`);
+  }
+
+  // Only the changes attendees need to act on are worth an email — editing the
+  // agenda or ticking items off is not one of them.
+  if (changes.length > 0) {
+    notify.meetingUpdated(meeting, changes).catch((err) =>
+      logger.warn(`[meeting] update emails failed for ${meeting.reference}: ${err.message}`));
+  }
+
+  return meeting;
 };
 
 /**
@@ -134,7 +189,11 @@ const update = async (id, data) => {
  * Separate from update() because this is a distinct action in the UI and it is
  * the moment attendance stops being a guess.
  */
-const complete = async (id, { minutes, outcome, decisions, attendance }, actor) => {
+const complete = async (
+  id,
+  { minutes, outcome, decisions, attendance, sendMinutes = false, markCompleted = true },
+  actor,
+) => {
   const meeting = await Meeting.findById(id);
   if (!meeting) return null;
   const who = actorFields(actor);
@@ -163,10 +222,26 @@ const complete = async (id, { minutes, outcome, decisions, attendance }, actor) 
     });
   }
 
-  meeting.status = 'completed';
-  meeting.completedAt = new Date();
+  // Recording a decision or saving attendance mid-meeting must NOT close it out,
+  // so status only moves when the caller actually meant to end the session.
+  if (markCompleted) {
+    meeting.status = 'completed';
+    meeting.completedAt = new Date();
+  }
   await meeting.save();
-  return Meeting.findById(id).populate(POPULATE);
+
+  const populated = await Meeting.findById(id).populate(POPULATE);
+
+  // Circulating minutes is a deliberate act, so it is opt-in: saving attendance
+  // or adding a decision should not blast the room with a half-written record.
+  if (sendMinutes) {
+    Issue.find({ meeting: id })
+      .select('title assigneeName dueAt')
+      .then((actionItems) => notify.meetingMinutes(populated, actionItems))
+      .catch((err) => logger.warn(`[meeting] minutes emails failed for ${populated.reference}: ${err.message}`));
+  }
+
+  return populated;
 };
 
 /** `scope: 'series'` removes every remaining occurrence, not just this one. */
