@@ -61,7 +61,7 @@ const SOURCES = [
 const commentSchema = new mongoose.Schema(
   {
     body: { type: String, required: true, trim: true },
-    author: { type: mongoose.Schema.Types.ObjectId, ref: 'providerUser' },
+    author: { type: mongoose.Schema.Types.ObjectId, ref: 'ProviderUser' },
     authorName: { type: String, trim: true },
   },
   { _id: true, timestamps: true }
@@ -76,7 +76,7 @@ const historySchema = new mongoose.Schema(
     field: { type: String, required: true },
     from: { type: String },
     to: { type: String },
-    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'providerUser' },
+    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'ProviderUser' },
     changedByName: { type: String, trim: true },
     changedAt: { type: Date, default: Date.now },
   },
@@ -95,11 +95,11 @@ const issueSchema = new mongoose.Schema(
     status: { type: String, enum: ISSUE_STATUSES, default: 'open', index: true },
     area: { type: String, enum: AREAS, default: 'other' },
 
-    assignee: { type: mongoose.Schema.Types.ObjectId, ref: 'providerUser', index: true },
+    assignee: { type: mongoose.Schema.Types.ObjectId, ref: 'ProviderUser', index: true },
     assigneeName: { type: String, trim: true },
-    reporter: { type: mongoose.Schema.Types.ObjectId, ref: 'providerUser' },
+    reporter: { type: mongoose.Schema.Types.ObjectId, ref: 'ProviderUser' },
     reporterName: { type: String, trim: true },
-    watchers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'providerUser' }],
+    watchers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ProviderUser' }],
 
     // Where it came from. `meeting` is set for anything raised in a session —
     // the meeting detail page lists its issues by querying this field.

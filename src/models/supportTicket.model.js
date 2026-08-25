@@ -29,7 +29,7 @@ const supportTicketSchema = new mongoose.Schema(
       enum: ['billing', 'technical', 'account', 'general', 'bug', 'feature_request', 'performance', 'data_issue', 'other'],
       default: 'general',
     },
-    assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'providerUser' },
+    assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'ProviderUser' },
     messages: [ticketMessageSchema],
     resolvedAt: { type: Date },
     closedAt: { type: Date },

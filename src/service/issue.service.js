@@ -2,6 +2,12 @@ const Issue = require('../models/issue.model');
 const notify = require('./workspaceNotify.service');
 const logger = require('../middlewheres/logger');
 
+// Populate targets must be registered before the first populate() call — see the
+// same note in meeting.service.js. 'ProviderUser' is case-sensitive.
+require('../models/providerUser.model');
+require('../models/insuranceCompany.model');
+require('../models/meeting.model');
+
 const POPULATE = [
   { path: 'assignee', select: 'fullName email profilePictureUrl' },
   { path: 'reporter', select: 'fullName email' },

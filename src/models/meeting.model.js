@@ -36,7 +36,7 @@ const agendaItemSchema = new mongoose.Schema(
   {
     order: { type: Number, default: 0 },
     item: { type: String, required: true, trim: true },
-    presenter: { type: mongoose.Schema.Types.ObjectId, ref: 'providerUser' },
+    presenter: { type: mongoose.Schema.Types.ObjectId, ref: 'ProviderUser' },
     presenterName: { type: String, trim: true },
     durationMinutes: { type: Number },
     notes: { type: String, trim: true },
@@ -52,7 +52,7 @@ const agendaItemSchema = new mongoose.Schema(
  */
 const attendeeSchema = new mongoose.Schema(
   {
-    user: { type: mongoose.Schema.Types.ObjectId, ref: 'providerUser' },
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'ProviderUser' },
     name: { type: String, required: true, trim: true },
     email: { type: String, trim: true, lowercase: true },
     title: { type: String, trim: true },
@@ -68,7 +68,7 @@ const attendeeSchema = new mongoose.Schema(
 const decisionSchema = new mongoose.Schema(
   {
     text: { type: String, required: true, trim: true },
-    decidedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'providerUser' },
+    decidedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'ProviderUser' },
     decidedByName: { type: String, trim: true },
     decidedAt: { type: Date, default: Date.now },
   },
@@ -94,7 +94,7 @@ const meetingSchema = new mongoose.Schema(
     location: { type: String, trim: true },
     meetingLink: { type: String, trim: true },
 
-    organiser: { type: mongoose.Schema.Types.ObjectId, ref: 'providerUser', index: true },
+    organiser: { type: mongoose.Schema.Types.ObjectId, ref: 'ProviderUser', index: true },
     organiserName: { type: String, trim: true },
     attendees: [attendeeSchema],
 
