@@ -1,4 +1,6 @@
 const Issue = require('../models/issue.model');
+const notify = require('./workspaceNotify.service');
+const logger = require('../middlewheres/logger');
 
 const POPULATE = [
   { path: 'assignee', select: 'fullName email profilePictureUrl' },
@@ -16,15 +18,45 @@ const actorFields = (actor) => ({
   name: actor?.fullName ?? actor?.username ?? actor?.email ?? 'Unknown',
 });
 
+/** Address of a populated ref, or null when it was never populated/set. */
+const emailOf = (ref) => (ref && typeof ref === 'object' ? ref.email ?? null : null);
+
+/** Everyone who should hear about an issue, minus whoever caused the event. */
+const followersOf = (issue, excludeId) => {
+  const out = [];
+  const seen = new Set();
+  [issue.assignee, issue.reporter].forEach((ref) => {
+    const email = emailOf(ref);
+    if (!email) return;
+    if (excludeId && String(ref._id) === String(excludeId)) return;
+    const key = email.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ email, name: ref.fullName });
+  });
+  return out;
+};
+
 const create = async (data, actor) => {
   const who = actorFields(actor);
+  const { notify: shouldNotify = true, ...rest } = data;
   const issue = new Issue({
-    ...data,
-    reporter: data.reporter ?? who.id,
-    reporterName: data.reporterName ?? who.name,
+    ...rest,
+    reporter: rest.reporter ?? who.id,
+    reporterName: rest.reporterName ?? who.name,
   });
   await issue.save();
-  return Issue.findById(issue._id).populate(POPULATE);
+  const populated = await Issue.findById(issue._id).populate(POPULATE);
+
+  // Assigning to yourself needs no email — you already know.
+  const assigneeId = populated.assignee?._id;
+  if (shouldNotify && assigneeId && String(assigneeId) !== String(who.id)) {
+    notify
+      .issueAssigned(populated, emailOf(populated.assignee), populated.assignee.fullName)
+      .catch((err) => logger.warn(`[issue] assignment email failed for ${populated.reference}: ${err.message}`));
+  }
+
+  return populated;
 };
 
 const buildFilter = ({ status, priority, type, area, assignee, reporter, source, meeting, relatedCompany, label, overdue, q, from, to }) => {
@@ -75,10 +107,14 @@ const getById = async (id) => Issue.findById(id).populate(POPULATE);
  * are appended to `history`, and the lifecycle timestamps are derived from the
  * status transition rather than trusted from the client.
  */
-const update = async (id, data, actor) => {
+const update = async (id, rawData, actor) => {
+  const { notify: shouldNotify = true, ...data } = rawData;
   const issue = await Issue.findById(id);
   if (!issue) return null;
   const who = actorFields(actor);
+
+  const previousAssignee = issue.assignee ? String(issue.assignee) : null;
+  const previousStatus = issue.status;
 
   const TRACKED = ['status', 'priority', 'assignee', 'type', 'area', 'dueAt'];
   TRACKED.forEach((field) => {
@@ -112,16 +148,46 @@ const update = async (id, data, actor) => {
   }
 
   await issue.save();
-  return Issue.findById(id).populate(POPULATE);
+  const populated = await Issue.findById(id).populate(POPULATE);
+  if (!shouldNotify) return populated;
+
+  // Reassignment: tell the new owner (unless they did it themselves).
+  const nowAssignee = populated.assignee?._id ? String(populated.assignee._id) : null;
+  if (nowAssignee && nowAssignee !== previousAssignee && nowAssignee !== String(who.id)) {
+    notify
+      .issueAssigned(populated, emailOf(populated.assignee), populated.assignee.fullName)
+      .catch((err) => logger.warn(`[issue] assignment email failed for ${populated.reference}: ${err.message}`));
+  }
+
+  // Closing out: tell the people following it, not the person who closed it.
+  if (data.status && data.status !== previousStatus && TERMINAL.includes(data.status)) {
+    const recipients = followersOf(populated, who.id);
+    if (recipients.length > 0) {
+      notify.issueResolved(populated, recipients).catch((err) =>
+        logger.warn(`[issue] resolution emails failed for ${populated.reference}: ${err.message}`));
+    }
+  }
+
+  return populated;
 };
 
 const addComment = async (id, body, actor) => {
   const who = actorFields(actor);
-  return Issue.findByIdAndUpdate(
+  const issue = await Issue.findByIdAndUpdate(
     id,
     { $push: { comments: { body, author: who.id, authorName: who.name } } },
     { new: true }
   ).populate(POPULATE);
+  if (!issue) return null;
+
+  const recipients = followersOf(issue, who.id);
+  if (recipients.length > 0) {
+    notify
+      .issueCommented(issue, { body, authorName: who.name }, recipients)
+      .catch((err) => logger.warn(`[issue] comment emails failed for ${issue.reference}: ${err.message}`));
+  }
+
+  return issue;
 };
 
 const remove = async (id) => Issue.softDeleteById(id);
