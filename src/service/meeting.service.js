@@ -51,6 +51,23 @@ const actorFields = (actor) => ({
 });
 
 /**
+ * Attach who the invitation is going to, so the caller can say so rather than
+ * leaving the user guessing whether anything was sent. Resolving recipients is
+ * pure in-memory work — the sending itself stays fire-and-forget.
+ */
+const withInviteSummary = (meeting, notified) => {
+  const recipients = notified ? notify.recipientsOf(meeting) : [];
+  return {
+    ...meeting.toObject(),
+    invited: {
+      notified,
+      count: recipients.length,
+      recipients: recipients.map((r) => ({ name: r.name ?? null, email: r.email })),
+    },
+  };
+};
+
+/**
  * Create a meeting, expanding a recurrence rule into real occurrences.
  * Occurrences are saved one at a time (not insertMany) because the reference
  * counter lives in a pre-save hook, which insertMany bypasses.
@@ -78,7 +95,7 @@ const create = async (data, actor) => {
       notify.meetingScheduled(populated).catch((err) =>
         logger.warn(`[meeting] invitation emails failed for ${populated.reference}: ${err.message}`));
     }
-    return populated;
+    return withInviteSummary(populated, shouldNotify);
   }
 
   const seriesId = new mongoose.Types.ObjectId();
@@ -105,7 +122,7 @@ const create = async (data, actor) => {
       .meetingScheduled(populated, { seriesCount: created.length })
       .catch((err) => logger.warn(`[meeting] series invitations failed for ${populated.reference}: ${err.message}`));
   }
-  return populated;
+  return withInviteSummary(populated, shouldNotify);
 };
 
 const buildFilter = ({ type, status, organiser, clientCompany, from, to, q, tag }) => {

@@ -38,20 +38,45 @@ const agendaBlock = (meeting) => {
   return `\nAgenda:\n${lines.join('\n')}\n`;
 };
 
-/** Unique, non-empty recipient addresses. Skips attendees we have no email for. */
+/**
+ * Everyone who should receive mail about a meeting, deduplicated by address.
+ *
+ * "Attendees" is broader than the attendees array: the client contact person is
+ * who the meeting is *with* and is rarely also typed in as a guest, and the
+ * organiser needs their own copy — otherwise a session booked for two other
+ * people leaves the person who arranged it with no record of it.
+ *
+ * Addresses we do not have are skipped silently; a named attendee with no email
+ * is a display detail, not an error.
+ */
 const recipientsOf = (meeting, { excludeEmail } = {}) => {
   const seen = new Set();
   const out = [];
-  (meeting.attendees ?? []).forEach((a) => {
-    // A populated staff attendee carries the address on the user document.
-    const email = a.email || (a.user && typeof a.user === 'object' ? a.user.email : null);
+
+  const add = (email, name) => {
     if (!email) return;
-    const key = String(email).toLowerCase();
-    if (key === String(excludeEmail ?? '').toLowerCase()) return;
+    const key = String(email).trim().toLowerCase();
+    if (!key) return;
+    if (key === String(excludeEmail ?? '').trim().toLowerCase()) return;
     if (seen.has(key)) return;
     seen.add(key);
-    out.push({ email, name: a.name });
+    out.push({ email, name });
+  };
+
+  (meeting.attendees ?? []).forEach((a) => {
+    // A populated staff attendee carries the address on the user document.
+    add(a.email || (a.user && typeof a.user === 'object' ? a.user.email : null), a.name);
   });
+
+  // The client contact — the whole point of a client-facing session.
+  add(meeting.client?.contactEmail, meeting.client?.contactName || meeting.client?.name);
+
+  // The organiser's own copy. Deduplicated above if they are also an attendee.
+  add(
+    meeting.organiser && typeof meeting.organiser === 'object' ? meeting.organiser.email : null,
+    meeting.organiserName,
+  );
+
   return out;
 };
 
@@ -210,6 +235,9 @@ const issueResolved = async (issue, recipients = []) => {
 };
 
 module.exports = {
+  // Exported so callers can report who will be contacted without sending, and
+  // so the dedup/ordering rules are directly testable.
+  recipientsOf,
   meetingScheduled,
   meetingUpdated,
   meetingCancelled,
