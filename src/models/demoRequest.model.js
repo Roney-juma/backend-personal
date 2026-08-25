@@ -13,7 +13,7 @@ const demoRequestSchema = new mongoose.Schema(
       default: 'new',
     },
     notes:      { type: String },
-    assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'providerUser' },
+    assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'ProviderUser' },
   },
   { timestamps: true }
 );

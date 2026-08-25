@@ -4,6 +4,13 @@ const Issue = require('../models/issue.model');
 const notify = require('./workspaceNotify.service');
 const logger = require('../middlewheres/logger');
 
+// Every model named in POPULATE must be registered before the first populate()
+// runs, or mongoose throws MissingSchemaError. Requiring them here rather than
+// relying on some route having loaded them first — note the registered name is
+// 'ProviderUser', not 'providerUser'; refs are case-sensitive.
+require('../models/providerUser.model');
+require('../models/insuranceCompany.model');
+
 const POPULATE = [
   { path: 'organiser', select: 'fullName email profilePictureUrl' },
   { path: 'attendees.user', select: 'fullName email profilePictureUrl' },
