@@ -33,3 +33,7 @@ module.exports.ApprovalRequest = require('./approvalRequest.model');
 module.exports.Settlement = require('./settlement.model');
 module.exports.Recovery = require('./recovery.model');
 module.exports.LegalReferral = require('./legalReferral.model');
+
+// Internal workspace (platform team): meetings/calendar + issue tracking.
+module.exports.Meeting = require('./meeting.model');
+module.exports.Issue = require('./issue.model');

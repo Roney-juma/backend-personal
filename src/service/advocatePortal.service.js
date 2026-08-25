@@ -360,7 +360,16 @@ async function downloadDocument(advocateId, documentId, actor, req) {
 }
 
 /** Counsel's own diary across every matter they hold. */
-async function myDiary(advocateId, { from, to } = {}) {
+/**
+ * Counsel's own diary across every matter they hold.
+ *
+ * `includeClosed` widens the window to entries already dealt with — done,
+ * adjourned, cancelled. The list view does not want them, since "upcoming"
+ * means outstanding. A calendar does: a month rendered without the hearings
+ * that actually happened shows counsel an emptier past than they lived, and
+ * the adjournment trail is most of what a court diary is read for.
+ */
+async function myDiary(advocateId, { from, to, includeClosed = false } = {}) {
   const start = from ? new Date(from) : new Date();
   const end = to ? new Date(to) : new Date(Date.now() + 60 * 86400000);
 
@@ -368,10 +377,15 @@ async function myDiary(advocateId, { from, to } = {}) {
   const caseIds = cases.map((c) => c._id);
   const byId = Object.fromEntries(cases.map((c) => [String(c._id), c]));
 
+  const windowStatus =
+    includeClosed === true || includeClosed === 'true'
+      ? {}
+      : { status: { $in: ['scheduled', 'pending'] } };
+
   const [upcoming, overdue] = await Promise.all([
     LegalEvent.find({
       legalCase: { $in: caseIds },
-      status: { $in: ['scheduled', 'pending'] },
+      ...windowStatus,
       dueAt: { $gte: start, $lte: end },
     })
       .sort({ dueAt: 1 })
