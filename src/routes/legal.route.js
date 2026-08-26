@@ -195,6 +195,14 @@ router.get(
 // ── Reports ──────────────────────────────────────────────────────────────────
 router.get('/reports/monthly', verifyToken(), requirePermission('VIEW_LEGAL_REPORTS'), settlement.monthlyReport);
 router.get('/reports/aging', verifyToken(), requirePermission('VIEW_LEGAL_REPORTS'), settlement.agingReport);
+// Matters that are effectively over but still open — waiting on counsel's
+// closing report, waiting on our closure, or running an appeal deadline.
+router.get(
+  '/reports/closure-pipeline',
+  verifyToken(),
+  requirePermission('VIEW_LEGAL_REPORTS'),
+  settlement.closurePipelineReport
+);
 router.get(
   '/reports/reserving-accuracy',
   verifyToken(),
