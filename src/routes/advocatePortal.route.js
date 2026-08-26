@@ -242,6 +242,32 @@ router.post('/cases/:id/progress-report', verifyToken(), requireAdvocate, async 
 });
 
 /**
+ * Conclude the matter.
+ *
+ * Counsel initiates this, not the insurer — they were in court and are the only
+ * ones who can state the outcome and whether an appeal is advised. It records
+ * the report and notifies the legal team; the matter is closed separately,
+ * through the closure checklist.
+ */
+router.post('/cases/:id/closing-report', verifyToken(), requireAdvocate, async (req, res) => {
+  try {
+    const { legalCase, notified } = await portal.submitClosingReport(
+      req.user.id,
+      req.params.id,
+      req.body
+    );
+    res.status(200).json({
+      message: 'Closing report submitted — the legal team has been notified',
+      caseNumber: legalCase.caseNumber,
+      closingReport: legalCase.closingReport,
+      notified,
+    });
+  } catch (error) {
+    handle(res, error);
+  }
+});
+
+/**
  * Request settlement authority. Counsel asks; the insurer's authority matrix
  * decides. This creates no ApprovalRequest — an advocate's view of value is
  * advice, and becomes a proposal only when a Legal Officer adopts it.

@@ -204,6 +204,10 @@ async function caseDetail(advocateId, caseId, actor) {
           reportedAt: claim.createdAt,
         }
       : null,
+    // Counsel's own closing report, so the portal can show what was filed rather
+    // than offering to conclude a matter twice.
+    closingReport: legalCase.closingReport?.submittedAt ? legalCase.closingReport : null,
+    closedAt: legalCase.closedAt,
     claimants: exposures,
     diary: diary.events,
     adjournmentCount: diary.adjournmentCount,
@@ -279,6 +283,108 @@ async function submitProgressReport(advocateId, caseId, { summary, nextSteps }) 
   await legalCase.save();
 
   return legalCase;
+}
+
+/**
+ * Counsel concludes the matter and hands it back.
+ *
+ * Conclusion is initiated here rather than by the insurer, because the advocate
+ * is the one who was in court: they know how it ended, what the decretal sum
+ * was, and — the part that cannot wait — whether an appeal is advised and by
+ * when. An appeal window runs from delivery regardless of whether anyone on our
+ * side has looked at the file yet.
+ *
+ * This does NOT close the case. It records the report, ticks
+ * `finalReportReceived` on the closure checklist and tells the legal team;
+ * closing still runs through legalCase.close() and its checklist.
+ */
+async function submitClosingReport(advocateId, caseId, data = {}) {
+  const legalCase = await assertAssigned(advocateId, caseId);
+  const money = require('../utils/money');
+
+  if (!String(data.summary || '').trim()) {
+    throw new ApiError(400, 'A closing report needs counsel\'s summary of how the matter ended');
+  }
+  if (!data.outcome) {
+    throw new ApiError(400, 'A closing report needs the outcome');
+  }
+  if (legalCase.status === 'closed') {
+    throw new ApiError(409, 'That matter is already closed');
+  }
+  // An appeal recommendation without the date it expires is not actionable.
+  if (data.appealAdvised && !data.appealDeadline) {
+    throw new ApiError(400, 'Advising an appeal requires the date the appeal window closes');
+  }
+
+  const toMinor = (major, minor) =>
+    Number.isInteger(minor) ? minor : major != null ? money.toMinor(major) : undefined;
+
+  const advocate = await Advocate.findById(advocateId).select('name').lean();
+
+  legalCase.closingReport = {
+    outcome: data.outcome,
+    summary: data.summary,
+    awardMinor: toMinor(data.award, data.awardMinor),
+    costsMinor: toMinor(data.costs, data.costsMinor),
+    interestMinor: toMinor(data.interest, data.interestMinor),
+    appealAdvised: Boolean(data.appealAdvised),
+    appealDeadline: data.appealDeadline ? new Date(data.appealDeadline) : undefined,
+    appealRationale: data.appealRationale,
+    recoveryProspects: data.recoveryProspects,
+    outstandingActions: data.outstandingActions,
+    lessonsLearned: data.lessonsLearned,
+    submittedAt: new Date(),
+    submittedBy: advocateId,
+    submittedByName: advocate?.name,
+  };
+
+  legalCase.closureChecklist = {
+    ...(legalCase.closureChecklist || {}),
+    finalReportReceived: true,
+  };
+
+  // The matter is over bar our own closure formalities — but never overwrite a
+  // later stage (an appeal already lodged) with a resolution status.
+  if (['counsel_appointed', 'pre_litigation', 'litigation', 'settlement', 'judgment'].includes(legalCase.status)) {
+    legalCase.status = 'resolution';
+  }
+
+  // Counsel's own record of it, so the matter's narrative stays in one place.
+  legalCase.progressReports.push({
+    summary: `CLOSING REPORT: ${String(data.outcome).replace(/_/g, ' ')}`,
+    nextSteps: data.outstandingActions || data.summary,
+    submittedAt: new Date(),
+    submittedBy: advocateId,
+  });
+  legalCase.lastProgressReportAt = new Date();
+
+  await legalCase.save();
+
+  const notify = require('./legalNotify.service');
+  const msg = notify.templates.closingReportSubmitted({
+    caseNumber: legalCase.courtCaseNumber || legalCase.caseNumber,
+    advocate: advocate?.name,
+    outcome: String(data.outcome).replace(/_/g, ' '),
+    summary: data.summary,
+    appealAdvised: Boolean(data.appealAdvised),
+    appealDeadline: legalCase.closingReport.appealDeadline,
+  });
+
+  const { notified } = await notify.sendToRoles({
+    company: legalCase.company,
+    roles: ['Legal Officer', 'Senior Legal Officer'],
+    type: 'legal_closing_report',
+    title: msg.title,
+    body: msg.body,
+    claimId: legalCase.claim,
+  });
+
+  logger.info(
+    `[advocate-portal] closing report on ${legalCase.caseNumber} (${data.outcome})` +
+    (data.appealAdvised ? ' — APPEAL ADVISED' : '')
+  );
+
+  return { legalCase, notified };
 }
 
 /**
@@ -528,6 +634,7 @@ module.exports = {
   addCourtDate,
   adjournCourtDate,
   submitProgressReport,
+  submitClosingReport,
   requestAuthority,
   uploadDocument,
   downloadDocument,
