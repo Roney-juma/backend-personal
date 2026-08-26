@@ -299,7 +299,8 @@ async function submitProgressReport(advocateId, caseId, { summary, nextSteps }) 
  * closing still runs through legalCase.close() and its checklist.
  */
 async function submitClosingReport(advocateId, caseId, data = {}) {
-  const legalCase = await assertAssigned(advocateId, caseId);
+  // hydrate: this writes to the matter.
+  const legalCase = await assertAssigned(advocateId, caseId, { hydrate: true });
   const money = require('../utils/money');
 
   if (!String(data.summary || '').trim()) {
@@ -396,7 +397,8 @@ async function submitClosingReport(advocateId, caseId, data = {}) {
  * only when a Legal Officer adopts it.
  */
 async function requestAuthority(advocateId, caseId, { amount, amountMinor, rationale }) {
-  const legalCase = await assertAssigned(advocateId, caseId);
+  // hydrate: this pushes a progress report and saves.
+  const legalCase = await assertAssigned(advocateId, caseId, { hydrate: true });
   const money = require('../utils/money');
 
   const requestedMinor = Number.isInteger(amountMinor) ? amountMinor : money.toMinor(amount);
@@ -521,8 +523,17 @@ async function myDiary(advocateId, { from, to, includeClosed = false } = {}) {
  * else: confirming that a case number exists but is not yours still leaks which
  * insurer is litigating what.
  */
-async function assertAssigned(advocateId, caseId) {
-  const legalCase = await LegalCase.findById(caseId).lean();
+/**
+ * @param {object} [opts]
+ * @param {boolean} [opts.hydrate] Return a real document rather than a lean
+ *   object. Callers that only READ leave this off; anything that intends to
+ *   `.save()` MUST set it — a lean object has no save() and throws
+ *   "legalCase.save is not a function" at the point of writing, long after the
+ *   authorisation check that returned it.
+ */
+async function assertAssigned(advocateId, caseId, { hydrate = false } = {}) {
+  const query = LegalCase.findById(caseId);
+  const legalCase = hydrate ? await query : await query.lean();
   if (!legalCase) throw new ApiError(404, 'Matter not found');
   if (String(legalCase.advocate || '') !== String(advocateId)) {
     throw new ApiError(404, 'Matter not found');
