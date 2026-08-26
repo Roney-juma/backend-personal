@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const ThirdPartyClaim = require('../models/thirdPartyClaim.model');
 const Settlement = require('../models/settlement.model');
+const LegalCase = require('../models/legalCase.model');
 const LegalLedgerEntry = require('../models/legalLedgerEntry.model');
 const money = require('../utils/money');
 
@@ -300,8 +301,106 @@ async function reservingAccuracy({ company, from, to }) {
   };
 }
 
+/**
+ * The closure pipeline — matters that are effectively over but still open, and
+ * why.
+ *
+ * Concluding a matter is now a handover: counsel files a closing report, then we
+ * close. A handover has two places to stall, and neither showed up in any
+ * report — a matter sitting for weeks because counsel has not filed looks
+ * identical, on every other screen, to one sitting because nobody closed it.
+ *
+ * The appeal list is the part that actually expires. It is reported whether or
+ * not the deadline has passed, because a missed appeal window is precisely the
+ * thing a report should not quietly drop off the bottom of.
+ */
+async function closurePipeline({ company }) {
+  const now = new Date();
+  const days = (from) => Math.floor((now - new Date(from)) / 86400000);
+
+  const base = scope(company, { status: { $ne: 'closed' } });
+
+  const [awaitingReport, awaitingClosure, appeals] = await Promise.all([
+    /**
+     * We are waiting on counsel. Restricted to matters that look finished — a
+     * judgment delivered, or already moved to resolution — so live litigation
+     * is not reported as overdue paperwork.
+     */
+    LegalCase.find({
+      ...base,
+      advocate: { $ne: null },
+      'closingReport.submittedAt': { $exists: false },
+      $or: [{ status: 'resolution' }, { 'judgment.deliveredAt': { $exists: true } }],
+    })
+      .select('caseNumber courtCaseNumber court status advocate judgment.deliveredAt updatedAt')
+      .populate('advocate', 'name')
+      .sort({ updatedAt: 1 })
+      .lean(),
+
+    // Counsel is done; we have not closed.
+    LegalCase.find({ ...base, 'closingReport.submittedAt': { $exists: true } })
+      .select('caseNumber courtCaseNumber court status closingReport advocate')
+      .populate('advocate', 'name')
+      .sort({ 'closingReport.submittedAt': 1 })
+      .lean(),
+
+    // Appeals counsel has advised. Expired ones included deliberately.
+    LegalCase.find({
+      ...base,
+      'closingReport.appealAdvised': true,
+      'judgment.appealed': { $ne: true },
+    })
+      .select('caseNumber courtCaseNumber court closingReport advocate')
+      .populate('advocate', 'name')
+      .sort({ 'closingReport.appealDeadline': 1 })
+      .lean(),
+  ]);
+
+  const decorate = (c) => ({
+    _id: c._id,
+    caseNumber: c.caseNumber,
+    courtCaseNumber: c.courtCaseNumber,
+    court: c.court,
+    status: c.status,
+    advocate: c.advocate?.name ?? null,
+  });
+
+  return {
+    generatedAt: now,
+
+    awaitingCounselReport: awaitingReport.map((c) => ({
+      ...decorate(c),
+      // Since the matter last moved — the best proxy we have for how long
+      // counsel has been sitting on it.
+      waitingDays: days(c.updatedAt),
+      judgmentDeliveredAt: c.judgment?.deliveredAt ?? null,
+    })),
+
+    awaitingClosure: awaitingClosure.map((c) => ({
+      ...decorate(c),
+      outcome: c.closingReport?.outcome ?? null,
+      reportedAt: c.closingReport?.submittedAt ?? null,
+      waitingDays: days(c.closingReport?.submittedAt),
+    })),
+
+    appeals: appeals.map((c) => {
+      const deadline = c.closingReport?.appealDeadline ?? null;
+      const daysLeft = deadline
+        ? Math.ceil((new Date(deadline) - now) / 86400000)
+        : null;
+      return {
+        ...decorate(c),
+        deadline,
+        daysLeft,
+        expired: daysLeft !== null && daysLeft < 0,
+        rationale: c.closingReport?.appealRationale ?? null,
+      };
+    }),
+  };
+}
+
 function startOfMonth(d) {
   return new Date(d.getFullYear(), d.getMonth(), 1);
 }
 
-module.exports = { monthly, aging, reservingAccuracy };
+module.exports = { monthly, aging, reservingAccuracy, closurePipeline };

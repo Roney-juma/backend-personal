@@ -347,6 +347,15 @@ const monthlyReport = async (req, res) => {
   }
 };
 
+const closurePipelineReport = async (req, res) => {
+  try {
+    const company = await getRequesterCompany(req);
+    res.status(200).json(await legalReportService.closurePipeline({ company }));
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 const agingReport = async (req, res) => {
   try {
     const company = await getRequesterCompany(req);
@@ -382,5 +391,6 @@ module.exports = {
   previewAuthority,
   monthlyReport,
   agingReport,
+  closurePipelineReport,
   reservingAccuracyReport,
 };

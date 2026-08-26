@@ -52,6 +52,17 @@ const performanceSchema = new Schema(
     openMatters: { type: Number, default: 0 },
     closedMatters: { type: Number, default: 0 },
     successfulDefences: { type: Number, default: 0 },
+
+    /**
+     * Closed matters that actually reached a judgment, and those that ended
+     * without one. Kept apart because they answer different questions and
+     * because `winRate` is only meaningful over the adjudicated ones — most
+     * matters settle, and a settlement is not a loss.
+     */
+    adjudicatedMatters: { type: Number, default: 0 },
+    settledMatters: { type: Number, default: 0 },
+
+    /** Successful defences over ADJUDICATED matters — see above. */
     winRate: { type: Number, default: 0, min: 0, max: 1 },
     avgDurationDays: { type: Number, default: 0 },
     avgSettlementMinor: { type: Number, default: 0 },
@@ -65,6 +76,11 @@ const performanceSchema = new Schema(
     savingsMinor: { type: Number, default: 0 },
 
     overdueActions: { type: Number, default: 0 },
+    /**
+     * Reporting counsel owes us: progress reports past the tenant's SLA, plus
+     * concluded matters with no closing report filed. Both are things the
+     * insurer chases by phone when they are not measured.
+     */
     outstandingReports: { type: Number, default: 0 },
     avgFeePerMatterMinor: { type: Number, default: 0 },
     recomputedAt: { type: Date },

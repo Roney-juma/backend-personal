@@ -16,7 +16,8 @@
     "rbac:audit": "node scripts/audit-rbac-readiness.js",
     "workspace:rename-tasks": "node scripts/rename-issues-to-tasks.js",
     "geocode:test": "node scripts/test-geocode.js",
-    "legal:backfill-settlement-slot": "node scripts/backfill-settlement-live-slot.js"
+    "legal:backfill-settlement-slot": "node scripts/backfill-settlement-live-slot.js",
+    "advocate:test-scoring": "node scripts/test-advocate-scoring.js"
   },
   "author": "",
   "license": "ISC",
