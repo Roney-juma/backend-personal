@@ -15,6 +15,7 @@ const tokenService = require("./token.service");
 const SupplyBid = require('../models/supplyBids.model');
 const cache = require('../cache');
 const logger = require('../middlewheres/logger');
+const { resolveLocation } = require('../utils/geocode');
 
 const createGarage = async (garage) => {
   const existingGarage = await Garage.findOne({ email: garage.email });
@@ -117,6 +118,16 @@ const updateGarage = async (garageId, updateData, company) => {
   // payload so a company user can't reassign a garage to another tenant.
   const filter = { _id: garageId, ...(company ? { company } : {}) };
   if (company) delete updateData.company;
+
+  // Keep coordinates in step with the address — garage selection is
+  // distance-based, so a moved garage with stale coordinates is matched from
+  // its old premises. Best-effort: a geocoder outage leaves the old coords.
+  if (updateData.location) {
+    const existing = await Garage.findOne(filter).select('location').lean();
+    const location = await resolveLocation(existing?.location, updateData.location);
+    if (location) updateData.location = location;
+  }
+
   const result = await Garage.findOneAndUpdate(filter, updateData, { new: true });
   await cache.del(`cache:garage:${garageId}`);
   await cache.delPattern('cache:stats:garages:*');
@@ -252,6 +263,10 @@ const placeBid = async (claimId, garageId, description, timeline, parts) => {
   claim.bids.push(newBid);
   await claim.save();
   await cache.del(`cache:garage:bids:${garageId}`);
+  // `cache:claims:*` does NOT match the single-claim key `cache:claim:<id>`
+  // (singular). Without this the admin's claim detail served a 15-minute-old
+  // copy, so a new bid appeared to take ages to show up.
+  await cache.del(`cache:claim:${claimId}`);
   await cache.delPattern('cache:claims:*');
   // The garage's "available claims" list is cached separately (see getAssessedClaims)
   // and isn't covered above, so a just-bid claim would linger in it. Clear it so the
@@ -311,9 +326,34 @@ const callForReAssessment = async (claimId, garageId, report = {}) => {
   };
   claim.status = 'Re-Assessment';
   claim.repairDate = new Date();
+
+  /**
+   * Close out this garage's bid. The claim moving to Re-Assessment says nothing
+   * about the bid, which stays 'awarded' — and `isActiveJob` in the partner
+   * portal is `bid === 'awarded' && claim not Completed/Rejected`, so the garage
+   * kept seeing finished work as outstanding.
+   */
+  const garageIdStr = garageId ? String(garageId) : null;
+  if (garageIdStr) {
+    claim.bids.forEach((bid) => {
+      if (
+        bid.bidderType === 'garage' &&
+        String(bid.garageId) === garageIdStr &&
+        bid.status === 'awarded'
+      ) {
+        bid.status = 'completed';
+        bid.completedAt = new Date();
+      }
+    });
+  }
+
   await claim.save();
   await cache.delPattern('cache:claims:*');
   await cache.del(`cache:claim:${claimId}`);
+  // The garage's job list is cached for 10 minutes under its own key, which no
+  // pattern above touches — without this the bid change is invisible until it
+  // expires.
+  if (garageIdStr) await cache.del(`cache:garage:bids:${garageIdStr}`);
   if (claim.awardedAssessor && claim.awardedAssessor.assessorId) {
     const assessor = await Assessor.findById(claim.awardedAssessor.assessorId);
     const raVehicle = claim.vehiclesInvolved[0]?.licensePlate || claim._id;

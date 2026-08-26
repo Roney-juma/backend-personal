@@ -73,9 +73,13 @@ const bidSchema = new Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'awarded', 'rejected'],
+    // 'completed' closes the loop for the winner: an awarded bid stays 'awarded'
+    // for the whole job, so without a terminal state the partner portal counts a
+    // finished repair as outstanding work forever.
+    enum: ['pending', 'awarded', 'rejected', 'completed'],
     default: 'pending',
   },
+  completedAt: { type: Date },
 });
 
 

@@ -4,6 +4,7 @@ const Supplier = require("../models/supplier.model.js");
 const SupplyBid = require("../models/supplyBids.model.js");
 const Claim = require("../models/claim.model.js");
 const cache = require("../cache/index.js");
+const { resolveLocation } = require("../utils/geocode");
 const notificationService = require("./notification.service.js");
 const emailService = require("./email.service.js");
 const {
@@ -129,6 +130,15 @@ const updateSupplier = async (supplierId, supplierData, insuranceCompany) => {
     ...(insuranceCompany ? { insuranceCompany } : {}),
   };
   if (insuranceCompany) delete supplierData.insuranceCompany;
+
+  // Same treatment as garages and assessors: an address edit must carry its
+  // coordinates with it. Best-effort — never fails the update.
+  if (supplierData.location) {
+    const existing = await Supplier.findOne(filter).select("location").lean();
+    const location = await resolveLocation(existing?.location, supplierData.location);
+    if (location) supplierData.location = location;
+  }
+
   const result = await Supplier.findOneAndUpdate(filter, supplierData, {
     new: true,
   });
@@ -239,7 +249,11 @@ const submitBidForSupply = async (claimId, supplierId, parts) => {
   await claim.save();
   await cache.del(
     `cache:supplier:bids:${supplierId}`,
-    "cache:claims:in-garage"
+    "cache:claims:in-garage",
+    // The single-claim key is `cache:claim:<id>` (singular) — `cache:claims:*`
+    // below does NOT match it. Without this the claim detail page served a
+    // pre-bid copy for up to 15 minutes and showed 0 supplier bids.
+    `cache:claim:${claimId}`
   );
   await cache.delPattern("cache:claims:*");
 
@@ -313,7 +327,14 @@ const repairPartsDelivered = async (claimId, supplierId, { notes } = {}) => {
   claim.status = "Garage";
   claim.repairDate = new Date();
   await claim.save();
-  await cache.del("cache:claims:in-garage", `cache:supplier:bids:${supplierId}`);
+  // Same singular/plural trap as placeBid: without `cache:claim:<id>` the claim
+  // stays cached as 'Awarded', which the portal renders as "Awaiting Delivery"
+  // long after the parts were delivered.
+  await cache.del(
+    "cache:claims:in-garage",
+    `cache:supplier:bids:${supplierId}`,
+    `cache:claim:${claimId}`
+  );
   await cache.delPattern("cache:claims:*");
 
   // Refresh the supplier's own bid list in any open sessions.
