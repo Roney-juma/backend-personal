@@ -10,6 +10,7 @@ const { searchRegex } = require('../utils/searchRegex');
 const logger = require('../middlewheres/logger');
 const money = require('../utils/money');
 const legalConfig = require('./legalConfig.service');
+const { DEFAULT_ALLOCATION_WEIGHTS } = require('../constants/legal.constants');
 
 /**
  * The advocate panel and the allocation engine.
@@ -301,6 +302,19 @@ async function recomputePerformance(advocateId) {
     ['for_insurer', 'dismissed', 'struck_out'].includes(c.judgment?.liabilityOutcome)
   ).length;
 
+  /**
+   * Win rate is measured over matters that reached a judgment, not over
+   * everything that closed.
+   *
+   * Dividing by all closed matters counted every settlement as a loss — a
+   * settled matter has no liabilityOutcome, so it landed in the denominator and
+   * never the numerator. Most matters settle, so that punished exactly the
+   * advocates who settle well and rewarded whoever took the most cases to
+   * judgment. An advocate who settles everything favourably scored 0%.
+   */
+  const adjudicated = closed.filter((c) => c.judgment?.liabilityOutcome);
+  const settledMatters = closed.length - adjudicated.length;
+
   const durations = closed
     .filter((c) => c.filedAt && c.closedAt)
     .map((c) => (new Date(c.closedAt) - new Date(c.filedAt)) / 86400000);
@@ -330,16 +344,52 @@ async function recomputePerformance(advocateId) {
 
   const feeTotal = feeRows[0]?.totalMinor || 0;
 
+  /**
+   * Reporting counsel owes us, of two kinds:
+   *   - a live matter whose last progress report is older than the tenant's SLA
+   *     (or which has never had one since instructions were accepted);
+   *   - a matter counsel has effectively finished but filed no closing report on.
+   *
+   * This field existed on the schema and was hardcoded to 0, so every advocate
+   * looked perfectly compliant and the number was quietly meaningless wherever
+   * it was displayed.
+   */
+  const company = advocate.company;
+  const slaDays = company
+    ? (await legalConfig.get(company))?.slas?.advocateProgressReport || 30
+    : 30;
+  const staleBefore = new Date(Date.now() - slaDays * 86400000);
+
+  const [staleReports, missingClosingReports] = await Promise.all([
+    LegalCase.countDocuments({
+      advocate: advocateId,
+      status: { $nin: CLOSED },
+      instructionsAcceptedAt: { $ne: null, $lt: staleBefore },
+      $or: [
+        { lastProgressReportAt: null },
+        { lastProgressReportAt: { $exists: false } },
+        { lastProgressReportAt: { $lt: staleBefore } },
+      ],
+    }),
+    LegalCase.countDocuments({
+      advocate: advocateId,
+      status: 'resolution',
+      'closingReport.submittedAt': { $exists: false },
+    }),
+  ]);
+
   advocate.performance = {
     openMatters,
     closedMatters: closed.length,
     successfulDefences,
-    winRate: closed.length ? successfulDefences / closed.length : 0,
+    adjudicatedMatters: adjudicated.length,
+    settledMatters,
+    winRate: adjudicated.length ? successfulDefences / adjudicated.length : 0,
     avgDurationDays,
     avgSettlementMinor,
     savingsMinor,
     overdueActions: overdueEvents,
-    outstandingReports: 0,
+    outstandingReports: staleReports + missingClosingReports,
     avgFeePerMatterMinor: cases.length ? Math.round(feeTotal / cases.length) : 0,
     recomputedAt: new Date(),
   };
@@ -427,20 +477,68 @@ async function rankPanel({ company, court, county, claimType }) {
       ? Math.max(0, 1 - perf.avgDurationDays / maxDuration)
       : NEUTRAL;
 
-    const factors = { proximity, availability, winRate, savings, turnaround };
-    const score = Object.entries(factors).reduce(
-      (acc, [key, value]) => acc + value * (weights[key] ?? 0),
-      0
-    );
+    /**
+     * Does counsel do what they said, when they said it.
+     *
+     * Scored against what they are actually carrying rather than an absolute
+     * count: two overdue actions across thirty matters is not the same failure
+     * as two across three. Applies to everyone, including new advocates — this
+     * measures conduct, not track record, so there is nothing to be neutral about.
+     */
+    const lapses = (perf.overdueActions || 0) + (perf.outstandingReports || 0);
+    const load = Math.max(openMatters, 1);
+    const reliability = Math.max(0, 1 - lapses / load);
+
+    /**
+     * Practice areas against the matter's claim type. Absent a claim type, or
+     * where the advocate has declared no areas at all, this cannot discriminate
+     * and stays neutral rather than penalising an incomplete profile.
+     */
+    const areas = (advocate.practiceAreas || []).map((a) => String(a).toLowerCase());
+    const specialism = !claimType || areas.length === 0
+      ? NEUTRAL
+      : areas.some((a) => a === String(claimType).toLowerCase() || a.includes(String(claimType).toLowerCase()))
+        ? 1
+        : 0.3;
+
+    const factors = { proximity, availability, winRate, savings, turnaround, reliability, specialism };
+
+    /**
+     * Normalised by the weights actually applied, so the score stays a 0–1
+     * figure whatever a tenant has configured. Without it, dropping a factor to
+     * zero silently deflates every score and makes panels incomparable.
+     *
+     * Unset keys fall back to our default rather than 0 — a tenant configured
+     * before a factor existed should still get the benefit of it, while one who
+     * deliberately set it to 0 keeps their choice.
+     */
+    const applied = Object.keys(factors).map((key) => ({
+      key,
+      weight: weights[key] ?? DEFAULT_ALLOCATION_WEIGHTS[key] ?? 0,
+    }));
+    const weightTotal = applied.reduce((acc, f) => acc + f.weight, 0);
+    const weighted = applied.reduce((acc, f) => acc + factors[f.key] * f.weight, 0);
+    const score = weightTotal > 0 ? weighted / weightTotal : 0;
 
     const reasons = [];
     if (covers) reasons.push(`Covers ${court || county}`);
     if (openMatters >= maxOpen) reasons.push(`At capacity (${openMatters} open)`);
     else if (openMatters === 0) reasons.push('No open matters');
-    if (hasHistory && perf.winRate >= 0.6) reasons.push(`${Math.round(perf.winRate * 100)}% success rate`);
+    // Say what the rate is OF — "80% success" over four judgments is a very
+    // different claim from the same figure over forty.
+    if (hasHistory && perf.adjudicatedMatters > 0 && perf.winRate >= 0.6) {
+      reasons.push(
+        `${Math.round(perf.winRate * 100)}% success in ${perf.adjudicatedMatters} adjudicated matter(s)`
+      );
+    }
+    if (hasHistory && perf.settledMatters > 0) {
+      reasons.push(`${perf.settledMatters} matter(s) settled without judgment`);
+    }
     if (hasHistory && perf.savingsMinor > 0) reasons.push(`${money.formatMinor(perf.savingsMinor)} saved against reserve`);
     if (!hasHistory) reasons.push(`New to the panel — scored neutrally on history (${perf.closedMatters || 0} closed)`);
     if (perf.overdueActions > 0) reasons.push(`${perf.overdueActions} overdue action(s)`);
+    if (perf.outstandingReports > 0) reasons.push(`${perf.outstandingReports} report(s) outstanding`);
+    if (claimType && specialism === 1) reasons.push(`Practises ${String(claimType).replace(/_/g, ' ')}`);
 
     return {
       advocate: {
@@ -460,9 +558,12 @@ async function rankPanel({ company, court, county, claimType }) {
         openMatters,
         closedMatters: perf.closedMatters || 0,
         winRate: perf.winRate || 0,
+        adjudicatedMatters: perf.adjudicatedMatters || 0,
+        settledMatters: perf.settledMatters || 0,
         savingsMinor: perf.savingsMinor || 0,
         avgDurationDays: perf.avgDurationDays || 0,
         overdueActions: perf.overdueActions || 0,
+        outstandingReports: perf.outstandingReports || 0,
       },
       reasons,
     };

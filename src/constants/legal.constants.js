@@ -267,12 +267,32 @@ const LEGAL_DOC_TYPES = Object.freeze([
  */
 const ALLOCATION_MODES = Object.freeze(['ranked', 'random', 'manual']);
 
+/**
+ * How the allocation engine ranks a panel. Tenants may override any of these.
+ *
+ * They no longer need to sum to 1 — rankPanel normalises by the weights it
+ * actually applies, so a tenant can drop a factor to 0 without deflating every
+ * score and making cross-panel comparison meaningless.
+ */
 const DEFAULT_ALLOCATION_WEIGHTS = Object.freeze({
-  proximity:    0.20,   // advocate's counties/courts vs the matter's court station
-  availability: 0.25,   // inverse of current open matters
-  winRate:      0.20,   // successful defences over closed matters
+  proximity:    0.15,   // advocate's counties/courts vs the matter's court station
+  availability: 0.20,   // inverse of current open matters
+  winRate:      0.15,   // successful defences over ADJUDICATED matters
   savings:      0.20,   // reserve minus settled, straight from the ledger
-  turnaround:   0.15,   // inverse of average matter duration
+  turnaround:   0.10,   // inverse of average matter duration
+  /**
+   * Does counsel do what they say, when they say it — overdue diary actions and
+   * reports we are still waiting on. Previously computed, displayed, and given
+   * no weight at all, so an advocate with a dozen overdue actions ranked level
+   * with one who had none.
+   */
+  reliability:  0.10,
+  /**
+   * Practice areas against the matter's claim type. `claimType` was already
+   * being passed to the ranker and silently ignored, while advocates maintained
+   * practice areas that nothing ever read.
+   */
+  specialism:   0.10,
 });
 
 // ── Legal risk (severity of exposure — NOT fraud suspicion) ──────────────────
