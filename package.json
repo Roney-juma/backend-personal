@@ -9,7 +9,12 @@
     "backup:setup": "node scripts/setup-backup-infra.js",
     "backup:db": "node scripts/backup-db.js",
     "restore:db": "node scripts/restore-db.js",
-    "dr:replicate": "node scripts/setup-s3-replication.js"
+    "dr:replicate": "node scripts/setup-s3-replication.js",
+    "legal:seed": "node scripts/seed-legal-config.js",
+    "legal:test": "node scripts/test-legal-ledger.js && node scripts/test-legal-guards.js && node scripts/test-legal-exposure.js && node scripts/test-legal-authority.js && node scripts/test-legal-litigation.js && node scripts/test-legal-recovery.js && node scripts/test-legal-referral.js",
+    "audit:verify": "node scripts/verify-audit-chain.js",
+    "rbac:audit": "node scripts/audit-rbac-readiness.js",
+    "workspace:rename-tasks": "node scripts/rename-issues-to-tasks.js"
   },
   "author": "",
   "license": "ISC",
@@ -44,6 +49,7 @@
     "nodemon": "^3.1.7",
     "openid-client": "^5.7.1",
     "pdfkit": "^0.19.1",
+    "prom-client": "^15.1.3",
     "rate-limit-redis": "^4.2.0",
     "sharp": "^0.35.3",
     "socket.io": "^4.7.5",

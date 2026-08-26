@@ -1,0 +1,243 @@
+/**
+ * Canonical RBAC permission catalog — the single source of truth for the backend.
+ * The frontend mirrors these exact strings in `frontend_ave/src/lib/permissions.ts`.
+ *
+ * Convention: UPPER_SNAKE, `ACTION_SUBJECT`. A `VIEW_*` permission gates read
+ * access / page visibility; the others gate a specific mutation. Keep this in
+ * sync with `role-permissions.json` (which the roles UI reads for its picker).
+ */
+
+// ── Grouped catalog (drives the role-editor UI) ──────────────────────────────
+const GROUPS = {
+  'Users & Roles': [
+    'VIEW_USERS', 'CREATE_USER', 'UPDATE_USER', 'DELETE_USER',
+    'VIEW_ROLES', 'CREATE_ROLE', 'UPDATE_ROLE', 'DELETE_ROLE', 'ASSIGN_ROLE',
+  ],
+  'Claims': [
+    'VIEW_CLAIMS', 'CREATE_CLAIM', 'UPDATE_CLAIM', 'DELETE_CLAIM',
+    'APPROVE_CLAIM', 'REJECT_CLAIM', 'AWARD_CLAIM', 'COMPLETE_CLAIM',
+    'GENERATE_CLAIM_LINK', 'VIEW_CLAIM_ANALYTICS',
+  ],
+  'Cash in Lieu (Self-Repair)': [
+    'VIEW_SELF_REPAIR', 'APPROVE_SELF_REPAIR', 'REJECT_SELF_REPAIR', 'PAY_SELF_REPAIR',
+  ],
+  'Glass Claims': [
+    'VIEW_GLASS_CLAIMS', 'APPROVE_GLASS_CLAIM', 'ASSIGN_GLASS_SUPPLIER', 'COMPLETE_GLASS_CLAIM',
+  ],
+  'Customers': [
+    'VIEW_CUSTOMERS', 'CREATE_CUSTOMER', 'UPDATE_CUSTOMER', 'IMPORT_CUSTOMERS',
+  ],
+  'Garages': [
+    'VIEW_GARAGES', 'CREATE_GARAGE', 'UPDATE_GARAGE', 'DELETE_GARAGE',
+  ],
+  'Assessors': [
+    'VIEW_ASSESSORS', 'CREATE_ASSESSOR', 'UPDATE_ASSESSOR', 'DELETE_ASSESSOR',
+  ],
+  'Suppliers': [
+    'VIEW_SUPPLIERS', 'CREATE_SUPPLIER', 'UPDATE_SUPPLIER', 'DELETE_SUPPLIER',
+  ],
+  'Investigations': [
+    'VIEW_INVESTIGATORS', 'CREATE_INVESTIGATOR', 'UPDATE_INVESTIGATOR', 'DELETE_INVESTIGATOR',
+    'ASSIGN_INVESTIGATION', 'REVIEW_INVESTIGATION', 'FLAG_FRAUD',
+  ],
+  'Vendor Invoices': [
+    'VIEW_VENDOR_INVOICES', 'APPROVE_VENDOR_INVOICE', 'REJECT_VENDOR_INVOICE', 'PAY_VENDOR_INVOICE',
+  ],
+  'Claim Types': [
+    'VIEW_CLAIM_TYPES', 'CREATE_CLAIM_TYPE', 'UPDATE_CLAIM_TYPE', 'DELETE_CLAIM_TYPE',
+  ],
+  'Support': [
+    'VIEW_SUPPORT', 'MANAGE_SUPPORT',
+  ],
+  'Third-Party Claims': [
+    'VIEW_THIRD_PARTY_CLAIMS', 'CREATE_THIRD_PARTY_CLAIM', 'UPDATE_THIRD_PARTY_CLAIM',
+    'ASSESS_LIABILITY', 'ASSESS_QUANTUM',
+    'SET_LEGAL_RESERVE', 'OVERRIDE_RESERVE_SCHEDULE',
+  ],
+  'Legal Cases': [
+    'VIEW_LEGAL_CASES', 'CREATE_LEGAL_REFERRAL', 'APPROVE_LEGAL_REFERRAL',
+    'UPDATE_LEGAL_CASE', 'CLOSE_LEGAL_CASE',
+    'VIEW_LEGAL_OPINIONS', 'CREATE_LEGAL_OPINION',
+  ],
+  'Legal Diary': [
+    'VIEW_LEGAL_DIARY', 'MANAGE_LEGAL_DIARY', 'MANAGE_LEGAL_DEADLINES',
+  ],
+  'Advocates': [
+    'VIEW_ADVOCATES', 'CREATE_ADVOCATE', 'UPDATE_ADVOCATE', 'DELETE_ADVOCATE',
+    'APPOINT_ADVOCATE', 'ALLOCATE_ADVOCATE',
+  ],
+  'Legal Documents': [
+    // VIEW_PRIVILEGED_DOCUMENTS is deliberately separate from VIEW_LEGAL_DOCUMENTS:
+    // privilege is the one thing a broad read-everything role must never inherit
+    // automatically — including Auditor.
+    'VIEW_LEGAL_DOCUMENTS', 'UPLOAD_LEGAL_DOCUMENT', 'VIEW_PRIVILEGED_DOCUMENTS',
+  ],
+  'Settlements': [
+    'VIEW_SETTLEMENTS', 'PROPOSE_SETTLEMENT', 'APPROVE_SETTLEMENT',
+  ],
+  'Legal Financials': [
+    'VIEW_LEGAL_FINANCIALS', 'POST_LEGAL_LEDGER_ENTRY', 'APPROVE_LEGAL_PAYMENT',
+    'VIEW_RECOVERIES', 'MANAGE_RECOVERY',
+  ],
+  'Complaints': [
+    'VIEW_COMPLAINTS', 'MANAGE_COMPLAINT',
+  ],
+  'Legal Administration': [
+    'VIEW_LEGAL_REPORTS', 'MANAGE_LEGAL_CONFIG',
+  ],
+  'Reports & Audit': [
+    'VIEW_AUDIT_LOGS', 'VIEW_REPORTS', 'EXPORT_REPORTS',
+  ],
+};
+
+// Flat list of every permission string.
+const ALL_PERMISSIONS = Object.values(GROUPS).flat();
+
+// Named constants (P.APPROVE_CLAIM === 'APPROVE_CLAIM') — prevents route typos.
+const P = Object.freeze(
+  ALL_PERMISSIONS.reduce((acc, perm) => {
+    acc[perm] = perm;
+    return acc;
+  }, {}),
+);
+
+// A role whose (normalised) name is one of these is treated as unrestricted.
+const ADMIN_ROLE_NAMES = new Set(['admin', 'superadmin', 'super admin']);
+
+/**
+ * Default role templates seeded per tenant (see scripts/seed-roles.js). Super Admin
+ * is global and gets everything via ensureSuperAdminRole(); these are starting
+ * points a tenant can clone/edit.
+ */
+const DEFAULT_ROLES = {
+  'Claims Manager': [
+    'VIEW_CLAIMS', 'CREATE_CLAIM', 'UPDATE_CLAIM', 'APPROVE_CLAIM', 'REJECT_CLAIM',
+    'AWARD_CLAIM', 'COMPLETE_CLAIM', 'GENERATE_CLAIM_LINK', 'VIEW_CLAIM_ANALYTICS',
+    'VIEW_SELF_REPAIR', 'APPROVE_SELF_REPAIR', 'REJECT_SELF_REPAIR',
+    'VIEW_GLASS_CLAIMS', 'APPROVE_GLASS_CLAIM', 'ASSIGN_GLASS_SUPPLIER', 'COMPLETE_GLASS_CLAIM',
+    'VIEW_CUSTOMERS', 'VIEW_GARAGES', 'VIEW_ASSESSORS', 'VIEW_SUPPLIERS', 'VIEW_CLAIM_TYPES',
+    // Claims staff are usually first to learn a third party is involved.
+    'VIEW_THIRD_PARTY_CLAIMS', 'CREATE_THIRD_PARTY_CLAIM', 'CREATE_LEGAL_REFERRAL', 'VIEW_LEGAL_CASES',
+  ],
+  'Finance': [
+    'VIEW_CLAIMS', 'VIEW_CLAIM_ANALYTICS',
+    'VIEW_SELF_REPAIR', 'PAY_SELF_REPAIR',
+    'VIEW_VENDOR_INVOICES', 'APPROVE_VENDOR_INVOICE', 'REJECT_VENDOR_INVOICE', 'PAY_VENDOR_INVOICE',
+    'VIEW_LEGAL_FINANCIALS', 'APPROVE_LEGAL_PAYMENT', 'VIEW_RECOVERIES',
+    'VIEW_REPORTS', 'EXPORT_REPORTS',
+  ],
+  'Operations': [
+    'VIEW_CLAIMS', 'VIEW_CUSTOMERS', 'CREATE_CUSTOMER', 'UPDATE_CUSTOMER', 'IMPORT_CUSTOMERS',
+    'VIEW_GARAGES', 'CREATE_GARAGE', 'UPDATE_GARAGE',
+    'VIEW_ASSESSORS', 'CREATE_ASSESSOR', 'UPDATE_ASSESSOR',
+    'VIEW_SUPPLIERS', 'CREATE_SUPPLIER', 'UPDATE_SUPPLIER',
+    'VIEW_CLAIM_TYPES', 'VIEW_SUPPORT', 'MANAGE_SUPPORT',
+  ],
+  'Investigator Manager': [
+    'VIEW_CLAIMS', 'FLAG_FRAUD',
+    'VIEW_INVESTIGATORS', 'CREATE_INVESTIGATOR', 'UPDATE_INVESTIGATOR', 'DELETE_INVESTIGATOR',
+    'ASSIGN_INVESTIGATION', 'REVIEW_INVESTIGATION',
+  ],
+  // ── Legal & Litigation ─────────────────────────────────────────────────────
+  // Two ladders run through these roles and must not be conflated: the AUTHORITY
+  // MATRIX (LegalConfig.authorityMatrix) decides who may sign off an amount, the
+  // ESCALATION CHAIN (LegalConfig.escalationChain) decides who gets woken when a
+  // deadline is missed. A role can sit on one without the other.
+  'Third-Party Claims Officer': [
+    'VIEW_CLAIMS', 'VIEW_CUSTOMERS',
+    'VIEW_THIRD_PARTY_CLAIMS', 'CREATE_THIRD_PARTY_CLAIM', 'UPDATE_THIRD_PARTY_CLAIM',
+    'ASSESS_LIABILITY', 'ASSESS_QUANTUM', 'SET_LEGAL_RESERVE',
+    'VIEW_LEGAL_DOCUMENTS', 'UPLOAD_LEGAL_DOCUMENT',
+    'VIEW_SETTLEMENTS', 'PROPOSE_SETTLEMENT',
+    'VIEW_LEGAL_DIARY', 'VIEW_LEGAL_FINANCIALS',
+  ],
+  'Legal Officer': [
+    // May file a claim: a third party frequently reports an accident the insured
+    // never did, and the legal officer is the one who opens that record.
+    'VIEW_CLAIMS', 'CREATE_CLAIM', 'UPDATE_CLAIM', 'VIEW_CUSTOMERS',
+    'VIEW_THIRD_PARTY_CLAIMS', 'CREATE_THIRD_PARTY_CLAIM', 'UPDATE_THIRD_PARTY_CLAIM',
+    'ASSESS_LIABILITY', 'ASSESS_QUANTUM', 'SET_LEGAL_RESERVE',
+    'VIEW_LEGAL_CASES', 'CREATE_LEGAL_REFERRAL', 'UPDATE_LEGAL_CASE',
+    'VIEW_LEGAL_OPINIONS', 'CREATE_LEGAL_OPINION',
+    'VIEW_LEGAL_DIARY', 'MANAGE_LEGAL_DIARY', 'MANAGE_LEGAL_DEADLINES',
+    'VIEW_ADVOCATES',
+    'VIEW_LEGAL_DOCUMENTS', 'UPLOAD_LEGAL_DOCUMENT', 'VIEW_PRIVILEGED_DOCUMENTS',
+    'VIEW_SETTLEMENTS', 'PROPOSE_SETTLEMENT',
+    'VIEW_LEGAL_FINANCIALS', 'POST_LEGAL_LEDGER_ENTRY',
+    'VIEW_RECOVERIES', 'VIEW_COMPLAINTS',
+  ],
+  'Senior Legal Officer': [
+    'VIEW_CLAIMS', 'CREATE_CLAIM', 'UPDATE_CLAIM', 'VIEW_CUSTOMERS',
+    'VIEW_THIRD_PARTY_CLAIMS', 'CREATE_THIRD_PARTY_CLAIM', 'UPDATE_THIRD_PARTY_CLAIM',
+    'ASSESS_LIABILITY', 'ASSESS_QUANTUM', 'SET_LEGAL_RESERVE', 'OVERRIDE_RESERVE_SCHEDULE',
+    'VIEW_LEGAL_CASES', 'CREATE_LEGAL_REFERRAL', 'APPROVE_LEGAL_REFERRAL',
+    'UPDATE_LEGAL_CASE', 'CLOSE_LEGAL_CASE',
+    'VIEW_LEGAL_OPINIONS', 'CREATE_LEGAL_OPINION',
+    'VIEW_LEGAL_DIARY', 'MANAGE_LEGAL_DIARY', 'MANAGE_LEGAL_DEADLINES',
+    'VIEW_ADVOCATES', 'ALLOCATE_ADVOCATE',
+    'VIEW_LEGAL_DOCUMENTS', 'UPLOAD_LEGAL_DOCUMENT', 'VIEW_PRIVILEGED_DOCUMENTS',
+    'VIEW_SETTLEMENTS', 'PROPOSE_SETTLEMENT', 'APPROVE_SETTLEMENT',
+    'VIEW_LEGAL_FINANCIALS', 'POST_LEGAL_LEDGER_ENTRY',
+    'VIEW_RECOVERIES', 'MANAGE_RECOVERY', 'VIEW_COMPLAINTS', 'MANAGE_COMPLAINT',
+    'VIEW_LEGAL_REPORTS',
+  ],
+  'Head of Legal': [
+    ...['VIEW_CLAIMS', 'CREATE_CLAIM', 'UPDATE_CLAIM', 'VIEW_CUSTOMERS', 'VIEW_CLAIM_ANALYTICS'],
+    'VIEW_THIRD_PARTY_CLAIMS', 'CREATE_THIRD_PARTY_CLAIM', 'UPDATE_THIRD_PARTY_CLAIM',
+    'ASSESS_LIABILITY', 'ASSESS_QUANTUM', 'SET_LEGAL_RESERVE', 'OVERRIDE_RESERVE_SCHEDULE',
+    'VIEW_LEGAL_CASES', 'CREATE_LEGAL_REFERRAL', 'APPROVE_LEGAL_REFERRAL',
+    'UPDATE_LEGAL_CASE', 'CLOSE_LEGAL_CASE',
+    'VIEW_LEGAL_OPINIONS', 'CREATE_LEGAL_OPINION',
+    'VIEW_LEGAL_DIARY', 'MANAGE_LEGAL_DIARY', 'MANAGE_LEGAL_DEADLINES',
+    'VIEW_ADVOCATES', 'CREATE_ADVOCATE', 'UPDATE_ADVOCATE', 'DELETE_ADVOCATE',
+    'APPOINT_ADVOCATE', 'ALLOCATE_ADVOCATE',
+    'VIEW_LEGAL_DOCUMENTS', 'UPLOAD_LEGAL_DOCUMENT', 'VIEW_PRIVILEGED_DOCUMENTS',
+    'VIEW_SETTLEMENTS', 'PROPOSE_SETTLEMENT', 'APPROVE_SETTLEMENT',
+    'VIEW_LEGAL_FINANCIALS', 'POST_LEGAL_LEDGER_ENTRY', 'APPROVE_LEGAL_PAYMENT',
+    'VIEW_RECOVERIES', 'MANAGE_RECOVERY', 'VIEW_COMPLAINTS', 'MANAGE_COMPLAINT',
+    'VIEW_LEGAL_REPORTS', 'MANAGE_LEGAL_CONFIG', 'VIEW_REPORTS', 'EXPORT_REPORTS',
+  ],
+  'Head of Claims': [
+    'VIEW_CLAIMS', 'UPDATE_CLAIM', 'APPROVE_CLAIM', 'REJECT_CLAIM', 'VIEW_CLAIM_ANALYTICS',
+    'VIEW_THIRD_PARTY_CLAIMS', 'SET_LEGAL_RESERVE', 'OVERRIDE_RESERVE_SCHEDULE',
+    'VIEW_LEGAL_CASES', 'APPROVE_LEGAL_REFERRAL',
+    'VIEW_LEGAL_DIARY', 'VIEW_ADVOCATES', 'APPOINT_ADVOCATE',
+    'VIEW_LEGAL_DOCUMENTS',
+    'VIEW_SETTLEMENTS', 'APPROVE_SETTLEMENT',
+    'VIEW_LEGAL_FINANCIALS', 'VIEW_RECOVERIES',
+    'VIEW_LEGAL_REPORTS', 'VIEW_REPORTS',
+  ],
+  'General Manager': [
+    'VIEW_CLAIMS', 'VIEW_CLAIM_ANALYTICS',
+    'VIEW_THIRD_PARTY_CLAIMS', 'VIEW_LEGAL_CASES', 'VIEW_LEGAL_DIARY',
+    'VIEW_ADVOCATES', 'VIEW_LEGAL_DOCUMENTS',
+    'VIEW_SETTLEMENTS', 'APPROVE_SETTLEMENT',
+    'VIEW_LEGAL_FINANCIALS', 'APPROVE_LEGAL_PAYMENT', 'VIEW_RECOVERIES',
+    'VIEW_LEGAL_REPORTS', 'VIEW_REPORTS', 'EXPORT_REPORTS',
+  ],
+  'CEO': [
+    'VIEW_CLAIMS', 'VIEW_CLAIM_ANALYTICS',
+    'VIEW_THIRD_PARTY_CLAIMS', 'VIEW_LEGAL_CASES', 'VIEW_LEGAL_DIARY',
+    'VIEW_ADVOCATES', 'VIEW_LEGAL_DOCUMENTS',
+    'VIEW_SETTLEMENTS', 'APPROVE_SETTLEMENT',
+    'VIEW_LEGAL_FINANCIALS', 'APPROVE_LEGAL_PAYMENT', 'VIEW_RECOVERIES',
+    'VIEW_LEGAL_REPORTS', 'VIEW_REPORTS', 'EXPORT_REPORTS',
+  ],
+
+  // Read-everything, with one deliberate exception: privileged legal documents.
+  // Spec §21 grants auditors read-only access to everything while §22 requires
+  // document-level permissions; these conflict on legal advice. Auditors see
+  // that a privileged document exists, its metadata and its full access log, but
+  // not its contents. Tenants who disagree flip
+  // LegalConfig.auditorSeesPrivilegedContents rather than editing this role.
+  'Auditor': [
+    ...ALL_PERMISSIONS.filter((p) => p.startsWith('VIEW_') && p !== 'VIEW_PRIVILEGED_DOCUMENTS'),
+    'VIEW_AUDIT_LOGS',
+  ],
+
+  'Read Only': ALL_PERMISSIONS.filter(
+    (p) => p.startsWith('VIEW_') && p !== 'VIEW_PRIVILEGED_DOCUMENTS'
+  ),
+};
+
+module.exports = { GROUPS, ALL_PERMISSIONS, P, ADMIN_ROLE_NAMES, DEFAULT_ROLES };

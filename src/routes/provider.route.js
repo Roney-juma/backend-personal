@@ -20,6 +20,10 @@ router.post('/mfa/enable',  verifyProviderToken(), mfaController.enable('Provide
 router.post('/mfa/disable', verifyProviderToken(), mfaController.disable('ProviderUser'));
 router.post('/change-password', verifyProviderToken(), passwordController.changePassword('ProviderUser'));
 
+// Self-service profile for the authenticated provider user.
+router.get('/me', verifyProviderToken(), providerUserController.getMe);
+router.patch('/me', verifyProviderToken(), providerUserController.updateMe);
+
 router.get('/users',                    verifyProviderToken(), providerUserController.getAllUsers);
 router.post('/users',                   verifyProviderToken(), providerUserController.createUser);
 router.get('/users/:id',                verifyProviderToken(), providerUserController.getUserById);
@@ -36,5 +40,9 @@ router.use('/support',       require('./supportTicket.route'));
 router.use('/dashboard',     require('./providerDashboard.route'));
 router.use('/audit-logs',    require('./providerAuditLog.route'));
 router.use('/demo-requests', require('./demoRequest.route'));
+
+// Internal workspace: the platform team's own meetings/calendar and task tracker.
+router.use('/meetings',      require('./meeting.route'));
+router.use('/tasks',         require('./task.route'));
 
 module.exports = router;

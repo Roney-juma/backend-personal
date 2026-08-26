@@ -304,8 +304,14 @@ const callForReAssessment = async (claimId, garageId, report = {}) => {
     vehicleCondition: report.vehicleCondition || '',
     partsSalvaged: Array.isArray(report.partsSalvaged) ? report.partsSalvaged : [],
     partsReplaced: Array.isArray(report.partsReplaced) ? report.partsReplaced : [],
-    receipts: Array.isArray(report.receipts) ? report.receipts : [],
     photos: Array.isArray(report.photos) ? report.photos : [],
+    reportDocument: report.reportDocument?.url
+      ? {
+          url: report.reportDocument.url,
+          fileName: report.reportDocument.fileName || '',
+          uploadedAt: new Date(),
+        }
+      : undefined,
     totalRepairCost: report.totalRepairCost ? Number(report.totalRepairCost) : null,
     submittedAt: new Date(),
   };
@@ -386,6 +392,8 @@ const getGarageBids = async (garageId) => {
       });
     }
   });
+
+  garageBids.sort((a, b) => new Date(b.bidDate) - new Date(a.bidDate));
 
   return garageBids;
   }, 600);

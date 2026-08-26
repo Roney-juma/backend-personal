@@ -79,8 +79,29 @@ const fileClaim = async (req, res) => {
 
     res.status(201).json({ message: 'Claim filed successfully', claim: newClaim });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Server error' });
+    const status = err.status || 500;
+    const message = err.message || 'Server error';
+    // `error` kept for older clients that read that key.
+    res.status(status).json({ message, error: message });
   }
+};
+
+/**
+ * GET /claims/file-claim/:token/validate — public pre-flight for the claim form.
+ * verifyClaimToken has already rejected a missing/used/expired link, so reaching
+ * here means the link is good; the claimant learns that before filling the form
+ * instead of after submitting it.
+ */
+const validateClaimLink = async (req, res) => {
+  res.status(200).json({
+    valid: true,
+    customer: {
+      firstName: req.customer.firstName,
+      lastName: req.customer.lastName,
+      email: req.customer.email,
+    },
+    expiresAt: req.claimToken.expiresAt,
+  });
 };
 
 
@@ -97,7 +118,7 @@ const createClaim = async (req, res) => {
 // Get all claims
 const getClaims = async (req, res) => {
   try {
-    const claims = await claimService.getClaims(await portalCompany(req));
+    const claims = await claimService.getClaims(await portalCompany(req), { page: req.query.page, limit: req.query.limit });
     res.status(200).json(claims);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -305,7 +326,7 @@ const awardClaimToGarage = async (req, res) => {
     const claim = await claimService.awardClaimToGarage(req.params.claimId, req.params.garageId);
     res.status(200).json(claim);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(error.statusCode || 500).json({ message: error.message });
   }
 };
 
@@ -485,7 +506,7 @@ const assignGlassSupplier = async (req, res) => {
     const claim = await claimService.assignGlassSupplier(req.params.id, { supplierId, appointmentDate, notes }, req);
     res.status(200).json(claim);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    res.status(error.statusCode || 400).json({ message: error.message });
   }
 };
 
@@ -567,6 +588,7 @@ module.exports = {
   generateClaimLinkController,
   generateAiClaimLinkController,
   fileClaim,
+  validateClaimLink,
   createClaim,
   getClaims,
   getClaimsByCustomer,

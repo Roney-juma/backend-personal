@@ -163,8 +163,8 @@ const placeBid = async (req, res) => {
 
 const completeRepair = async (req, res) => {
   try {
-    const { workDone, vehicleCondition, partsSalvaged, partsReplaced, receipts, photos, totalRepairCost, garageId } = req.body;
-    const report = { workDone, vehicleCondition, partsSalvaged, partsReplaced, receipts, photos, totalRepairCost };
+    const { workDone, vehicleCondition, partsSalvaged, partsReplaced, photos, reportDocument, totalRepairCost, garageId } = req.body;
+    const report = { workDone, vehicleCondition, partsSalvaged, partsReplaced, photos, reportDocument, totalRepairCost };
     const claim = await garageService.callForReAssessment(req.params.id, garageId, report);
     res.status(200).json(claim);
   } catch (error) {

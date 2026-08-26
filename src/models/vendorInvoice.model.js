@@ -27,9 +27,14 @@ const vendorInvoiceSchema = new mongoose.Schema(
     invoiceNumber: { type: String, unique: true },
 
     // Who is billing. vendorType drives the dynamic ref on `vendor`.
+    // 'Advocate' covers panel-advocate fee notes: structurally identical to an
+    // assessor's invoice (per-claim, submitted by an external vendor, approved
+    // and paid by the insurer), so it reuses this whole lifecycle rather than
+    // duplicating it. An approved advocate invoice also posts a `legal_fee`
+    // entry to the legal ledger — see service/legalLedger.service.js.
     vendorType: {
       type: String,
-      enum: ['Assessor', 'Garage', 'Supplier'],
+      enum: ['Assessor', 'Garage', 'Supplier', 'Advocate'],
       required: true,
     },
     vendor: {

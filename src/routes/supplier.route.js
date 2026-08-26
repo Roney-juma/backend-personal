@@ -2,6 +2,8 @@ const supplierController = require("../controllers/supplier.controller")
 const express =require("express")
 const verifyToken = require("../middlewheres/verifyToken");
 const authLimiter = require("../middlewheres/authLimiter");
+const requirePortalUser = require("../middlewheres/requirePortalUser");
+const requirePermission = require("../middlewheres/requirePermission");
 const mfaController = require("../controllers/mfa.controller");
 const passwordController = require("../controllers/password.controller");
 
@@ -9,7 +11,7 @@ const router = express.Router();
 
 
 
-router.post('/create',verifyToken(), supplierController.createSupplier)
+router.post('/create',verifyToken(), requirePortalUser, requirePermission('CREATE_SUPPLIER'), supplierController.createSupplier)
 router.post('/login', authLimiter, supplierController.login)
 router.post('/forgot-password', authLimiter, supplierController.forgotPassword);
 router.post('/reset-password', authLimiter, supplierController.resetPassword);
@@ -23,7 +25,7 @@ router.post('/change-password', verifyToken(), passwordController.changePassword
 router.get('/',verifyToken(), supplierController.getAllSuppliers)
 router.get('/claimsInGarage',verifyToken(), supplierController.getAllClaimsInGarage)
 router.post('/partsDelivered/:claimId',verifyToken(), supplierController.repairPartsDelivered)
-router.delete('/delete/:id',verifyToken(), supplierController.deleteSupplier)
+router.delete('/delete/:id',verifyToken(), requirePortalUser, requirePermission('DELETE_SUPPLIER'), supplierController.deleteSupplier)
 router.get('/:id',verifyToken(), supplierController.getSupplierById)
 router.post('/supplyBid/:claimId',verifyToken(), supplierController.submitBidForSupply)
 router.put('/:id',verifyToken(), supplierController.updateSupplier)

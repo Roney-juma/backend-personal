@@ -2,6 +2,7 @@ const express = require('express');
 const claimTypeController = require('../controllers/claimType.controller');
 const verifyToken = require('../middlewheres/verifyToken');
 const optionalToken = require('../middlewheres/optionalToken');
+const requirePermission = require('../middlewheres/requirePermission');
 
 const router = express.Router();
 
@@ -12,8 +13,8 @@ router.get('/', optionalToken(), claimTypeController.getAllClaimTypes);
 router.get('/:id', claimTypeController.getClaimTypeById);
 
 // Mutations remain authenticated (admin).
-router.post('/', verifyToken(), claimTypeController.createClaimType);
-router.patch('/:id', verifyToken(), claimTypeController.updateClaimType);
-router.delete('/:id', verifyToken(), claimTypeController.deleteClaimType);
+router.post('/', verifyToken(), requirePermission('CREATE_CLAIM_TYPE'), claimTypeController.createClaimType);
+router.patch('/:id', verifyToken(), requirePermission('UPDATE_CLAIM_TYPE'), claimTypeController.updateClaimType);
+router.delete('/:id', verifyToken(), requirePermission('DELETE_CLAIM_TYPE'), claimTypeController.deleteClaimType);
 
 module.exports = router;

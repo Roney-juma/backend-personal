@@ -16,6 +16,7 @@ const cache = require('../cache');
 const { getAnalyzeQueue } = require('../queue/queues');
 const { getCorrelationId } = require('../utils/requestContext');
 const FraudOutcome = require('../models/fraudOutcome.model');
+const ApiError = require('../utils/ApiError');
 
 const invalidateClaimCache = async (claimId) => {
   const ops = [cache.delPattern('cache:claims:*')];
@@ -168,6 +169,10 @@ const generateAiClaimLink = async (email, company) => {
 };
 
 
+// A claim-link failure the claimant can act on (bad/used/expired link), carrying
+// the HTTP status the controller should answer with. Anything else stays a 500.
+const linkError = (status, message) => Object.assign(new Error(message), { status });
+
 // File the claim for Web
 
 const fileClaimService = async (token, claimDetails, req) => {
@@ -175,13 +180,13 @@ const fileClaimService = async (token, claimDetails, req) => {
     const claimToken = await ClaimToken.findOne({ token });
 
     if (!claimToken) {
-      throw new Error('Invalid token');
+      throw linkError(401, 'This claim link is not valid. Please request a new one.');
     }
     if (claimToken.used) {
-      throw new Error('This link has already been used');
+      throw linkError(410, 'This link has already been used');
     }
     if (claimToken.expiresAt && claimToken.expiresAt.getTime() < Date.now()) {
-      throw new Error('This link has expired');
+      throw linkError(410, 'This link has expired');
     }
     const customer = await Customer.findById(claimToken.customerId);
 
@@ -244,7 +249,8 @@ const fileClaimService = async (token, claimDetails, req) => {
     return newClaim;
 
   } catch (error) {
-    throw new Error(error.message);
+    // Rethrow as-is so the status set by linkError() survives to the controller.
+    throw error;
   }
 };
 
@@ -380,8 +386,18 @@ const createClaim = async (data, req) => {
 // instead of on every list read (which previously triggered writes + emails per claim).
 // `company` (from getRequesterCompany) narrows the list to one insurer's claims;
 // falsy = platform staff, global scope.
-const getClaims = async (company) => {
-  return Claim.find(company ? { company } : {}).sort({ createdAt: -1 }).lean();
+// The assessor app's claims feed. Kept as a bare array for backward-compat, but
+// bounded: without a company (platform staff / legacy tokens) this would
+// otherwise load EVERY claim in the system into memory. A generous default
+// ceiling protects the event loop; ?page/?limit allow real paging.
+const getClaims = async (company, { page, limit } = {}) => {
+  const l = Math.min(Math.max(Number(limit) || 2000, 1), 2000);
+  const p = Math.max(Number(page) || 1, 1);
+  return Claim.find(company ? { company } : {})
+    .sort({ createdAt: -1 })
+    .skip((p - 1) * l)
+    .limit(l)
+    .lean();
 };
 
 // Evaluate and apply auto-award rules for a single claim. Called after a bid is placed.
@@ -738,7 +754,7 @@ const awardClaim = async (id, bidId, req) => {
     emailService.sendEmailNotification(
       claim.claimant.email,
       'Assessor Visit Notification',
-      `Dear ${claim.claimant.name},\n\nWe are pleased to inform you that your claim with ID: ${vehicle} has been awarded to an assessor. The assessor, ${assessor?.name}, will be visiting to assess the state of your vehicle.\n\nHere are the assessor's contact details:\n- Phone: ${assessor?.phone}\n- Email: ${assessor?.email}\n\nPlease feel free to reach out to the assessor to coordinate the visit.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
+      `Dear ${claim.claimant.name},\n\nWe are pleased to inform you that your claim with ID: ${vehicle} has been awarded to an assessor. The assessor, ${assessor?.name}, will be visiting to assess the state of your vehicle.\n\nHere are the assessor's contact details:\n- Phone: ${assessor?.contactInfo.phone}\n- Email: ${assessor?.email}\n\nPlease feel free to reach out to the assessor to coordinate the visit.\n\nThank you for choosing Ave Insurance.\n\nBest Regards,\nAdmin Team`
     ).catch(err => logger.warn(`Award email (claimant) failed for claim ${claim._id}: ${err.message}`));
   }
   if (claim.claimant && claim.claimant.phone) {
@@ -852,6 +868,11 @@ const awardClaimToGarage = async (claimId, garageId) => {
   if (!claim) throw new Error('Claim not found');
   const garage = await Garage.findById(garageId);
   if (!garage) throw new Error('Garage not found');
+  // Cross-tenant guard: a claim may only be awarded to a garage from its own
+  // insurer. Legacy claims/garages without a company are exempt.
+  if (claim.company && garage.company && String(claim.company) !== String(garage.company)) {
+    throw new ApiError(403, 'You cannot award a claim to a garage from another insurance company');
+  }
   // Just create a new bid for the garage and award it
   const newBid = {
     bidderType: 'garage',
@@ -1062,7 +1083,8 @@ const getSupplierBidsForClaim = async (claimId) => {
 
 // Accept a supplier bid
 const acceptSupplierBid = async (claimId, bidId, req) => {
-  const supplyBid = await SupplyBid.findById(bidId);
+  // Scope the bid to THIS claim so a foreign bid id can't be flipped cross-tenant.
+  const supplyBid = await SupplyBid.findOne({ _id: bidId, claimId });
   if (!supplyBid) throw new Error('Supply bid not found');
 
   const start = Date.now();
@@ -1106,7 +1128,8 @@ const acceptSupplierBid = async (claimId, bidId, req) => {
 
 // Award a supplier bid (accept it and reject all others for the claim)
 const awardSupplierBid = async (claimId, bidId, req) => {
-  const supplyBid = await SupplyBid.findById(bidId);
+  // Scope the bid to THIS claim so a foreign bid id can't be awarded cross-tenant.
+  const supplyBid = await SupplyBid.findOne({ _id: bidId, claimId });
   if (!supplyBid) throw new Error('Supply bid not found');
   if (supplyBid.status !== 'Pending') throw new Error('Only pending bids can be awarded');
 
@@ -1183,7 +1206,8 @@ const awardSupplierBid = async (claimId, bidId, req) => {
 
 // Reject a specific supplier bid
 const rejectSupplierBid = async (claimId, bidId, req) => {
-  const supplyBid = await SupplyBid.findById(bidId);
+  // Scope the bid to THIS claim so a foreign bid id can't be rejected cross-tenant.
+  const supplyBid = await SupplyBid.findOne({ _id: bidId, claimId });
   if (!supplyBid) throw new Error('Supply bid not found');
   if (supplyBid.status !== 'Pending') throw new Error('Only pending bids can be rejected');
 
@@ -1930,6 +1954,10 @@ const assignGlassSupplier = async (claimId, { supplierId, appointmentDate, notes
 
   const supplier = await Supplier.findById(supplierId);
   if (!supplier) throw new Error('Supplier not found');
+  // Cross-tenant guard: only a supplier from the claim's own insurer may be assigned.
+  if (claim.company && supplier.insuranceCompany && String(claim.company) !== String(supplier.insuranceCompany)) {
+    throw new ApiError(403, 'You cannot assign a supplier from another insurance company');
+  }
 
   const start = Date.now();
   claim.glassRepair = {

@@ -81,7 +81,8 @@ const verifyLogin = async (req, res) => {
     } else if (accountType === 'User') {
       tokens = tokenService.generateCompanyUserToken(user);
     } else {
-      // Customer / Garage / Assessor / Supplier — same token their password login issues.
+      // Customer / Garage / Assessor / Supplier / Advocate — the same token
+      // their password login issues.
       tokens = tokenService.GenerateToken(user);
     }
     res.status(200).json({ user, tokens });

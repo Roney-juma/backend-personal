@@ -631,6 +631,14 @@ Admin Team`
   await claim.save();
   await cache.delPattern("cache:claims:*");
   await cache.del(`cache:claim:${claimId}`);
+  // Same gap as submitAssessmentReport: the assessor's own bids list is cached
+  // per-assessor and isn't covered by the patterns above, so the app kept
+  // showing the pre-report claim status (and the Complete/Reject Job actions)
+  // until the TTL expired.
+  const reAssessingAssessorId = assessorId || claim.awardedAssessor?.assessorId;
+  if (reAssessingAssessorId) {
+    await cache.del(`cache:assessor:bids:${reAssessingAssessorId}`);
+  }
 
   await writeAuditLog(req, {
     action: "UPDATE",
@@ -668,6 +676,9 @@ const completeRepair = async (claimId, req) => {
   await claim.save();
   await cache.delPattern("cache:claims:*");
   await cache.del(`cache:claim:${claimId}`);
+  if (claim.awardedAssessor?.assessorId) {
+    await cache.del(`cache:assessor:bids:${claim.awardedAssessor.assessorId}`);
+  }
 
   await writeAuditLog(req, {
     action: "UPDATE",
@@ -742,6 +753,9 @@ const rejectRepair = async (claimId, rejectionReason, req) => {
   await claim.save();
   await cache.delPattern("cache:claims:*");
   await cache.del(`cache:claim:${claimId}`);
+  if (claim.awardedAssessor?.assessorId) {
+    await cache.del(`cache:assessor:bids:${claim.awardedAssessor.assessorId}`);
+  }
 
   await writeAuditLog(req, {
     action: "UPDATE",

@@ -1,0 +1,33 @@
+# Grafana Cloud path — runs ONLY Grafana Alloy, which scrapes the local app/worker
+# + host metrics and pushes them to Grafana Cloud. Dashboards live in Grafana Cloud,
+# so there is no local Prometheus or Grafana to run (lighter on the box).
+#
+# Use this OR monitoring/docker-compose.yml — not both.
+#
+#   cd monitoring/grafana-cloud
+#   export GRAFANA_CLOUD_PROM_URL=... GRAFANA_CLOUD_PROM_USER=... GRAFANA_CLOUD_API_KEY=...
+#   docker compose up -d
+
+services:
+  alloy:
+    image: grafana/alloy:latest
+    container_name: ave-alloy
+    restart: unless-stopped
+    network_mode: host          # reach the app's 127.0.0.1 metrics ports
+    pid: host                   # accurate host process metrics
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      - --server.http.listen-addr=127.0.0.1:12345   # debug UI, loopback only
+    environment:
+      - GRAFANA_CLOUD_PROM_URL=${GRAFANA_CLOUD_PROM_URL}
+      - GRAFANA_CLOUD_PROM_USER=${GRAFANA_CLOUD_PROM_USER}
+      - GRAFANA_CLOUD_API_KEY=${GRAFANA_CLOUD_API_KEY}
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - '/:/host:ro,rslave'
+      - alloy_data:/var/lib/alloy/data
+
+volumes:
+  alloy_data:

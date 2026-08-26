@@ -5,27 +5,30 @@ const router = express.Router();
 const roleController = require('../controllers/roles.controller');
 const verifyToken = require('../middlewheres/verifyToken');
 const requirePortalUser = require('../middlewheres/requirePortalUser');
+const requirePermission = require('../middlewheres/requirePermission');
 
 // Create a new role (scoped to the requester's company)
-router.post('/', verifyToken(), requirePortalUser, roleController.createRole);
+router.post('/', verifyToken(), requirePortalUser, requirePermission('CREATE_ROLE'), roleController.createRole);
 // Get all roles (global roles + the requester's company's roles)
-router.get('/', verifyToken(), requirePortalUser, roleController.getAllRoles);
+router.get('/', verifyToken(), requirePortalUser, requirePermission('VIEW_ROLES'), roleController.getAllRoles);
+// Grouped permission catalog for the role editor (declared before '/:id').
+router.get('/catalog', verifyToken(), requirePortalUser, requirePermission('VIEW_ROLES'), roleController.getPermissionCatalog);
 // Get a role by ID
-router.get('/:id', verifyToken(), requirePortalUser, roleController.getRoleById);
+router.get('/:id', verifyToken(), requirePortalUser, requirePermission('VIEW_ROLES'), roleController.getRoleById);
 // Update a role (own-company roles only; global roles are staff-managed)
-router.put('/:id', verifyToken(), requirePortalUser, roleController.updateRole);
+router.put('/:id', verifyToken(), requirePortalUser, requirePermission('UPDATE_ROLE'), roleController.updateRole);
 // Delete a role (own-company roles only)
-router.delete('/:id', verifyToken(), requirePortalUser, roleController.deleteRole);
+router.delete('/:id', verifyToken(), requirePortalUser, requirePermission('DELETE_ROLE'), roleController.deleteRole);
 // Get roles by permission
-router.get('/permissions/:permission', verifyToken(), requirePortalUser, roleController.getRolesByPermission);
+router.get('/permissions/:permission', verifyToken(), requirePortalUser, requirePermission('VIEW_ROLES'), roleController.getRolesByPermission);
 // Get roles by name
-router.get('/name/:name', verifyToken(), requirePortalUser, roleController.getRoleByName);
+router.get('/name/:name', verifyToken(), requirePortalUser, requirePermission('VIEW_ROLES'), roleController.getRoleByName);
 // Get roles by user ID
-router.get('/user/:userId', verifyToken(), requirePortalUser, roleController.getRolesByUserId);
+router.get('/user/:userId', verifyToken(), requirePortalUser, requirePermission('VIEW_ROLES'), roleController.getRolesByUserId);
 // Get roles by IDs
-router.get('/ids/:ids', verifyToken(), requirePortalUser, roleController.getRolesByIds);
+router.get('/ids/:ids', verifyToken(), requirePortalUser, requirePermission('VIEW_ROLES'), roleController.getRolesByIds);
 // Create bulk roles (seeding — scoped like createRole)
-router.post('/bulk', verifyToken(), requirePortalUser, roleController.createBulkRoles);
+router.post('/bulk', verifyToken(), requirePortalUser, requirePermission('CREATE_ROLE'), roleController.createBulkRoles);
 
 // export the router
 module.exports = router;

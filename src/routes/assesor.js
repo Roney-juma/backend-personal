@@ -2,13 +2,15 @@ const assesorController = require("../controllers/assessor.controller")
 const express = require("express")
 const verifyToken = require("../middlewheres/verifyToken");
 const authLimiter = require("../middlewheres/authLimiter");
+const requirePortalUser = require("../middlewheres/requirePortalUser");
+const requirePermission = require("../middlewheres/requirePermission");
 const mfaController = require("../controllers/mfa.controller");
 const passwordController = require("../controllers/password.controller");
 
 const router = express.Router();
 
 
-router.post('/create',verifyToken(), assesorController.createAssessor)
+router.post('/create',verifyToken(), requirePortalUser, requirePermission('CREATE_ASSESSOR'), assesorController.createAssessor)
 router.post('/login', authLimiter, assesorController.login)
 router.post('/forgot-password', authLimiter, assesorController.forgotPassword);
 router.post('/reset-password', authLimiter, assesorController.resetPassword);
@@ -24,7 +26,7 @@ router.get('/topAssessors',verifyToken(), assesorController.getTopAssessors)
 router.get('/',verifyToken(), assesorController.getAllAssessors)
 router.get('/approvedClaims/:assessorId',verifyToken(), assesorController.getApprovedClaims)
 router.post('/submitReport/:claimId',verifyToken(), assesorController.submitAssessmentReport)
-router.delete('/delete/:id',verifyToken(), assesorController.deleteAssessor)
+router.delete('/delete/:id',verifyToken(), requirePortalUser, requirePermission('DELETE_ASSESSOR'), assesorController.deleteAssessor)
 router.post('/complete-reassessment/:id',verifyToken(), assesorController.submitReAssessmentReport)
 router.post('/rejectJob/:id',verifyToken(), assesorController.rejectReAssessment)
 router.get('/:id',verifyToken(), assesorController.getAssessorById)

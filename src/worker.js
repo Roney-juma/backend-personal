@@ -29,6 +29,13 @@ if (!connection) {
   process.exit(1);
 }
 
+// Expose the worker's Node runtime metrics (event-loop lag, heap, GC, CPU) on its
+// own loopback port — default 9470, separate from the web app's 9464/9465. Set
+// WORKER_METRICS_PORT_BASE in the env to move it (e.g. staging on the same box as
+// prod uses 9570) so the two deployments never fight over the port.
+const { startMetricsServer } = require('./metrics');
+startMetricsServer(Number(process.env.WORKER_METRICS_PORT_BASE) || 9470);
+
 // ── Notification worker ───────────────────────────────────────────────────────
 
 // Run each job inside the originating request's correlation context so all downstream
@@ -112,10 +119,37 @@ analyzeWorker.on('error', (err) => {
   logger.error(`Analyze worker error: ${err.message}`);
 });
 
-logger.info('Workers started — ave-notifications + claim-analyze');
+// ── Legal scheduler worker ────────────────────────────────────────────────────
+// Consumes the repeatable jobs registered by queue/scheduler.js. Concurrency 1:
+// these are sweeps over shared state (sealing the audit chain, walking the
+// escalation ladder) and running two at once buys nothing while making
+// idempotency harder to reason about.
+const legalJobs = require('./queue/legalJobs');
+
+const legalWorker = new Worker(
+  'legal-scheduler',
+  (job) => runWithContext({ correlationId: `legal:${job.name}:${job.id}` }, () => legalJobs.process(job)),
+  {
+    connection,
+    concurrency: 1,
+    lockDuration: 120000, // sweeps can outlast the 30s default on a big backlog
+  }
+);
+
+legalWorker.on('completed', (job) => {
+  logger.info(`Job completed | queue=legal-scheduler | id=${job.id} | type=${job.name}`);
+});
+legalWorker.on('failed', (job, err) => {
+  logger.error(`Job failed | queue=legal-scheduler | id=${job?.id} | type=${job?.name} | attempt=${job?.attemptsMade} | error=${err.message}`);
+});
+legalWorker.on('error', (err) => {
+  logger.error(`Legal scheduler worker error: ${err.message}`);
+});
+
+logger.info('Workers started — ave-notifications + claim-analyze + legal-scheduler');
 
 process.on('SIGTERM', async () => {
-  await Promise.all([worker.close(), analyzeWorker.close()]);
+  await Promise.all([worker.close(), analyzeWorker.close(), legalWorker.close()]);
   logger.info('Workers shut down gracefully');
   process.exit(0);
 });

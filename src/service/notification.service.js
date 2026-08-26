@@ -12,6 +12,7 @@ const getRecipientModel = (recipientType) => {
     case 'garage':     return require('../models/garage.model');
     case 'supplier':   return require('../models/supplier.model');
     case 'investigator': return require('../models/investigator.model');
+    case 'advocate':   return require('../models/advocate.model');
     default:           return null;
   }
 };
@@ -23,6 +24,7 @@ const PHONE_FIELD = {
   garage:       { select: 'contactNumber',resolve: (d) => d?.contactNumber },
   supplier:     { select: 'phone',        resolve: (d) => d?.phone },
   investigator: { select: 'contactNumber',resolve: (d) => d?.contactNumber },
+  advocate:     { select: 'phone',        resolve: (d) => d?.phone },
 };
 
 // Resolve recipient's phone number from DB when not provided inline

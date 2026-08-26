@@ -34,6 +34,8 @@ next-env.d.ts
 
 # Postman collections (may contain sensitive URLs/tokens)
 *.postman_collection.json
+# The environment file is the one that actually holds tokens and base URLs.
+*.postman_environment.json
 
 # Local docs
 SYSTEM_DOCUMENTATION.md

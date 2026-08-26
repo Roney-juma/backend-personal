@@ -141,8 +141,11 @@ const generateCompanyUserToken = (user) => {
     email: user.email,
     fullName: user.fullName,
     username: user.username,
-    // Login now populates role — keep the claim an id either way.
+    // Login now populates role — keep the claim an id, but also embed the role's
+    // name + permissions so requirePermission authorizes without a DB round-trip.
     role: user.role?._id || user.role,
+    roleName: user.role?.name,
+    permissions: Array.isArray(user.role?.permissions) ? user.role.permissions : undefined,
     company: user.company?._id || user.company,
     phone: user.phone,
     department: user.department,

@@ -22,6 +22,8 @@ const claimTypes = require("./claimType.route")
 const vendorInvoices = require("./vendorInvoice.route")
 const sso = require("./sso.route")
 const publicCompanies = require("./publicCompanies.route")
+const legal = require("./legal.route")
+const advocatePortal = require("./advocatePortal.route")
 
 
 const router = express.Router()
@@ -49,6 +51,16 @@ router.use("/ai", ai)
 router.use("/claim-types", claimTypes)
 router.use("/vendor-invoices", vendorInvoices)
 router.use("/public/companies", publicCompanies)
+
+// Legal & Litigation. Behind a flag while the module is still being built out —
+// the schemas and scheduler exist regardless, but nothing is reachable until an
+// environment opts in.
+if (process.env.LEGAL_MODULE_ENABLED === 'true') {
+  router.use("/legal", legal)
+  // The panel advocate's own surface, served to partner-fe. Separate from
+  // /legal because an advocate holds no staff permissions at all.
+  router.use("/advocate-portal", advocatePortal)
+}
 
 
 module.exports  = router

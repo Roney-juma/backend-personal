@@ -134,13 +134,26 @@ const runIntakeTurn = async (req, res, identity) => {
   // Secure-link path only: save the conversation to the token so it survives a
   // dead device and resumes on another. The JWT path resumes via the account.
   if (identity.token && req.claimToken) {
-    await persistIntakeSession(req.claimToken, {
-      messages: result.messages,
-      userTurn: { userMessage, images: photoUrls, videos: videoUrls, hidden: Boolean(req.body && req.body.hidden) },
-      reply: result.reply,
-      status: result.status,
-      claimId: result.claimId,
-    });
+    // Guard against a client that failed to resume (e.g. a network blip on load,
+    // or an old cached page) firing a fresh greeting: a hidden, media-less turn
+    // with NO prior messages, on a link that already has a saved conversation.
+    // Persisting it would append a duplicate greeting and reset the saved thread.
+    // Skip the save and keep the good history intact.
+    const isBareGreeting =
+      Boolean(req.body && req.body.hidden) && photoUrls.length === 0 && videoUrls.length === 0 && priorMessages.length === 0;
+    const hasSavedConversation =
+      (Array.isArray(req.claimToken.transcript) && req.claimToken.transcript.length > 0) ||
+      (Array.isArray(req.claimToken.conversation) && req.claimToken.conversation.length > 0);
+
+    if (!(isBareGreeting && hasSavedConversation)) {
+      await persistIntakeSession(req.claimToken, {
+        messages: result.messages,
+        userTurn: { userMessage, images: photoUrls, videos: videoUrls, hidden: Boolean(req.body && req.body.hidden) },
+        reply: result.reply,
+        status: result.status,
+        claimId: result.claimId,
+      });
+    }
   }
 
   return res.status(200).json(result);

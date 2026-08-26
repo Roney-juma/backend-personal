@@ -203,22 +203,44 @@ const resetPassword = async (req, res) => {
 };
 
 // updateCustomer
+// Fields a customer may edit on their OWN profile. email/status/password/policy/
+// company are intentionally excluded — those go through verified or portal flows,
+// so a raw update can't self-activate, change tenant, or hijack the account.
+const SELF_EDITABLE_FIELDS = ['firstName', 'lastName', 'phone', 'username', 'idNumber', 'fcmToken'];
+// Additional fields a portal admin may edit on a customer within their tenant.
+const PORTAL_EDITABLE_FIELDS = [...SELF_EDITABLE_FIELDS, 'email', 'policyNumber', 'policyType', 'policies', 'Insurer'];
+
+const pickFields = (src, keys) =>
+  keys.reduce((out, k) => { if (src && src[k] !== undefined) out[k] = src[k]; return out; }, {});
+
 const updateCustomer = async (req, res) => {
   try {
     const customerId = req.params.customerId;
-    const customer = req.body;
-    // Mobile customers may only update their own record (their token is never
-    // requester-scoped, so pin the id instead).
-    if (req.user?.accountType === 'Customer' && String(req.user.id) !== String(customerId)) {
-      return res.status(404).json({ error: 'Customer not found' });
+    const type = req.user?.accountType;
+
+    let company = null;
+    let updates;
+    if (type === 'Customer') {
+      // A customer may only edit their OWN record, and only self-editable fields.
+      if (String(req.user.id) !== String(customerId)) {
+        return res.status(404).json({ error: 'Customer not found' });
+      }
+      updates = pickFields(req.body, SELF_EDITABLE_FIELDS);
+    } else if (type === 'CompanyUser' || type === 'ProviderUser') {
+      // Portal admins edit customers within their tenant (platform staff → global).
+      company = await portalCompany(req);
+      updates = pickFields(req.body, PORTAL_EDITABLE_FIELDS);
+    } else {
+      // Assessors/garages/suppliers must never edit customer records.
+      return res.status(403).json({ error: 'Not authorized to update customers' });
     }
-    const company = await portalCompany(req);
-    const updatedCustomer = await customerService.updateCustomer(customerId, customer, company);
+
+    const updatedCustomer = await customerService.updateCustomer(customerId, updates, company);
     // Cross-tenant ids 404 like missing ones.
     if (!updatedCustomer) return res.status(404).json({ error: 'Customer not found' });
     // Audit only portal-side edits — a mobile customer updating their own
     // profile is not an admin action.
-    if (req.user?.accountType === 'CompanyUser' || req.user?.accountType === 'ProviderUser') {
+    if (type === 'CompanyUser' || type === 'ProviderUser') {
       await writeAuditLog(req, {
         action: 'UPDATE',
         module: 'Customer',
@@ -231,7 +253,7 @@ const updateCustomer = async (req, res) => {
     }
     res.status(200).json(updatedCustomer);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.statusCode || 500).json({ error: error.message });
   }
 };
 // customerStats
@@ -245,10 +267,10 @@ const getCustomerStats = async (req, res) => {
 };
 const getGarage = async (req, res) => {
   try {
-    const garage = await customerService.findGarages(req.params.claimId);
+    const garage = await customerService.findGarages(req.params.claimId, req);
     res.status(200).json(garage);
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(error.statusCode || 500).json({ error: error.message });
       }
   };
 

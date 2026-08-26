@@ -14,6 +14,8 @@ const sanitizeRequest = require('./middlewheres/sanitizeRequest');
 const correlationId = require('./middlewheres/correlationId');
 const { getRedisClient } = require('./queue/connection');
 const { makeRedisStore } = require('./middlewheres/rateLimitStore');
+const { ensureIndexes } = require('./config/ensureIndexes');
+const { metricsMiddleware, startMetricsServer } = require('./metrics');
 const socketModule = require('./socket');
 
 const PORT = process.env.PORT || 3000;
@@ -29,7 +31,13 @@ mongoose.connect(process.env.MONGO_URI, {
   retryWrites: true,
   w: 'majority',
 })
-  .then(() => logger.info('Connected to MongoDB'))
+  .then(() => {
+    logger.info('Connected to MongoDB');
+    // Reconcile indexes with the schema so every environment (fresh dev DB, new
+    // staging, production) self-heals — including dropping the legacy unique
+    // roles.name_1 index. Non-blocking + never throws (see ensureIndexes).
+    return ensureIndexes();
+  })
   .catch((err) => logger.error('MongoDB connection error:', err));
 
 // Failover visibility — log when the driver loses/regains the primary.
@@ -42,6 +50,9 @@ app.set('trust proxy', 1);
 
 // Correlation id first, so health checks and every downstream log carry a trace id.
 app.use(correlationId);
+
+// Prometheus timing — early so it wraps the whole chain (skips probes/metrics).
+app.use(metricsMiddleware);
 
 // ── Probes (before rate-limiting/logging so they aren't throttled or noisy) ──────
 // Liveness: the process is up. Never touches dependencies.
@@ -113,6 +124,20 @@ server.listen(PORT, (error) => {
     logger.info(`Server running on port ${PORT}`);
   }
 });
+
+// Per-worker Prometheus metrics endpoint (loopback only — see src/metrics.js).
+startMetricsServer();
+
+// ── Legal module scheduled work ──────────────────────────────────────────────
+// Limitation clocks and court deadlines expire whether or not anyone opens the
+// app, so the Legal module is the first part of AVICS to need time-driven jobs.
+// Registration is idempotent and BullMQ deduplicates repeatables by jobId, so
+// every instance calling this still produces exactly one job per interval.
+if (process.env.LEGAL_MODULE_ENABLED === 'true') {
+  require('./queue/scheduler')
+    .registerSchedules()
+    .catch((err) => logger.error(`Legal scheduler registration failed: ${err.message}`));
+}
 
 // ── Graceful shutdown ────────────────────────────────────────────────────────
 let shuttingDown = false;

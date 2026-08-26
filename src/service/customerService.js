@@ -19,7 +19,7 @@ const {
   AccountLockedError,
 } = require("../utils/accountLockout.js");
 const { assertValidPassword } = require("../utils/passwordPolicy.js");
-const { belongsToCompany } = require("../utils/requesterCompany.js");
+const { belongsToCompany, getRequesterCompany } = require("../utils/requesterCompany.js");
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -562,18 +562,34 @@ const getCustomerStats = async (company) => {
 };
 
 // Find garages closer to my claim location
-const findGarages = async (claimId) => {
+const findGarages = async (claimId, req) => {
   const claim = await Claim.findById(claimId);
   if (!claim) {
     throw new Error("Invalid request: Claim not found");
+  }
+
+  // Access control: the caller must own this claim (customer) or be scoped to its
+  // insurer (portal). Stops enumerating another tenant's garages via a foreign claim id.
+  const type = req?.user?.accountType;
+  if (type === "Customer") {
+    if (String(claim.customerId) !== String(req.user.id)) {
+      throw new ApiError(403, "You are not authorized to view garages for this claim");
+    }
+  } else if (type === "CompanyUser" || type === "ProviderUser") {
+    const company = await getRequesterCompany(req);
+    if (!belongsToCompany(claim.company, company)) {
+      throw new ApiError(403, "You are not authorized to view garages for this claim");
+    }
   }
 
   // Extract incident location
   const { longitude: incidentLongitude, latitude: incidentLatitude } =
     claim.incidentDetails;
 
-  // Find all garages
-  const garages = await Garage.find({});
+  // Only garages belonging to this claim's insurer (tenant). Legacy claims with
+  // no company fall back to all — but a scoped claim never leaks other insurers'
+  // garages.
+  const garages = await Garage.find(claim.company ? { company: claim.company } : {});
 
   // Filter garages within a 20 km radius
   const nearbyGarages = garages.filter((garage) => {

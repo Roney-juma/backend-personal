@@ -6,13 +6,14 @@ const passwordController = require("../controllers/password.controller");
 const verifyToken = require("../middlewheres/verifyToken");
 const authLimiter = require("../middlewheres/authLimiter");
 const requirePortalUser = require("../middlewheres/requirePortalUser");
+const requirePermission = require("../middlewheres/requirePermission");
 const router = express.Router();
 
 
 
 router.post("/register", customerController.createCustomer)
 // Portal-only: company admins add one or bulk-import customers (dryRun supported).
-router.post("/import", verifyToken(), requirePortalUser, customerController.importCustomers)
+router.post("/import", verifyToken(), requirePortalUser, requirePermission('IMPORT_CUSTOMERS'), customerController.importCustomers)
 router.post("/login", authLimiter, customerController.login)
 
 // Mobile account activation — book-verified "registration" (public, rate-limited)
@@ -31,8 +32,8 @@ router.post('/mfa/disable', verifyToken(), mfaController.disable('Customer'));
 router.post('/change-password', verifyToken(), passwordController.changePassword('Customer'));
 // Portal-only: the mobile app never lists customers, and a mobile actor token
 // would resolve to no requester company (global scope) here.
-router.get('/stats',verifyToken(), requirePortalUser, customerController.getCustomerStats)
-router.get("/",verifyToken(), requirePortalUser, customerController.getAllCustomers)
+router.get('/stats',verifyToken(), requirePortalUser, requirePermission('VIEW_CUSTOMERS'), customerController.getCustomerStats)
+router.get("/",verifyToken(), requirePortalUser, requirePermission('VIEW_CUSTOMERS'), customerController.getAllCustomers)
 router.get('/get-garages/:claimId',verifyToken(), customerController.getGarage)
 router.put('/updateCustomer/:customerId',verifyToken(), customerController.updateCustomer)
 router.get('/myClaims/:customerId',verifyToken(), customerController.getCustomerClaims)
