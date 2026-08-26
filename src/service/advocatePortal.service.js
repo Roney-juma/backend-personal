@@ -109,7 +109,10 @@ async function myCases(advocateId, { status, scope = 'open' } = {}) {
   const cases = await LegalCase.find(filter)
     .select(
       'caseNumber courtCaseNumber court courtStation status filedAt nextActionAt nextActionLabel ' +
-      'instructionsIssuedAt instructionsAcceptedAt lastProgressReportAt matterType plaintiffs closedAt'
+      'instructionsIssuedAt instructionsAcceptedAt lastProgressReportAt matterType plaintiffs closedAt ' +
+      // So the list can tell a concluded matter from a live one without opening
+      // it — a concluded matter is read, not worked.
+      'closingReport.submittedAt closingReport.outcome'
     )
     .sort(sort)
     .lean();
@@ -242,6 +245,25 @@ async function acceptInstructions(advocateId, caseId) {
  */
 async function addCourtDate(advocateId, caseId, data, actor) {
   const legalCase = await assertAssigned(advocateId, caseId);
+
+  /**
+   * A concluded matter takes no new court dates.
+   *
+   * Once counsel has filed their closing report they have told us the matter is
+   * over; diarising a further hearing against it contradicts that report and
+   * puts a live deadline back on a file the legal team has been told to close.
+   * If it is genuinely not over, the way back is to withdraw the report — not
+   * to quietly book another mention.
+   */
+  if (legalCase.status === 'closed') {
+    throw new ApiError(409, 'That matter is closed. Court dates cannot be added to it.');
+  }
+  if (legalCase.closingReport?.submittedAt) {
+    throw new ApiError(
+      409,
+      'You have already filed a closing report on this matter, so it takes no further court dates.'
+    );
+  }
 
   return diaryService.createEvent(
     {
