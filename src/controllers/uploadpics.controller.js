@@ -39,11 +39,27 @@ const imageUpload = async (req, res) => {
     }
 };
 
-// Report documents (assessor assessment reports, etc.) — PDF or Word only.
+/**
+ * What counts as a "document" here: reports, invoices, quotes, receipts.
+ *
+ * Images belong on this list. A garage invoice or a fee note usually reaches us
+ * as a phone photo of a paper original, not a PDF — refusing those made vendors
+ * find a scanner before they could bill, and the form already offered .jpg while
+ * the server rejected it.
+ *
+ * HEIC is included because that is what an iPhone produces by default; leaving
+ * it out rejects the single most common camera format on the exact flow this
+ * matters for.
+ */
 const DOCUMENT_MIME_TYPES = [
     'application/pdf',
     'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/heic',
+    'image/heif',
 ];
 
 const documentUpload = async (req, res) => {
@@ -61,7 +77,9 @@ const documentUpload = async (req, res) => {
             return res.status(400).json({ message: 'No file uploaded' });
         }
         if (!DOCUMENT_MIME_TYPES.includes(file.mimetype)) {
-            return res.status(400).json({ message: 'Only PDF or Word documents are allowed' });
+            return res.status(400).json({
+                message: 'That file type is not supported. Upload a PDF, a Word document, or a photo (JPG, PNG, WEBP or HEIC).',
+            });
         }
 
         const params = {
