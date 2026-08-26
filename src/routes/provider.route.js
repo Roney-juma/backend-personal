@@ -20,6 +20,10 @@ router.post('/mfa/enable',  verifyProviderToken(), mfaController.enable('Provide
 router.post('/mfa/disable', verifyProviderToken(), mfaController.disable('ProviderUser'));
 router.post('/change-password', verifyProviderToken(), passwordController.changePassword('ProviderUser'));
 
+// Slide the session forward against a still-valid token. Capped by
+// PROVIDER_SESSION_MAX_HOURS — see the controller.
+router.post('/refresh', verifyProviderToken(), providerUserController.refresh);
+
 // Self-service profile for the authenticated provider user.
 router.get('/me', verifyProviderToken(), providerUserController.getMe);
 router.patch('/me', verifyProviderToken(), providerUserController.updateMe);

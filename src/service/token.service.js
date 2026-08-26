@@ -105,7 +105,7 @@ const generatePocToken = (user) => {
 };
 // Platform staff (ProviderUser model) ONLY. Never carries a company claim —
 // verifyProviderToken rejects any token that has one.
-const generateProviderUserToken = (user) => {
+const generateProviderUserToken = (user, { sessionStartedAt } = {}) => {
   const data = {
     id: user._id,
     email: user.email,
@@ -116,6 +116,13 @@ const generateProviderUserToken = (user) => {
     department: user.department,
     position: user.position,
     accountType: "ProviderUser",
+    /**
+     * When the session began, in epoch seconds — carried unchanged through every
+     * refresh. The token itself is short-lived and renewable, so without an
+     * absolute start a session could be extended forever and a stolen token
+     * would never expire. /provider/refresh refuses to re-issue past the cap.
+     */
+    sessionStartedAt: sessionStartedAt || Math.floor(Date.now() / 1000),
   };
   const token = jwt.sign(
     { payload: data },
