@@ -159,10 +159,54 @@ const settlementSchema = new Schema(
 );
 
 // The approval queue and the settlement report both run on this.
+/**
+ * The statuses in which a settlement occupies the single live slot on its
+ * third-party claim. Anything else — rejected, withdrawn, lapsed, declined,
+ * paid — frees the exposure for a fresh proposal.
+ *
+ * Exported so the service and this schema cannot drift apart on what "live" means.
+ */
+const LIVE_STATUSES = ['draft', 'pending_approval', 'approved', 'accepted', 'executed'];
+
+/**
+ * Holds the third-party claim id while this settlement is live, and is unset
+ * otherwise. The sparse unique index below then makes "one live settlement per
+ * exposure" a database guarantee rather than a hope: the service's read-then-
+ * create check cannot stop two concurrent proposals (a double-clicked button,
+ * a retried request) from both passing the read.
+ *
+ * Derived from `status` in the hook below so it can never be set by hand or
+ * fall out of step. Unset rather than null because a sparse index still
+ * enforces uniqueness across repeated nulls.
+ */
+settlementSchema.add({
+  liveOn: { type: Schema.Types.ObjectId, ref: 'ThirdPartyClaim' },
+});
+
+/** Point `liveOn` at the exposure while live, and clear it once it is not. */
+function syncLiveSlot(doc) {
+  if (LIVE_STATUSES.includes(doc.status)) doc.liveOn = doc.thirdPartyClaim;
+  else doc.set('liveOn', undefined);
+  return doc;
+}
+
+settlementSchema.pre('save', function syncLiveSlotHook(next) {
+  syncLiveSlot(this);
+  next();
+});
+
+settlementSchema.index({ liveOn: 1 }, { unique: true, sparse: true });
+
 settlementSchema.index({ company: 1, status: 1, proposedAt: -1 });
 // "Is there already a live settlement on this exposure?"
 settlementSchema.index({ thirdPartyClaim: 1, status: 1 });
 
 settlementSchema.plugin(softDelete);
 
-module.exports = mongoose.model('Settlement', settlementSchema);
+const Settlement = mongoose.model('Settlement', settlementSchema);
+
+Settlement.LIVE_STATUSES = LIVE_STATUSES;
+// Exported so the slot rule can be exercised without a database.
+Settlement.syncLiveSlot = syncLiveSlot;
+
+module.exports = Settlement;

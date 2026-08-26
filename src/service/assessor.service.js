@@ -21,6 +21,7 @@ const emailService = require("./email.service");
 const whatsappService = require("./whatsapp.service");
 const { writeAuditLog } = require("../utils/auditHelper");
 const cache = require("../cache");
+const { resolveLocation } = require("../utils/geocode");
 const { getAnalyzeQueue } = require("../queue/queues");
 const { getCorrelationId } = require("../utils/requestContext");
 const logger = require("../middlewheres/logger");
@@ -110,6 +111,13 @@ const updateAssessor = async (id, assessorData, req, company) => {
 
   const start = Date.now();
   const oldData = assessor.toObject();
+
+  // Assessor matching is distance-based and hard-fails when coordinates are
+  // missing, so re-derive them whenever the address text changes.
+  if (assessorData.location) {
+    const location = await resolveLocation(oldData.location, assessorData.location);
+    if (location) assessorData.location = location;
+  }
   const updatedAssessor = await Assessor.findOneAndUpdate(
     filter,
     assessorData,
@@ -321,6 +329,9 @@ const placeBid = async (
   const start = Date.now();
   await claim.save();
   await cache.del(`cache:assessor:bids:${assessorId}`);
+  // Singular key — `cache:claims:*` below does not cover it, and the admin's
+  // claim detail is cached for 15 minutes.
+  await cache.del(`cache:claim:${claimId}`);
   await cache.delPattern("cache:claims:*");
   // The assessor's "available claims" list is cached separately (5-min TTL) and
   // isn't covered by the patterns above, so a just-bid claim would linger in it.

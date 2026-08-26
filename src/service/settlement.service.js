@@ -23,7 +23,17 @@ const thirdPartyClaimService = require('./thirdPartyClaim.service');
  * somewhere else.
  */
 
-const LIVE_STATUSES = ['draft', 'pending_approval', 'approved', 'accepted', 'executed'];
+// Defined on the model so the schema's unique-slot index and this check can
+// never disagree about what counts as live.
+const LIVE_STATUSES = Settlement.LIVE_STATUSES;
+
+/** The 409 a caller gets when an exposure already has a settlement on it. */
+const alreadyLive = (existing) =>
+  new ApiError(
+    409,
+    `${existing.reference} is already live on this claim (${existing.status.replace(/_/g, ' ')}). ` +
+    'Revise or withdraw it rather than opening a second.'
+  );
 
 /**
  * Open a settlement on an exposure, with our opening offer.
@@ -40,13 +50,7 @@ async function propose(data, actor = null) {
     thirdPartyClaim: tpc._id,
     status: { $in: LIVE_STATUSES },
   }).lean();
-  if (existing) {
-    throw new ApiError(
-      409,
-      `${existing.reference} is already live on this claim (${existing.status.replace(/_/g, ' ')}). ` +
-      'Revise or withdraw it rather than opening a second.'
-    );
-  }
+  if (existing) throw alreadyLive(existing);
 
   const proposedMinor = toMinorAmount(data, 'proposed');
   const claimantCostsMinor = toMinorAmount(data, 'claimantCosts', 0);
@@ -55,43 +59,60 @@ async function propose(data, actor = null) {
 
   const reference = await Counter.nextReference({ prefix: 'SET', company: tpc.company });
 
-  const settlement = await Settlement.create({
-    reference,
-    company: tpc.company,
-    claim: tpc.claim,
-    thirdPartyClaim: tpc._id,
-    legalCase: tpc.legalCase,
+  let settlement;
+  try {
+    settlement = await Settlement.create({
+      reference,
+      company: tpc.company,
+      claim: tpc.claim,
+      thirdPartyClaim: tpc._id,
+      legalCase: tpc.legalCase,
 
-    offers: [
-      {
-        by: 'insurer',
-        amountMinor: proposedMinor,
-        madeBy: actor?._id || actor?.id || null,
-        madeByName: actor?.fullName || actor?.name || 'System',
-        notes: data.rationale,
-        channel: data.channel || 'letter',
-        at: new Date(),
-      },
-    ],
+      offers: [
+        {
+          by: 'insurer',
+          amountMinor: proposedMinor,
+          madeBy: actor?._id || actor?.id || null,
+          madeByName: actor?.fullName || actor?.name || 'System',
+          notes: data.rationale,
+          channel: data.channel || 'letter',
+          at: new Date(),
+        },
+      ],
 
-    proposedMinor,
-    claimantCostsMinor,
-    interestMinor,
-    totalMinor,
+      proposedMinor,
+      claimantCostsMinor,
+      interestMinor,
+      totalMinor,
 
-    // Snapshot the position the proposer was looking at, so an approver does not
-    // have to reconstruct it — and so the record still makes sense if the
-    // exposure is later revised.
-    exposureAtProposalMinor: tpc.exposure?.cappedMinor ?? 0,
-    reserveAtProposalMinor: tpc.reserve?.currentMinor ?? 0,
-    demandedMinor: tpc.quantum?.demandedMinor,
+      // Snapshot the position the proposer was looking at, so an approver does not
+      // have to reconstruct it — and so the record still makes sense if the
+      // exposure is later revised.
+      exposureAtProposalMinor: tpc.exposure?.cappedMinor ?? 0,
+      reserveAtProposalMinor: tpc.reserve?.currentMinor ?? 0,
+      demandedMinor: tpc.quantum?.demandedMinor,
 
-    proposedBy: actor?._id || actor?.id || null,
-    proposedByName: actor?.fullName || actor?.name || 'System',
-    rationale: data.rationale,
-    payee: data.payee,
-    status: 'draft',
-  });
+      proposedBy: actor?._id || actor?.id || null,
+      proposedByName: actor?.fullName || actor?.name || 'System',
+      rationale: data.rationale,
+      payee: data.payee,
+      status: 'draft',
+    });
+  } catch (err) {
+    // The read above cannot stop two concurrent proposals both passing it. The
+    // unique `liveOn` slot does, and the loser lands here — report it as the
+    // same conflict rather than a raw duplicate-key error.
+    if (err?.code === 11000) {
+      const winner = await Settlement.findOne({
+        thirdPartyClaim: tpc._id,
+        status: { $in: LIVE_STATUSES },
+      }).lean();
+      throw winner
+        ? alreadyLive(winner)
+        : new ApiError(409, 'A settlement is already live on this claim.');
+    }
+    throw err;
+  }
 
   if (tpc.status === 'notified' || tpc.status === 'demand_received' || tpc.status === 'under_assessment') {
     tpc.status = 'negotiation';

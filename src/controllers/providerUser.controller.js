@@ -24,6 +24,44 @@ const login = async (req, res) => {
     }
 };
 
+/**
+ * Slide the session forward.
+ *
+ * Provider tokens last a day and there was no way to renew one, so a staff
+ * member mid-task simply started getting 401s. This re-issues against the
+ * caller's still-valid token — there is no separate refresh token to store,
+ * which keeps nothing long-lived in the browser.
+ *
+ * Two things stop it becoming an immortal session:
+ *   - the user is re-read from the database, so a deactivated or deleted
+ *     account cannot renew;
+ *   - `sessionStartedAt` is carried through every renewal, and past
+ *     PROVIDER_SESSION_MAX_HOURS the caller must sign in again.
+ */
+const refresh = async (req, res) => {
+    try {
+        const user = await providerUserService.getProviderUserById(req.user.id);
+        if (!user || user.active === false) {
+            return res.status(401).json({ message: 'This account can no longer be used. Please sign in again.' });
+        }
+
+        const maxHours = Number(process.env.PROVIDER_SESSION_MAX_HOURS || 168); // 7 days
+        const nowSec = Math.floor(Date.now() / 1000);
+        // Tokens issued before sessionStartedAt existed have no start to measure
+        // from; treat this renewal as the start rather than locking them out.
+        const startedAt = Number(req.user.sessionStartedAt) || nowSec;
+
+        if (nowSec - startedAt > maxHours * 3600) {
+            return res.status(401).json({ message: 'Your session has reached its maximum length. Please sign in again.' });
+        }
+
+        const tokens = tokenService.generateProviderUserToken(user, { sessionStartedAt: startedAt });
+        res.status(200).json({ user, tokens, sessionStartedAt: startedAt });
+    } catch (error) {
+        res.status(500).json({ message: 'Could not refresh the session', error: error.message });
+    }
+};
+
 const createUser = async (req, res) => {
     try {
         const user = await providerUserService.createProviderUser(req.body);
@@ -115,6 +153,7 @@ const resetPassword = async (req, res) => {
 
 module.exports = {
     login,
+    refresh,
     createUser,
     getAllUsers,
     getUserById,

@@ -465,6 +465,16 @@ async function close(caseId, data, actor = null) {
     ['recoveryCompletedOrWrittenOff', 'any recovery is completed or written off'],
   ];
 
+  /**
+   * Counsel's closing report is required whenever a matter had counsel. Closing
+   * an advocate's matter without their report means closing it without knowing
+   * how it ended or whether an appeal window is still open — and the report is
+   * one click for them, submitted from the partner portal.
+   */
+  if (legalCase.advocate) {
+    REQUIRED.push(['finalReportReceived', "counsel's closing report has been received"]);
+  }
+
   const outstanding = REQUIRED.filter(([key]) => !checklist[key]).map(([, label]) => label);
   if (outstanding.length && !data.force) {
     throw new ApiError(

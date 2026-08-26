@@ -207,6 +207,48 @@ const legalCaseSchema = new Schema(
       finalReportReceived: { type: Boolean, default: false },
       lessonsLearnedRecorded: { type: Boolean, default: false },
     },
+    /**
+     * Counsel's closing report — the matter as the advocate leaves it.
+     *
+     * Conclusion starts with them, not with us: the advocate is the one who was
+     * in court, knows the decretal sum, and is the only person who can advise
+     * whether to appeal and by when. Closing a matter without that is closing it
+     * on guesswork.
+     *
+     * Submitting this does NOT close the case. It ticks
+     * `closureChecklist.finalReportReceived` and notifies the legal team, who
+     * still run the closure checklist themselves.
+     */
+    closingReport: {
+      outcome: {
+        type: String,
+        enum: [
+          'judgment_for_insurer', 'judgment_for_claimant', 'judgment_apportioned',
+          'settled', 'consent_judgment', 'withdrawn_by_claimant',
+          'dismissed', 'struck_out', 'other',
+        ],
+      },
+      summary: { type: String },
+      // What the matter actually cost, as counsel knows it at conclusion.
+      awardMinor: { type: Number, min: 0 },
+      costsMinor: { type: Number, min: 0 },
+      interestMinor: { type: Number, min: 0 },
+      /**
+       * The appeal window is the reason this cannot wait for our own review:
+       * it runs from delivery, and it runs whether or not anyone has read the
+       * file. Counsel states the deadline; we decide.
+       */
+      appealAdvised: { type: Boolean, default: false },
+      appealDeadline: { type: Date },
+      appealRationale: { type: String },
+      recoveryProspects: { type: String },
+      outstandingActions: { type: String },
+      lessonsLearned: { type: String },
+      submittedAt: { type: Date },
+      submittedBy: { type: Schema.Types.ObjectId, ref: 'Advocate' },
+      submittedByName: { type: String },
+    },
+
     lessonsLearned: { type: String },
     closedAt: { type: Date },
     closedBy: { type: Schema.Types.ObjectId, ref: 'Users' },

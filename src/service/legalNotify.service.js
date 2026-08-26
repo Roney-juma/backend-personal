@@ -228,6 +228,25 @@ const templates = {
       '\n\nThis is a recommendation. It becomes a proposal only when a Legal Officer adopts it.',
   }),
 
+  /**
+   * Counsel has concluded a matter. Where an appeal is advised the deadline
+   * leads the message — it is the one thing here that expires.
+   */
+  closingReportSubmitted: ({ caseNumber, advocate, outcome, summary, appealAdvised, appealDeadline }) => ({
+    title: appealAdvised
+      ? `Closing report — APPEAL ADVISED on ${caseNumber}`
+      : `Closing report received — ${caseNumber}`,
+    body:
+      `${advocate || 'Counsel'} has concluded ${caseNumber}: ${outcome}.` +
+      (appealAdvised
+        ? `\n\nAN APPEAL IS ADVISED. The window closes ${
+            appealDeadline ? new Date(appealDeadline).toDateString() : 'shortly'
+          } — a decision is needed before then.`
+        : '') +
+      (summary ? `\n\n${summary}` : '') +
+      '\n\nThe matter is not closed. Review the report and run the closure checklist.',
+  }),
+
   progressReportOverdue: ({ caseNumber, courtCase, days, court }) => ({
     title: `Progress report overdue — ${courtCase || caseNumber}`,
     body:
