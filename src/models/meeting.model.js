@@ -105,6 +105,13 @@ const meetingSchema = new mongoose.Schema(
      * tenant; `name` covers prospects who are not on the platform yet. Both are
      * optional — internal meetings leave the whole block empty.
      */
+    /**
+     * The prospect this session belongs to, when it is one. Optional: meetings
+     * predate prospects, so the pipeline also matches on company and client
+     * name — this link is simply the unambiguous version.
+     */
+    prospect: { type: mongoose.Schema.Types.ObjectId, ref: 'Prospect', index: true },
+
     client: {
       company: { type: mongoose.Schema.Types.ObjectId, ref: 'InsuranceCompany' },
       name: { type: String, trim: true },

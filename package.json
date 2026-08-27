@@ -17,7 +17,8 @@
     "workspace:rename-tasks": "node scripts/rename-issues-to-tasks.js",
     "geocode:test": "node scripts/test-geocode.js",
     "legal:backfill-settlement-slot": "node scripts/backfill-settlement-live-slot.js",
-    "advocate:test-scoring": "node scripts/test-advocate-scoring.js"
+    "advocate:test-scoring": "node scripts/test-advocate-scoring.js",
+    "prospect:test-activity": "node scripts/test-prospect-activity.js"
   },
   "author": "",
   "license": "ISC",
