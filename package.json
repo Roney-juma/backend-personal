@@ -18,7 +18,8 @@
     "geocode:test": "node scripts/test-geocode.js",
     "legal:backfill-settlement-slot": "node scripts/backfill-settlement-live-slot.js",
     "advocate:test-scoring": "node scripts/test-advocate-scoring.js",
-    "prospect:test-activity": "node scripts/test-prospect-activity.js"
+    "prospect:test-activity": "node scripts/test-prospect-activity.js",
+    "tz:test": "node scripts/test-timezone.js"
   },
   "author": "",
   "license": "ISC",
