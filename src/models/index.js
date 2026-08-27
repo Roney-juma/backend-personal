@@ -37,3 +37,4 @@ module.exports.LegalReferral = require('./legalReferral.model');
 // Internal workspace (platform team): meetings/calendar + task tracking.
 module.exports.Meeting = require('./meeting.model');
 module.exports.Task = require('./task.model');
+module.exports.Prospect = require('./prospect.model');

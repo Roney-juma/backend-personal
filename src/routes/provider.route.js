@@ -48,5 +48,7 @@ router.use('/demo-requests', require('./demoRequest.route'));
 // Internal workspace: the platform team's own meetings/calendar and task tracker.
 router.use('/meetings',      require('./meeting.route'));
 router.use('/tasks',         require('./task.route'));
+// The sales pipeline: which insurers we are talking to and where each stands.
+router.use('/prospects',     require('./prospect.route'));
 
 module.exports = router;
