@@ -3,6 +3,7 @@ const Meeting = require('../models/meeting.model');
 const Task = require('../models/task.model');
 const notify = require('./workspaceNotify.service');
 const logger = require('../middlewheres/logger');
+const { formatDateTime } = require('../utils/timezone');
 
 // Every model named in POPULATE must be registered before the first populate()
 // runs, or mongoose throws MissingSchemaError. Requiring them here rather than
@@ -186,7 +187,8 @@ const update = async (id, data) => {
 
   const changes = [];
   if (payload.startAt && new Date(payload.startAt).getTime() !== before.startAt?.getTime()) {
-    changes.push(`Moved to ${new Date(meeting.startAt).toLocaleString('en-GB')}`);
+    // Business timezone, not the server's — see utils/timezone.js.
+    changes.push(`Moved to ${formatDateTime(meeting.startAt)}`);
   }
   if (payload.location !== undefined && payload.location !== before.location) {
     changes.push(`Location is now ${meeting.location || 'TBC'}`);

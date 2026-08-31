@@ -1,5 +1,6 @@
 const emailService = require('./email.service');
 const logger = require('../middlewheres/logger');
+const { formatDateTime, formatShortDate } = require('../utils/timezone');
 
 /**
  * Email notifications for the internal workspace (meetings + tasks).
@@ -15,13 +16,12 @@ const logger = require('../middlewheres/logger');
 
 const APP_NAME = 'AVICS';
 
-const fmtWhen = (date) => {
-  if (!date) return 'TBC';
-  return new Date(date).toLocaleString('en-GB', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
-};
+/**
+ * Rendered in the business timezone, NOT the server's. Production runs on UTC,
+ * so a bare toLocaleString reported a 14:00 Nairobi meeting as 11:00 — in the
+ * WhatsApp mirror and the email alike, since both read this same string.
+ */
+const fmtWhen = (date) => formatDateTime(date) || 'TBC';
 
 /** Where the meeting happens, in one line, whatever the format. */
 const fmtWhere = (meeting) => {
@@ -161,7 +161,7 @@ const meetingMinutes = async (meeting, actionItems = []) => {
   const recipients = recipientsOf(meeting);
   const decisions = (meeting.decisions ?? []).map((d) => `  - ${d.text}`).join('\n');
   const actions = actionItems
-    .map((i) => `  - ${i.title} (${i.assigneeName || 'unassigned'}${i.dueAt ? `, due ${new Date(i.dueAt).toLocaleDateString('en-GB')}` : ''})`)
+    .map((i) => `  - ${i.title} (${i.assigneeName || 'unassigned'}${i.dueAt ? `, due ${formatShortDate(i.dueAt)}` : ''})`)
     .join('\n');
 
   const subject = `Minutes: ${meeting.title}`;
@@ -193,7 +193,7 @@ const taskAssigned = async (task, assigneeEmail, assigneeName) => {
     `Type:      ${task.type}\n` +
     `Priority:  ${task.priority}\n` +
     `Area:      ${task.area}\n` +
-    (task.dueAt ? `Due:       ${new Date(task.dueAt).toLocaleDateString('en-GB')}\n` : '') +
+    (task.dueAt ? `Due:       ${formatShortDate(task.dueAt)}\n` : '') +
     (task.description ? `\nDescription:\n${task.description}\n` : '') +
     (task.reporterName ? `\nRaised by: ${task.reporterName}\n` : '') +
     `\n— ${APP_NAME}`;
