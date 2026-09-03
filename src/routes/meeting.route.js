@@ -16,6 +16,7 @@ router.get('/',    controller.getAllMeetings);
 router.post('/',   controller.createMeeting);
 router.get('/:id', controller.getMeetingById);
 router.patch('/:id', controller.updateMeeting);
+router.post('/:id/share', controller.shareMeeting);
 router.post('/:id/complete', controller.completeMeeting);
 router.delete('/:id', controller.deleteMeeting);
 

@@ -231,7 +231,40 @@ const update = async (id, data) => {
    * look identical from the outside.
    */
   const guestChanges = payload.attendees ? diffAttendees(before.attendees, meeting.attendees) : null;
-  const withGuests = (doc) => (guestChanges ? { ...doc.toObject(), guestChanges: { ...guestChanges, notified: shouldNotify } } : doc);
+
+  /**
+   * Who an update actually reached.
+   *
+   * The notifiers are fire-and-forget by contract, so until now "I changed the
+   * link and nobody was told" was indistinguishable from "the mail is in their
+   * spam folder" — from the portal and from the logs alike. Resolving the
+   * recipient list is pure in-memory work, so reporting it costs nothing and
+   * turns a silent path into an answerable one.
+   */
+  const buildReport = (changes) => {
+    if (changes.length === 0) return null;
+    const recipients = notify.recipientsOf(meeting);
+    return {
+      changes,
+      notified: shouldNotify,
+      recipients: recipients.map((r) => ({ name: r.name ?? null, email: r.email })),
+      // Named on the invitation but with no address on file — listed so an
+      // empty send has a reason attached to it rather than looking broken.
+      unreachable: (meeting.attendees ?? [])
+        .filter((a) => !a.email && !(a.user && typeof a.user === 'object' && a.user.email))
+        .map((a) => a.name),
+    };
+  };
+
+  const decorate = (doc, changeReport) => {
+    if (!guestChanges && !changeReport) return doc;
+    return {
+      ...doc.toObject(),
+      ...(guestChanges ? { guestChanges: { ...guestChanges, notified: shouldNotify } } : {}),
+      ...(changeReport ? { changeReport } : {}),
+    };
+  };
+  const withGuests = (doc) => decorate(doc, null);
 
   if (!shouldNotify) return withGuests(meeting);
 
@@ -290,13 +323,49 @@ const update = async (id, data) => {
   // Only the changes attendees need to act on are worth an email — editing the
   // agenda or ticking items off is not one of them. Anyone added above is
   // excluded: they have just had the full invitation, which says all of this.
+  const changeReport = buildReport(changes);
   if (changes.length > 0) {
+    logger.info(
+      `[meeting] ${meeting.reference} updated | ${changes.length} change(s) | notifying ${changeReport.recipients.length} recipient(s)`,
+    );
     notify
       .meetingUpdated(meeting, changes, { excludeEmails: (guestChanges?.invited ?? []).map((a) => a.email) })
       .catch((err) => logger.warn(`[meeting] update emails failed for ${meeting.reference}: ${err.message}`));
   }
 
-  return withGuests(meeting);
+  return decorate(meeting, changeReport);
+};
+
+/**
+ * Send the meeting details out again, on request.
+ *
+ * The automatic notifications are fire-and-forget and, being email, can be
+ * filtered, deleted or simply missed. This is the deliberate resend: it repeats
+ * everything — time, place, joining link, agenda — and reports exactly who it
+ * reached, so "did they get it?" has an answer.
+ */
+const share = async (id, { note } = {}) => {
+  const meeting = await Meeting.findById(id).populate(POPULATE);
+  if (!meeting) return null;
+
+  const recipients = notify.recipientsOf(meeting);
+  const unreachable = (meeting.attendees ?? [])
+    .filter((a) => !a.email && !(a.user && typeof a.user === 'object' && a.user.email))
+    .map((a) => a.name);
+
+  // Awaited, unlike the automatic notifiers: the caller asked for this and is
+  // waiting to be told whether it worked.
+  let sent = 0;
+  if (recipients.length > 0) {
+    sent = await notify.meetingShared(meeting, recipients, { note });
+  }
+
+  return {
+    sent,
+    recipients: recipients.map((r) => ({ name: r.name ?? null, email: r.email })),
+    unreachable,
+    hasLink: Boolean(meeting.meetingLink),
+  };
 };
 
 /**
@@ -475,4 +544,4 @@ const summary = async () => {
 
 // diffAttendees is exported for scripts/test-attendee-diff.js — the rule for who
 // counts as newly invited is worth pinning down without a database.
-module.exports = { create, getAll, getById, update, complete, remove, calendar, summary, diffAttendees };
+module.exports = { create, getAll, getById, update, share, complete, remove, calendar, summary, diffAttendees };
