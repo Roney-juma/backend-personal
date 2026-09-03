@@ -14,7 +14,26 @@ const invoiceSchema = new mongoose.Schema(
   {
     invoiceNumber: { type: String, unique: true },
     company: { type: mongoose.Schema.Types.ObjectId, ref: 'InsuranceCompany', required: true },
+    /**
+     * The subscription this invoice BILLS — a period already granted, raised by
+     * the renewal sweep or by "Bill period". Paying it settles a debt; it does
+     * not extend anything, because the term was extended when it was raised.
+     */
     subscription: { type: mongoose.Schema.Types.ObjectId, ref: 'CompanySubscription' },
+    /**
+     * The plan this invoice SELLS. Set when the invoice exists to put a company
+     * onto a plan rather than to bill one they are already on — paying it is
+     * what starts or renews their subscription.
+     *
+     * The distinction matters: without it there was no way to quote a company
+     * for a plan and have their access begin when the money arrived. The only
+     * options were to create the subscription unpaid and hope, or to create it
+     * by hand after spotting the payment.
+     */
+    purchase: {
+      plan: { type: mongoose.Schema.Types.ObjectId, ref: 'SubscriptionPlan' },
+      billingCycle: { type: String, enum: ['monthly', 'annually'], default: 'monthly' },
+    },
     items: [invoiceItemSchema],
     subtotal: { type: Number, required: true, min: 0 },
     taxRate: { type: Number, default: 0, min: 0, max: 100 },

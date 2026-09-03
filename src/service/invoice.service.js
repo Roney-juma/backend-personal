@@ -3,7 +3,7 @@ const emailService = require('./email.service');
 const generateInvoicePdf = require('../utils/generateInvoicePdf');
 
 const createInvoice = async (data) => {
-  const { company, subscription, items, taxRate = 0, dueDate, notes, currency, paymentMethod } = data;
+  const { company, subscription, purchase, items, taxRate = 0, dueDate, notes, currency, paymentMethod } = data;
 
   const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
   const tax = parseFloat(((subtotal * taxRate) / 100).toFixed(2));
@@ -17,6 +17,11 @@ const createInvoice = async (data) => {
   const invoice = new Invoice({
     company,
     subscription,
+    // Only stored when a plan is actually being sold — see the model for the
+    // difference between billing an existing subscription and selling a new one.
+    purchase: purchase?.plan
+      ? { plan: purchase.plan, billingCycle: purchase.billingCycle || 'monthly' }
+      : undefined,
     items: itemsWithTotal,
     subtotal,
     taxRate,
@@ -40,6 +45,7 @@ const getAllInvoices = async ({ status, company, page = 1, limit = 20 } = {}) =>
     Invoice.find(filter)
       .populate('company', 'companyName email')
       .populate('subscription', 'billingCycle')
+      .populate('purchase.plan', 'name currency price')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number(limit)),
@@ -51,11 +57,14 @@ const getAllInvoices = async ({ status, company, page = 1, limit = 20 } = {}) =>
 const getInvoiceById = async (id) => {
   return Invoice.findById(id)
     .populate('company', 'companyName email address')
-    .populate('subscription');
+    .populate('subscription')
+    .populate('purchase.plan', 'name currency price');
 };
 
 const getInvoicesByCompany = async (companyId) => {
-  return Invoice.find({ company: companyId }).sort({ createdAt: -1 });
+  return Invoice.find({ company: companyId })
+    .populate('purchase.plan', 'name')
+    .sort({ createdAt: -1 });
 };
 
 const updateInvoice = async (id, data) => {
@@ -122,7 +131,7 @@ const markAsPaid = async (id, { paymentMethod, paymentReference, paidDate } = {}
   const when = paidDate ? new Date(paidDate) : new Date();
   if (Number.isNaN(when.getTime())) throw new Error('Payment date is not a valid date.');
 
-  return Invoice.findByIdAndUpdate(
+  const paid = await Invoice.findByIdAndUpdate(
     id,
     {
       status: 'paid',
@@ -132,6 +141,46 @@ const markAsPaid = async (id, { paymentMethod, paymentReference, paidDate } = {}
     },
     { new: true }
   );
+
+  /**
+   * An invoice raised to SELL a plan starts the subscription now that the money
+   * has arrived. This is the join the billing module was missing: you could
+   * quote a company for a plan, but nothing connected their payment to their
+   * access, so somebody had to notice and key it in.
+   *
+   * `subscription` (billing an existing term) deliberately does NOT do this —
+   * that term was already granted when the invoice was raised, and extending it
+   * again on payment would give away a free period every cycle.
+   *
+   * Guarded by the idempotent early return above, so activation happens once per
+   * invoice however many times this is called.
+   */
+  if (paid?.purchase?.plan) {
+    try {
+      const subscriptionService = require('./companySubscription.service');
+      const subscription = await subscriptionService.activateFromPayment({
+        company: paid.company,
+        plan: paid.purchase.plan,
+        billingCycle: paid.purchase.billingCycle,
+        startAt: when,
+      });
+      if (subscription) {
+        // Link them, so the invoice and the access it bought can be traced
+        // to each other from either end.
+        paid.subscription = subscription._id;
+        await paid.save();
+      }
+    } catch (err) {
+      // The payment is recorded either way — losing that because activation
+      // failed would be far worse than an unactivated subscription somebody
+      // can start by hand.
+      require('../middlewheres/logger').error(
+        `[invoice] ${paid.invoiceNumber} paid but subscription activation failed: ${err.message}`,
+      );
+    }
+  }
+
+  return paid;
 };
 
 const cancelInvoice = async (id) => {
