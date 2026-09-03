@@ -11,6 +11,12 @@ const passwordController = require('../controllers/password.controller');
 router.post('/login', authLimiter, providerUserController.login);
 router.post('/mfa/verify-login', authLimiter, mfaController.verifyLogin);
 
+// Self-service password recovery. Public by necessity — the caller cannot sign
+// in, which is the whole problem. Rate limited, and the response is the same
+// whether or not the address belongs to an account.
+router.post('/forgot-password', authLimiter, providerUserController.forgotPassword);
+router.post('/reset-password', authLimiter, providerUserController.resetPasswordWithToken);
+
 // All routes below are audit-logged and require a valid ProviderUser token
 router.use(providerAuditLogger);
 

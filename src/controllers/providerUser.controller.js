@@ -151,6 +151,30 @@ const resetPassword = async (req, res) => {
     }
 };
 
+/** Public. Always 200 with the same body — see the service for why. */
+const forgotPassword = async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email) return res.status(400).json({ message: 'Email is required' });
+        res.status(200).json(await providerUserService.forgotPassword(email));
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+};
+
+/** Public. Completes the emailed-code flow started by forgotPassword. */
+const resetPasswordWithToken = async (req, res) => {
+    try {
+        const { email, token, newPassword } = req.body;
+        if (!email || !token || !newPassword) {
+            return res.status(400).json({ message: 'Email, code and new password are required' });
+        }
+        res.status(200).json(await providerUserService.resetPasswordWithToken(email, token, newPassword));
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+};
+
 module.exports = {
     login,
     refresh,
@@ -160,6 +184,8 @@ module.exports = {
     updateUser,
     deactivateUser,
     resetPassword,
+    forgotPassword,
+    resetPasswordWithToken,
     getMe,
     updateMe,
 };
