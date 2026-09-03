@@ -173,8 +173,23 @@ const update = async (id, data) => {
 
   // Read the old values first so we can describe what actually moved. Without
   // this the "updated" email says something changed but not what.
-  const before = await Meeting.findById(id).select('startAt endAt location meetingLink format status');
+  const before = await Meeting.findById(id).select('startAt endAt location meetingLink format status durationMinutes');
   if (!before) return null;
+
+  /**
+   * Keep the derived duration in step when a meeting is rescheduled.
+   *
+   * The model computes this in a pre('save') hook, which findByIdAndUpdate does
+   * NOT run — so moving a meeting used to leave the old duration behind, and the
+   * invitation would say "(60 minutes)" about a slot that was now ninety.
+   */
+  if (payload.startAt || payload.endAt) {
+    const start = new Date(payload.startAt ?? before.startAt);
+    const end = new Date(payload.endAt ?? before.endAt);
+    if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
+      payload.durationMinutes = Math.max(0, Math.round((end - start) / 60000));
+    }
+  }
 
   const meeting = await Meeting.findByIdAndUpdate(id, payload, { new: true, runValidators: true }).populate(POPULATE);
   if (!meeting || !shouldNotify) return meeting;
@@ -194,7 +209,9 @@ const update = async (id, data) => {
     changes.push(`Location is now ${meeting.location || 'TBC'}`);
   }
   if (payload.meetingLink !== undefined && payload.meetingLink !== before.meetingLink) {
-    changes.push('The meeting link changed');
+    changes.push(before.meetingLink
+      ? 'The meeting link changed'
+      : `Joining link: ${meeting.meetingLink}`);
   }
   if (payload.format && payload.format !== before.format) {
     changes.push(`Format is now ${meeting.format.replace('_', ' ')}`);

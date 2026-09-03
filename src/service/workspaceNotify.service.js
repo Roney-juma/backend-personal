@@ -187,7 +187,7 @@ const taskAssigned = async (task, assigneeEmail, assigneeName) => {
   const subject = `Assigned to you: ${task.reference} — ${task.title}`;
   const body =
     `Hello ${assigneeName || 'there'},\n\n` +
-    `An task has been assigned to you.\n\n` +
+    `A task has been assigned to you.\n\n` +
     `Reference: ${task.reference}\n` +
     `Title:     ${task.title}\n` +
     `Type:      ${task.type}\n` +
@@ -210,7 +210,7 @@ const taskCommented = async (task, comment, recipients = []) => {
   const subject = `New comment on ${task.reference}: ${task.title}`;
   const body = (r) =>
     `Hello ${r.name || 'there'},\n\n` +
-    `${comment.authorName || 'Someone'} commented on an task you are following.\n\n` +
+    `${comment.authorName || 'Someone'} commented on a task you are following.\n\n` +
     `${comment.body}\n\n` +
     `Reference: ${task.reference}\n` +
     `Title:     ${task.title}\n` +
@@ -220,12 +220,35 @@ const taskCommented = async (task, comment, recipients = []) => {
   await fanOut(recipients, subject, body, 'taskCommented');
 };
 
+/**
+ * A task changed in a way its followers should know about — moved status, got a
+ * new priority, or had its due date pulled forward. The caller supplies the
+ * change list and the recipients, having already excluded whoever made the edit.
+ */
+const taskUpdated = async (task, changes = [], recipients = []) => {
+  const subject = `Updated: ${task.reference} — ${task.title}`;
+  const changeLines = changes.length ? `\nWhat changed:\n${changes.map((c) => `  - ${c}`).join('\n')}\n` : '';
+  const body = (r) =>
+    `Hello ${r.name || 'there'},\n\n` +
+    `A task you are following has been updated.\n` +
+    changeLines +
+    `\nReference: ${task.reference}\n` +
+    `Title:     ${task.title}\n` +
+    `Status:    ${String(task.status).replace(/_/g, ' ')}\n` +
+    `Priority:  ${task.priority}\n` +
+    (task.dueAt ? `Due:       ${formatShortDate(task.dueAt)}\n` : '') +
+    (task.assigneeName ? `Owner:     ${task.assigneeName}\n` : '') +
+    `\n— ${APP_NAME}`;
+
+  await fanOut(recipients, subject, body, 'taskUpdated');
+};
+
 /** Task closed out — let the reporter know their item landed. */
 const taskResolved = async (task, recipients = []) => {
   const subject = `Resolved: ${task.reference} — ${task.title}`;
   const body = (r) =>
     `Hello ${r.name || 'there'},\n\n` +
-    `An task you are following has been marked ${task.status}.\n\n` +
+    `A task you are following has been marked ${task.status}.\n\n` +
     `Reference: ${task.reference}\n` +
     `Title:     ${task.title}\n` +
     (task.resolution ? `\nResolution:\n${task.resolution}\n` : '') +
@@ -243,6 +266,7 @@ module.exports = {
   meetingCancelled,
   meetingMinutes,
   taskAssigned,
+  taskUpdated,
   taskCommented,
   taskResolved,
 };

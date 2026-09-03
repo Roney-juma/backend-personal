@@ -1,6 +1,7 @@
 const Task = require('../models/task.model');
 const notify = require('./workspaceNotify.service');
 const logger = require('../middlewheres/logger');
+const { formatShortDate } = require('../utils/timezone');
 
 // Populate targets must be registered before the first populate() call — see the
 // same note in meeting.service.js. 'ProviderUser' is case-sensitive.
@@ -19,6 +20,14 @@ const POPULATE = [
 // open-count queries so closed work never shows up as outstanding.
 const TERMINAL = ['resolved', 'closed', 'wont_fix'];
 
+/** Field names as a person would say them, for the change list in update mail. */
+const FIELD_LABELS = {
+  status: 'Status',
+  priority: 'Priority',
+  type: 'Type',
+  area: 'Area',
+};
+
 const actorFields = (actor) => ({
   id: actor?.id ?? actor?._id ?? null,
   name: actor?.fullName ?? actor?.username ?? actor?.email ?? 'Unknown',
@@ -27,7 +36,7 @@ const actorFields = (actor) => ({
 /** Address of a populated ref, or null when it was never populated/set. */
 const emailOf = (ref) => (ref && typeof ref === 'object' ? ref.email ?? null : null);
 
-/** Everyone who should hear about an task, minus whoever caused the event. */
+/** Everyone who should hear about a task, minus whoever caused the event. */
 const followersOf = (task, excludeId) => {
   const out = [];
   const seen = new Set();
@@ -123,6 +132,10 @@ const update = async (id, rawData, actor) => {
   const previousStatus = task.status;
 
   const TRACKED = ['status', 'priority', 'assignee', 'type', 'area', 'dueAt'];
+  // The same pass that writes history also builds the sentence people read in
+  // the notification — one source of truth for "what actually changed", so the
+  // audit trail and the email can never disagree.
+  const changes = [];
   TRACKED.forEach((field) => {
     if (!(field in data)) return;
     const before = task[field] == null ? '' : String(task[field]);
@@ -135,6 +148,15 @@ const update = async (id, rawData, actor) => {
         changedBy: who.id,
         changedByName: who.name,
       });
+      // Assignee is an id — the reassignment mail names the new owner properly,
+      // so there is nothing useful to say here.
+      if (field === 'assignee') {
+        changes.push('Reassigned');
+      } else if (field === 'dueAt') {
+        changes.push(`Due date is now ${data.dueAt ? formatShortDate(data.dueAt) : 'unset'}`);
+      } else {
+        changes.push(`${FIELD_LABELS[field] ?? field} is now ${String(after || 'unset').replace(/_/g, ' ')}`);
+      }
     }
   });
 
@@ -166,11 +188,29 @@ const update = async (id, rawData, actor) => {
   }
 
   // Closing out: tell the people following it, not the person who closed it.
-  if (data.status && data.status !== previousStatus && TERMINAL.includes(data.status)) {
+  const closedOut = Boolean(data.status && data.status !== previousStatus && TERMINAL.includes(data.status));
+  if (closedOut) {
     const recipients = followersOf(populated, who.id);
     if (recipients.length > 0) {
       notify.taskResolved(populated, recipients).catch((err) =>
         logger.warn(`[task] resolution emails failed for ${populated.reference}: ${err.message}`));
+    }
+  } else if (changes.length > 0) {
+    /**
+     * Any other material edit — a status move, a priority bump, a new due date.
+     * Previously these were silent: a task could be reprioritised and pulled
+     * forward two weeks and the only person who knew was whoever typed it.
+     *
+     * The new owner is excluded because the reassignment mail above already
+     * tells them everything, and the actor because they just did this.
+     */
+    const nowAssigneeEmail = nowAssignee !== previousAssignee ? emailOf(populated.assignee) : null;
+    const recipients = followersOf(populated, who.id).filter(
+      (r) => !nowAssigneeEmail || r.email.toLowerCase() !== nowAssigneeEmail.toLowerCase(),
+    );
+    if (recipients.length > 0) {
+      notify.taskUpdated(populated, changes, recipients).catch((err) =>
+        logger.warn(`[task] update emails failed for ${populated.reference}: ${err.message}`));
     }
   }
 

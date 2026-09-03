@@ -6,6 +6,7 @@ const Investigator = require('../models/investigator.model');
 const InsuranceCompany = require('../models/insuranceCompany.model');
 const Users = require('../models/users.model');
 const Advocate = require('../models/advocate.model');
+const ProviderUser = require('../models/providerUser.model');
 
 /**
  * Resolve a notification recipient (by email) to:
@@ -27,7 +28,11 @@ const resolveRecipient = async (email) => {
   // sent unbranded and were never mirrored to WhatsApp. Legal reminders go
   // mostly to staff, so without these two the module's most important messages
   // would be the least well delivered.
-  const [cust, asr, gar, sup, inv, co, staff, adv] = await Promise.all([
+  // `prov` is AVE's own staff in the provider portal. Everything the internal
+  // workspace sends — meeting invitations, reschedules, task assignments — goes
+  // to these addresses, so without this lookup the module whose recipients are
+  // all internal was the one module that never reached WhatsApp.
+  const [cust, asr, gar, sup, inv, co, staff, adv, prov] = await Promise.all([
     safe(Customer.findOne({ email: e }).select('phone company').lean()),
     safe(Assessor.findOne({ email: e }).select('contactInfo company').lean()),
     safe(Garage.findOne({ email: e }).select('contactNumber company').lean()),
@@ -36,14 +41,17 @@ const resolveRecipient = async (email) => {
     safe(InsuranceCompany.findOne({ email: e }).select('companyName phone').lean()),
     safe(Users.findOne({ email: e }).select('phone company').lean()),
     safe(Advocate.findOne({ email: e }).select('phone company').lean()),
+    safe(ProviderUser.findOne({ email: e }).select('phone').lean()),
   ]);
 
   const phone =
     cust?.phone || asr?.contactInfo?.phone || gar?.contactNumber ||
     sup?.phone || inv?.contactNumber || co?.phone ||
-    staff?.phone || adv?.phone || null;
+    staff?.phone || adv?.phone || prov?.phone || null;
 
   // The recipient may BE an insurance company; otherwise resolve their tenant.
+  // Provider staff are deliberately absent below: they work for the platform,
+  // not for an insurer, so their mail must not be white-labelled to one.
   let companyName = co?.companyName || null;
   if (!companyName) {
     const companyId =
