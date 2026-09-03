@@ -14,6 +14,7 @@ const { FEATURES } = require('../features');
 const { TOOLS, executeTool, CLAIM_TZ } = require('./claimIntake.tools');
 const claimTypeService = require('../../service/claimType.service');
 const logger = require('../../middlewheres/logger');
+const { formatMinor } = require('../../utils/money');
 
 const MAX_TOOL_ROUNDS = 6; // bound the loop per turn
 
@@ -81,6 +82,73 @@ function claimTypeContext(claimTypes) {
   ];
 }
 
+/**
+ * The vehicles this customer is insured for, straight off their policies.
+ *
+ * The insurer already knows what the claimant drives — it is on the policy book
+ * that created their record. Asking them to type the make, model, year and plate
+ * of a car we hold the chassis number for is both a poor first impression and a
+ * source of mismatches: "Toyota Prado" against a book that says "TOYOTA LAND
+ * CRUISER PRADO" is a reconciliation problem nobody needed.
+ *
+ * A customer commonly holds several policies, so this lists them and lets the
+ * claimant pick. Policy status travels with each one: a claim on a lapsed policy
+ * is still worth taking, but the assistant must not imply it will be paid.
+ */
+function insuredVehicleContext(customer) {
+  const policies = (customer.policies || []).filter((p) => p.vehicle && (p.vehicle.registration || p.vehicle.make));
+  if (policies.length === 0) {
+    return [
+      `INSURED VEHICLE`,
+      `- We have no vehicle on file for this claimant, so ask for the make, model, year and licence plate as normal.`,
+      ``,
+    ];
+  }
+
+  /**
+   * Each car with the policy that covers it. The cover matters during intake,
+   * not just afterwards: an excess is the first thing a claimant asks about, and
+   * an expiry date that falls before the incident is something to establish now
+   * rather than to discover at assessment.
+   */
+  const describe = (p) => {
+    const v = p.vehicle;
+    const car = [v.year, v.make, v.model].filter(Boolean).join(' ') || 'Vehicle';
+    const reg = v.registration ? ` — ${v.registration}` : '';
+
+    const detail = [
+      `policy ${p.policyNumber}`,
+      p.policyType,
+      p.status ? `status ${p.status}` : null,
+      p.expiryDate ? `expires ${moment(p.expiryDate).tz(CLAIM_TZ).format('D MMM YYYY')}` : null,
+      Number.isFinite(p.excessMinor) && p.excessMinor > 0 ? `excess ${formatMinor(p.excessMinor)}` : null,
+      v.chassisNumber ? `chassis ${v.chassisNumber}` : null,
+    ].filter(Boolean);
+
+    const flag = p.status && p.status !== 'active' ? ` [POLICY ${String(p.status).toUpperCase()}]` : '';
+    return `  - ${car}${reg} (${detail.join(', ')})${flag}`;
+  };
+
+  const single = policies.length === 1;
+  return [
+    `INSURED VEHICLE${single ? '' : 'S'} ON FILE (${policies.length})`,
+    ...policies.map(describe),
+    single
+      ? `- Confirm this is the vehicle involved rather than asking them to type it out: "I have your <year make model>, registration <reg> — is that the vehicle involved?" If they say yes, record it via set_claim_details and move on.`
+      : `- This claimant has several vehicles with us. Ask WHICH ONE the claim is for, listing them by year, make, model and registration, and let them answer with the registration or by naming the car. Do not ask them to type the details out.`,
+    `- Once they choose, record that vehicle's make, model, year and licencePlate in vehiclesInvolved via set_claim_details, and put its policy number in additionalInfo. Take the details from this list, not from what the claimant types, so they match the policy book exactly.`,
+    `- The policy details above are for YOUR reference and for answering questions. If the claimant asks what their excess is, or whether they are still covered, answer from this list. Do not read the chassis number or the whole policy back at them unprompted — it is not what they need while reporting an accident.`,
+    `- If the chosen policy EXPIRED BEFORE the incident date, say so plainly and kindly, take the claim anyway, and let the insurer decide. Never turn a claimant away.`,
+    `- If the vehicle involved is NOT one of these (a courtesy car, a newly bought car not yet on cover, someone else's vehicle), say that is fine and collect its details as normal — but note in additionalInfo that it is not a vehicle on their policy.`,
+    ...(policies.some((p) => p.status && p.status !== 'active')
+      ? [
+          `- One or more of these policies is not active. If the claimant picks such a vehicle, take the claim as normal and be kind about it, but say plainly that the policy shows as ${policies.find((p) => p.status !== 'active').status} and that the insurer will confirm cover. Never promise it will be paid, and never refuse to take the claim.`,
+        ]
+      : []),
+    ``,
+  ];
+}
+
 function buildSystem(customer, now = moment.tz(CLAIM_TZ), coordinates = null, claimTypes = []) {
   const name = `${customer.firstName || ''} ${customer.lastName || ''}`.trim() || 'the claimant';
   return [
@@ -92,6 +160,7 @@ function buildSystem(customer, now = moment.tz(CLAIM_TZ), coordinates = null, cl
     `- Email: ${customer.email || 'on file'}`,
     `- Policy number: ${customer.policyNumber || 'on file'}`,
     ``,
+    ...insuredVehicleContext(customer),
     ...claimTypeContext(claimTypes),
     ...locationContext(coordinates),
     ...dateContext(now),
@@ -99,7 +168,7 @@ function buildSystem(customer, now = moment.tz(CLAIM_TZ), coordinates = null, cl
     `- Greet ${name} by name on the first turn and explain you'll help report the incident.`,
     `- FIRST, before collecting incident details, establish the CLAIM TYPE (see above) and record it via set_claim_details. Do this on the opening turn, right after greeting.`,
     `- Then collect the required details conversationally, a few at a time. Record everything via the set_claim_details tool as you learn it.`,
-    `- REQUIRED before filing: the claim type; incident date, time, location and description; for each vehicle make, model, year and licence plate; for each driver name, phone, email and licence number; the POLICE REPORT (report/OB number, officer name, and police station/department — required for EVERY claim, no exceptions); and at least TWO clear photos.`,
+    `- REQUIRED before filing: the claim type; incident date, time, location and description; for each vehicle make, model, year and licence plate (take the insured vehicle's from the list above rather than asking); for each driver name, phone, email and licence number; the POLICE REPORT (report/OB number, officer name, and police station/department — required for EVERY claim, no exceptions); and at least TWO clear photos.`,
     `- If the claimant doesn't have a police report yet, explain kindly that one is required before the claim can be filed, and that they can return to this chat once they have the report details. Do not file without it, and never suggest it can be skipped or handled later.`,
     `- BE THOROUGH: ask plenty of follow-up questions to build a complete picture — how the accident happened step by step, direction and rough speed of travel, the point of impact, visible damage to each vehicle, any third parties or pedestrians, road/weather/lighting conditions, whether the vehicle is still driveable, and where it is now. Ask a few at a time so it feels like a friendly conversation, not an interrogation, but keep digging for detail the assessor would want.`,
     `- Optional (offer warmly, don't insist): other-vehicle/property damage, injuries, witnesses, towing, and videos.`,
