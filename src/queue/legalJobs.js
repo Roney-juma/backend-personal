@@ -160,6 +160,16 @@ async function auditSealJob() {
   return { ...result, implemented: true };
 }
 
+/**
+ * Advance the billing lifecycle: overdue invoices, lapsed and renewing
+ * subscriptions. Lives on this queue because it is the only scheduler AVICS
+ * has — the queue name is historical, not a statement about ownership.
+ */
+async function billingLifecycle() {
+  const billing = require('../service/billingLifecycle.service');
+  return { ...(await billing.runBillingLifecycle()), implemented: true };
+}
+
 const HANDLERS = {
   'diary-reminders': diaryReminders,
   'limitation-sweep': limitationSweep,
@@ -168,6 +178,7 @@ const HANDLERS = {
   'advocate-performance-recompute': advocatePerformanceRecompute,
   'referral-sweep': referralSweep,
   'audit-seal': auditSealJob,
+  'billing-lifecycle': billingLifecycle,
 };
 
 /**

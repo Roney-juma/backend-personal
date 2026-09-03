@@ -67,6 +67,26 @@ const renewSubscription = async (req, res) => {
   }
 };
 
+/**
+ * Raise the invoice for this subscription's current period.
+ *
+ * Shares invoiceForPeriod with the nightly renewal sweep, so a subscription
+ * billed by hand and one billed by the clock produce the same document — and
+ * the same period cannot be billed twice by using both.
+ */
+const invoiceSubscription = async (req, res) => {
+  try {
+    const billing = require('../service/billingLifecycle.service');
+    const invoice = await billing.invoiceForPeriod(req.params.id);
+    if (!invoice) {
+      return res.status(409).json({ message: 'This period has already been invoiced.' });
+    }
+    res.status(201).json(invoice);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
 module.exports = {
   createSubscription,
   getAllSubscriptions,
@@ -75,4 +95,5 @@ module.exports = {
   updateSubscription,
   cancelSubscription,
   renewSubscription,
+  invoiceSubscription,
 };
