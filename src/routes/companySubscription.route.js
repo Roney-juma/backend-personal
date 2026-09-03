@@ -10,5 +10,6 @@ router.get('/:id', verifyProviderToken(), controller.getSubscriptionById);
 router.patch('/:id', verifyProviderToken(), controller.updateSubscription);
 router.patch('/:id/cancel', verifyProviderToken(), controller.cancelSubscription);
 router.patch('/:id/renew', verifyProviderToken(), controller.renewSubscription);
+router.post('/:id/invoice', verifyProviderToken(), controller.invoiceSubscription);
 
 module.exports = router;

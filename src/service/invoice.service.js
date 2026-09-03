@@ -138,10 +138,35 @@ const getRevenueStats = async () => {
     { $group: { _id: null, total: { $sum: '$total' } } },
   ]);
 
+  /**
+   * Every status, counted and totalled across the whole collection.
+   *
+   * The portal used to derive its headline figures from whatever page of
+   * invoices it happened to be holding — which is 20 by default — so "total
+   * revenue" quietly meant "revenue among the twenty most recent". Aggregating
+   * here is both correct and cheaper than shipping every invoice to do it.
+   */
+  const byStatus = await Invoice.aggregate([
+    { $group: { _id: '$status', count: { $sum: 1 }, total: { $sum: '$total' } } },
+  ]);
+
+  const statusTotals = Object.fromEntries(
+    byStatus.map((s) => [s._id, { count: s.count, total: s.total }]),
+  );
+
+  // One currency across the collection, or null when they disagree — a sum of
+  // mixed currencies is not a figure anyone should put a symbol in front of.
+  const currencies = await Invoice.distinct('currency');
+
   return {
     totalRevenue: stats[0]?.totalRevenue || 0,
     totalPaidInvoices: stats[0]?.count || 0,
     outstandingAmount: outstanding[0]?.total || 0,
+    overdueAmount: statusTotals.overdue?.total || 0,
+    overdueCount: statusTotals.overdue?.count || 0,
+    invoiceCount: byStatus.reduce((sum, s) => sum + s.count, 0),
+    statusTotals,
+    currency: currencies.length === 1 ? currencies[0] : null,
     monthlyRevenue: monthly,
   };
 };

@@ -96,6 +96,14 @@ const SCHEDULES = [
     description: 'Evaluate open claims against the tenant referral triggers',
   },
   {
+    name: 'billing-lifecycle',
+    // 01:00 daily. Both transitions are date-granular — an invoice falls overdue
+    // on a day, not at an hour — and running before the working day means the
+    // portal already tells the truth when somebody opens it.
+    pattern: '0 1 * * *',
+    description: 'Mark invoices overdue, expire or renew lapsed subscriptions',
+  },
+  {
     name: 'audit-seal',
     // Every 15 minutes: tighter sealing narrows the window in which a tampered
     // row is not yet covered by a seal.
