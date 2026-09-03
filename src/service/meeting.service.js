@@ -173,7 +173,7 @@ const update = async (id, data) => {
 
   // Read the old values first so we can describe what actually moved. Without
   // this the "updated" email says something changed but not what.
-  const before = await Meeting.findById(id).select('startAt endAt location meetingLink format status durationMinutes');
+  const before = await Meeting.findById(id).select('startAt endAt location meetingLink format status durationMinutes attendees');
   if (!before) return null;
 
   /**
@@ -217,10 +217,43 @@ const update = async (id, data) => {
     changes.push(`Format is now ${meeting.format.replace('_', ' ')}`);
   }
 
+  /**
+   * Changing the guest list is not a "what changed" mail to the room — it is an
+   * invitation for whoever was just added and a withdrawal for whoever was just
+   * removed. Sending the same update to everybody would tell the people already
+   * on the list nothing, and would tell a new attendee that something changed
+   * about a meeting they have never heard of.
+   */
+  if (payload.attendees) {
+    const key = (a) => String(a.email || a.user || a.name || '').trim().toLowerCase();
+    const beforeKeys = new Set((before.attendees ?? []).map(key).filter(Boolean));
+    const afterKeys = new Set((meeting.attendees ?? []).map(key).filter(Boolean));
+
+    const added = (meeting.attendees ?? []).filter((a) => a.email && !beforeKeys.has(key(a)));
+    const removed = (before.attendees ?? []).filter((a) => a.email && !afterKeys.has(key(a)));
+
+    if (added.length > 0) {
+      notify
+        .meetingInvited(meeting, added.map((a) => ({ email: a.email, name: a.name })))
+        .catch((err) => logger.warn(`[meeting] invitations failed for ${meeting.reference}: ${err.message}`));
+    }
+    if (removed.length > 0) {
+      notify
+        .meetingUninvited(meeting, removed.map((a) => ({ email: a.email, name: a.name })))
+        .catch((err) => logger.warn(`[meeting] withdrawals failed for ${meeting.reference}: ${err.message}`));
+    }
+  }
+
   // Only the changes attendees need to act on are worth an email — editing the
-  // agenda or ticking items off is not one of them.
+  // agenda or ticking items off is not one of them. Anyone added above is
+  // excluded: they have just had the full invitation, which says all of this.
   if (changes.length > 0) {
-    notify.meetingUpdated(meeting, changes).catch((err) =>
+    const justInvited = payload.attendees
+      ? (meeting.attendees ?? [])
+          .filter((a) => a.email && !(before.attendees ?? []).some((b) => b.email === a.email))
+          .map((a) => a.email)
+      : [];
+    notify.meetingUpdated(meeting, changes, { excludeEmails: justInvited }).catch((err) =>
       logger.warn(`[meeting] update emails failed for ${meeting.reference}: ${err.message}`));
   }
 
