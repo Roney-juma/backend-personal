@@ -63,7 +63,9 @@ const markAsPaid = async (req, res) => {
     if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
     res.status(200).json(invoice);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    // Paying a cancelled invoice, or a malformed date, is the caller's mistake
+    // and reads back to them as such rather than as a server fault.
+    res.status(400).json({ message: error.message });
   }
 };
 

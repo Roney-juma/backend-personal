@@ -31,8 +31,19 @@ const money = (currency, amount) =>
  * touched, however old.
  */
 const markOverdueInvoices = async ({ now = new Date() } = {}) => {
-  const due = await Invoice.find({ status: 'sent', dueDate: { $lt: now } })
-    .populate('company', 'companyName email');
+  const due = await Invoice.find({
+    // Part-paid counts: money having arrived does not make the rest not owed.
+    status: { $in: ['sent', 'partially_paid'] },
+    dueDate: { $lt: now },
+    /**
+     * An agreed next instalment date, still in the future, means the company is
+     * working through a schedule we accepted — chasing them for being "overdue"
+     * against the original due date would be wrong, and would train them to
+     * ignore the notice that matters. Once that date passes they are chased
+     * like anyone else.
+     */
+    $or: [{ nextPaymentDate: { $exists: false } }, { nextPaymentDate: null }, { nextPaymentDate: { $lt: now } }],
+  }).populate('company', 'companyName email');
 
   if (due.length === 0) return { markedOverdue: 0 };
 
@@ -52,7 +63,14 @@ const markOverdueInvoices = async ({ now = new Date() } = {}) => {
         `Overdue: invoice ${invoice.invoiceNumber}`,
         `Dear ${invoice.company.companyName},\n\n` +
           `Invoice ${invoice.invoiceNumber} was due on ${formatShortDate(invoice.dueDate)} and is now overdue.\n\n` +
-          `Amount due: ${money(invoice.currency, invoice.total)}\n\n` +
+          // What is still owed, not the face value — chasing a company for the
+          // full amount when they have already paid two thirds of it is the
+          // kind of notice that gets a relationship manager an angry call.
+          (invoice.amountPaid > 0
+            ? `Invoice total: ${money(invoice.currency, invoice.total)}\n` +
+              `Already paid:  ${money(invoice.currency, invoice.amountPaid)}\n` +
+              `Still due:     ${money(invoice.currency, invoice.total - invoice.amountPaid)}\n\n`
+            : `Amount due: ${money(invoice.currency, invoice.total)}\n\n`) +
           `If you have already paid, please ignore this message and accept our thanks.\n\n` +
           `AVE Provider Platform`,
       )
