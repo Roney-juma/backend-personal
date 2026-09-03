@@ -96,10 +96,40 @@ const getInvoicePdfBuffer = async (id) => {
   return generateInvoicePdf(invoice);
 };
 
-const markAsPaid = async (id, paymentData) => {
+/**
+ * Record that an invoice has been settled.
+ *
+ * Reachable from draft, sent and overdue alike. Sending is about whether we
+ * emailed the client a PDF; being paid is about whether the money arrived, and
+ * gating the second on the first meant recording a payment forced an email the
+ * client may neither want nor need — for a proforma settled in advance, or an
+ * invoice raised by the renewal sweep that a standing order already covered.
+ *
+ * `paidDate` is accepted rather than assumed: payments get recorded days after
+ * they land, and stamping today's date on a transfer that cleared last Tuesday
+ * makes the revenue-by-month figures wrong.
+ */
+const markAsPaid = async (id, { paymentMethod, paymentReference, paidDate } = {}) => {
+  const invoice = await Invoice.findById(id);
+  if (!invoice) return null;
+
+  if (invoice.status === 'cancelled') {
+    throw new Error('A cancelled invoice cannot be marked paid. Raise a new one instead.');
+  }
+  // Idempotent: paying twice is a double-click, not a second payment.
+  if (invoice.status === 'paid') return invoice;
+
+  const when = paidDate ? new Date(paidDate) : new Date();
+  if (Number.isNaN(when.getTime())) throw new Error('Payment date is not a valid date.');
+
   return Invoice.findByIdAndUpdate(
     id,
-    { status: 'paid', paidDate: new Date(), ...paymentData },
+    {
+      status: 'paid',
+      paidDate: when,
+      ...(paymentMethod ? { paymentMethod } : {}),
+      ...(paymentReference ? { paymentReference } : {}),
+    },
     { new: true }
   );
 };
