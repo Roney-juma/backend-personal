@@ -18,6 +18,35 @@ const POPULATE = [
   { path: 'client.company', select: 'name email' },
 ];
 
+/**
+ * How an attendee is identified across an edit: their address, else the staff
+ * account behind them, else their name. Compared case-insensitively so that
+ * re-saving an unchanged list mails nobody.
+ */
+const attendeeKey = (a) => String(a.email || a.user?._id || a.user || a.name || '').trim().toLowerCase();
+
+/**
+ * Who joined and who left between two versions of the guest list.
+ *
+ * `unreachable` is the third answer and the one worth surfacing: a person can be
+ * listed by name alone, which is a legitimate way to record who was in the room,
+ * but there is then no address to send an invitation to. Without this the UI
+ * cannot tell "invited" apart from "silently skipped".
+ */
+const diffAttendees = (before = [], after = []) => {
+  const beforeKeys = new Set(before.map(attendeeKey).filter(Boolean));
+  const afterKeys = new Set(after.map(attendeeKey).filter(Boolean));
+  const isNew = (a) => !beforeKeys.has(attendeeKey(a));
+
+  return {
+    invited: after.filter((a) => a.email && isNew(a)).map((a) => ({ email: a.email, name: a.name })),
+    removed: before
+      .filter((a) => a.email && !afterKeys.has(attendeeKey(a)))
+      .map((a) => ({ email: a.email, name: a.name })),
+    unreachable: after.filter((a) => !a.email && isNew(a)).map((a) => a.name),
+  };
+};
+
 /** Advance `date` by one recurrence step. Month steps clamp to end-of-month. */
 const addInterval = (date, frequency, steps) => {
   const d = new Date(date);
@@ -192,12 +221,24 @@ const update = async (id, data) => {
   }
 
   const meeting = await Meeting.findByIdAndUpdate(id, payload, { new: true, runValidators: true }).populate(POPULATE);
-  if (!meeting || !shouldNotify) return meeting;
+  if (!meeting) return null;
+
+  /**
+   * Who joined and who left, worked out before anything is sent so the answer is
+   * the same whether or not mail was requested. Returned to the caller as
+   * `guestChanges` — the UI needs to be able to say "invited Ben" or "Ben has no
+   * address, so nobody was emailed", because a silent invite and a broken one
+   * look identical from the outside.
+   */
+  const guestChanges = payload.attendees ? diffAttendees(before.attendees, meeting.attendees) : null;
+  const withGuests = (doc) => (guestChanges ? { ...doc.toObject(), guestChanges: { ...guestChanges, notified: shouldNotify } } : doc);
+
+  if (!shouldNotify) return withGuests(meeting);
 
   if (payload.status === 'cancelled' && before.status !== 'cancelled') {
     notify.meetingCancelled(meeting).catch((err) =>
       logger.warn(`[meeting] cancellation emails failed for ${meeting.reference}: ${err.message}`));
-    return meeting;
+    return withGuests(meeting);
   }
 
   const changes = [];
@@ -224,22 +265,24 @@ const update = async (id, data) => {
    * on the list nothing, and would tell a new attendee that something changed
    * about a meeting they have never heard of.
    */
-  if (payload.attendees) {
-    const key = (a) => String(a.email || a.user || a.name || '').trim().toLowerCase();
-    const beforeKeys = new Set((before.attendees ?? []).map(key).filter(Boolean));
-    const afterKeys = new Set((meeting.attendees ?? []).map(key).filter(Boolean));
-
-    const added = (meeting.attendees ?? []).filter((a) => a.email && !beforeKeys.has(key(a)));
-    const removed = (before.attendees ?? []).filter((a) => a.email && !afterKeys.has(key(a)));
-
-    if (added.length > 0) {
+  if (guestChanges) {
+    const { invited, removed, unreachable } = guestChanges;
+    logger.info(
+      `[meeting] ${meeting.reference} guest list changed | invited=${invited.length} removed=${removed.length} unreachable=${unreachable.length}`,
+    );
+    if (unreachable.length > 0) {
+      // Not an error — a name with no address is a legitimate way to record who
+      // is in the room. Logged so "they never got the invite" has an answer.
+      logger.info(`[meeting] ${meeting.reference} no address on file for: ${unreachable.join(', ')}`);
+    }
+    if (invited.length > 0) {
       notify
-        .meetingInvited(meeting, added.map((a) => ({ email: a.email, name: a.name })))
+        .meetingInvited(meeting, invited)
         .catch((err) => logger.warn(`[meeting] invitations failed for ${meeting.reference}: ${err.message}`));
     }
     if (removed.length > 0) {
       notify
-        .meetingUninvited(meeting, removed.map((a) => ({ email: a.email, name: a.name })))
+        .meetingUninvited(meeting, removed)
         .catch((err) => logger.warn(`[meeting] withdrawals failed for ${meeting.reference}: ${err.message}`));
     }
   }
@@ -248,16 +291,12 @@ const update = async (id, data) => {
   // agenda or ticking items off is not one of them. Anyone added above is
   // excluded: they have just had the full invitation, which says all of this.
   if (changes.length > 0) {
-    const justInvited = payload.attendees
-      ? (meeting.attendees ?? [])
-          .filter((a) => a.email && !(before.attendees ?? []).some((b) => b.email === a.email))
-          .map((a) => a.email)
-      : [];
-    notify.meetingUpdated(meeting, changes, { excludeEmails: justInvited }).catch((err) =>
-      logger.warn(`[meeting] update emails failed for ${meeting.reference}: ${err.message}`));
+    notify
+      .meetingUpdated(meeting, changes, { excludeEmails: (guestChanges?.invited ?? []).map((a) => a.email) })
+      .catch((err) => logger.warn(`[meeting] update emails failed for ${meeting.reference}: ${err.message}`));
   }
 
-  return meeting;
+  return withGuests(meeting);
 };
 
 /**
@@ -434,4 +473,6 @@ const summary = async () => {
   };
 };
 
-module.exports = { create, getAll, getById, update, complete, remove, calendar, summary };
+// diffAttendees is exported for scripts/test-attendee-diff.js — the rule for who
+// counts as newly invited is worth pinning down without a database.
+module.exports = { create, getAll, getById, update, complete, remove, calendar, summary, diffAttendees };

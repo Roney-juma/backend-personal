@@ -1,65 +1,73 @@
 /**
- * The add/remove detection in meeting.service update(), exercised without a DB.
- * Mirrors the identity rule exactly — if this drifts, someone added to a meeting
- * silently gets no invitation, which is the failure this guards.
+ * diffAttendees from meeting.service, exercised without a database.
+ *
+ * If this drifts, someone added to a meeting silently gets no invitation —
+ * which is the exact failure the diff exists to prevent, and the one nobody
+ * notices until they turn up to an empty room.
  */
-const key = (a) => String(a.email || a.user || a.name || '').trim().toLowerCase();
+const { diffAttendees } = require('../src/service/meeting.service');
 
-const diff = (before, after) => {
-  const beforeKeys = new Set(before.map(key).filter(Boolean));
-  const afterKeys = new Set(after.map(key).filter(Boolean));
-  return {
-    added: after.filter((a) => a.email && !beforeKeys.has(key(a))).map((a) => a.name),
-    removed: before.filter((a) => a.email && !afterKeys.has(key(a))).map((a) => a.name),
-  };
-};
+const names = (list) => list.map((a) => a.name);
 
 const cases = [
   {
     name: 'adding one person invites only them',
     before: [{ name: 'Asha', email: 'asha@ave.com' }],
     after: [{ name: 'Asha', email: 'asha@ave.com' }, { name: 'Ben', email: 'ben@ave.com' }],
-    expect: { added: ['Ben'], removed: [] },
+    expect: { invited: ['Ben'], removed: [], unreachable: [] },
   },
   {
     name: 'removing one person withdraws only them',
     before: [{ name: 'Asha', email: 'asha@ave.com' }, { name: 'Ben', email: 'ben@ave.com' }],
     after: [{ name: 'Asha', email: 'asha@ave.com' }],
-    expect: { added: [], removed: ['Ben'] },
+    expect: { invited: [], removed: ['Ben'], unreachable: [] },
   },
   {
     name: 'reordering the same people mails nobody',
     before: [{ name: 'Asha', email: 'asha@ave.com' }, { name: 'Ben', email: 'ben@ave.com' }],
     after: [{ name: 'Ben', email: 'ben@ave.com' }, { name: 'Asha', email: 'asha@ave.com' }],
-    expect: { added: [], removed: [] },
+    expect: { invited: [], removed: [], unreachable: [] },
   },
   {
     name: 'case and whitespace differences are the same person',
     before: [{ name: 'Asha', email: 'Asha@AVE.com' }],
     after: [{ name: 'Asha', email: ' asha@ave.com ' }],
-    expect: { added: [], removed: [] },
+    expect: { invited: [], removed: [], unreachable: [] },
   },
   {
-    name: 'a guest with no email is listed but never mailed',
+    name: 'a new guest with no email is reported as unreachable, not invited',
     before: [],
     after: [{ name: 'Walk-in guest' }],
-    expect: { added: [], removed: [] },
+    expect: { invited: [], removed: [], unreachable: ['Walk-in guest'] },
+  },
+  {
+    name: 'an existing email-less guest is not reported again',
+    before: [{ name: 'Walk-in guest' }],
+    after: [{ name: 'Walk-in guest' }],
+    expect: { invited: [], removed: [], unreachable: [] },
   },
   {
     name: 'swapping one person for another does both',
     before: [{ name: 'Asha', email: 'asha@ave.com' }],
     after: [{ name: 'Ben', email: 'ben@ave.com' }],
-    expect: { added: ['Ben'], removed: ['Asha'] },
+    expect: { invited: ['Ben'], removed: ['Asha'], unreachable: [] },
+  },
+  {
+    name: 'an existing row sent back with its user populated is not re-invited',
+    before: [{ name: 'Asha', email: 'asha@ave.com', user: 'u1' }],
+    after: [{ name: 'Asha', email: 'asha@ave.com', user: { _id: 'u1', fullName: 'Asha' } }],
+    expect: { invited: [], removed: [], unreachable: [] },
   },
 ];
 
 let failed = 0;
 for (const c of cases) {
-  const got = diff(c.before, c.after);
-  const ok = JSON.stringify(got) === JSON.stringify(c.expect);
+  const got = diffAttendees(c.before, c.after);
+  const flat = { invited: names(got.invited), removed: names(got.removed), unreachable: got.unreachable };
+  const ok = JSON.stringify(flat) === JSON.stringify(c.expect);
   if (!ok) failed += 1;
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${c.name}`);
-  if (!ok) console.log(`      expected ${JSON.stringify(c.expect)}\n      got      ${JSON.stringify(got)}`);
+  if (!ok) console.log(`      expected ${JSON.stringify(c.expect)}\n      got      ${JSON.stringify(flat)}`);
 }
 console.log(failed === 0 ? '\nAll attendee-diff cases pass.' : `\n${failed} case(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);
