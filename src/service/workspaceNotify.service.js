@@ -123,9 +123,51 @@ const meetingScheduled = async (meeting, { seriesCount } = {}) => {
   logger.info(`[workspaceNotify] meeting ${meeting.reference} invitations sent | ${sent}/${recipients.length}`);
 };
 
+/**
+ * Someone added to a meeting that already exists. They need the whole picture,
+ * not a list of what changed — as far as they are concerned nothing changed,
+ * this is simply the first they have heard of it.
+ */
+const meetingInvited = async (meeting, recipients = []) => {
+  const subject = `Meeting invitation: ${meeting.title}`;
+  const body = (r) =>
+    `Hello ${r.name || 'there'},\n\n` +
+    `You have been added to a meeting.\n\n` +
+    `What:  ${meeting.title}\n` +
+    `When:  ${fmtWhen(meeting.startAt)}${meeting.durationMinutes ? ` (${meeting.durationMinutes} minutes)` : ''}\n` +
+    `Where: ${fmtWhere(meeting)}\n` +
+    `Organiser: ${meeting.organiserName || 'AVE Africa'}\n` +
+    (meeting.purpose ? `\nPurpose:\n${meeting.purpose}\n` : '') +
+    agendaBlock(meeting) +
+    `\nReference: ${meeting.reference}\n\n` +
+    `— ${APP_NAME}`;
+
+  await fanOut(recipients, subject, body, 'meetingInvited');
+};
+
+/**
+ * Taken off the guest list. Sent because the alternative is someone keeping an
+ * hour free and turning up to a meeting they are no longer part of.
+ */
+const meetingUninvited = async (meeting, recipients = []) => {
+  const subject = `Removed from: ${meeting.title}`;
+  const body = (r) =>
+    `Hello ${r.name || 'there'},\n\n` +
+    `You are no longer on the attendee list for this meeting, so you can free up the time.\n\n` +
+    `What: ${meeting.title}\n` +
+    `When: ${fmtWhen(meeting.startAt)}\n` +
+    `\nThe meeting itself is still going ahead. If this looks wrong, speak to ` +
+    `${meeting.organiserName || 'the organiser'}.\n\n` +
+    `Reference: ${meeting.reference}\n\n` +
+    `— ${APP_NAME}`;
+
+  await fanOut(recipients, subject, body, 'meetingUninvited');
+};
+
 /** Time, location or format moved — tell people what changed. */
-const meetingUpdated = async (meeting, changes = []) => {
-  const recipients = recipientsOf(meeting);
+const meetingUpdated = async (meeting, changes = [], { excludeEmails = [] } = {}) => {
+  const skip = new Set(excludeEmails.filter(Boolean).map((e) => String(e).trim().toLowerCase()));
+  const recipients = recipientsOf(meeting).filter((r) => !skip.has(r.email.trim().toLowerCase()));
   const subject = `Updated: ${meeting.title}`;
   const changeLines = changes.length ? `\nWhat changed:\n${changes.map((c) => `  - ${c}`).join('\n')}\n` : '';
   const body = (r) =>
@@ -262,6 +304,8 @@ module.exports = {
   // so the dedup/ordering rules are directly testable.
   recipientsOf,
   meetingScheduled,
+  meetingInvited,
+  meetingUninvited,
   meetingUpdated,
   meetingCancelled,
   meetingMinutes,
