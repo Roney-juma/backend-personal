@@ -10,6 +10,25 @@ const invoiceItemSchema = new mongoose.Schema(
   { _id: false }
 );
 
+/**
+ * One instalment against an invoice.
+ *
+ * Kept as a list rather than a single amount because a company paying in
+ * batches needs each transfer traceable on its own: three payments of different
+ * sizes, on different days, with different references, reconcile against a bank
+ * statement in a way that one running total never can.
+ */
+const paymentSchema = new mongoose.Schema(
+  {
+    amount: { type: Number, required: true, min: 0 },
+    method: { type: String, trim: true },
+    reference: { type: String, trim: true },
+    paidAt: { type: Date, default: Date.now },
+    note: { type: String, trim: true },
+  },
+  { _id: true, timestamps: true }
+);
+
 const invoiceSchema = new mongoose.Schema(
   {
     invoiceNumber: { type: String, unique: true },
@@ -42,12 +61,26 @@ const invoiceSchema = new mongoose.Schema(
     currency: { type: String, default: 'USD', uppercase: true },
     status: {
       type: String,
-      enum: ['draft', 'sent', 'paid', 'overdue', 'cancelled'],
+      enum: ['draft', 'sent', 'partially_paid', 'paid', 'overdue', 'cancelled'],
       default: 'draft',
     },
     issuedDate: { type: Date, default: Date.now },
     dueDate: { type: Date, required: true },
     paidDate: { type: Date },
+    /** Every instalment received, oldest first. */
+    payments: [paymentSchema],
+    /** Sum of `payments`, stored so it can be filtered and aggregated on. */
+    amountPaid: { type: Number, default: 0, min: 0 },
+    /**
+     * When the next instalment is expected, agreed with the company.
+     *
+     * This is what separates a client working through an agreed schedule from
+     * one who has simply stopped paying: the overdue sweep leaves an invoice
+     * alone while a future date is set here, and chases it the moment that date
+     * passes. Cleared once the balance reaches zero.
+     */
+    nextPaymentDate: { type: Date },
+    /** The most recent instalment's method and reference, for the PDF and lists. */
     paymentMethod: { type: String },
     paymentReference: { type: String },
     notes: { type: String },

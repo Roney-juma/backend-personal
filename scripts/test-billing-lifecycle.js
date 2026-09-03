@@ -15,13 +15,18 @@ const state = { invoices: [], subscriptions: [], emails: [], created: [] };
 
 const matches = (doc, filter) =>
   Object.entries(filter).every(([field, cond]) => {
+    // Top-level $or, used by the overdue sweep to skip invoices on an agreed
+    // instalment schedule.
+    if (field === '$or') return cond.some((sub) => matches(doc, sub));
     const value = doc[field];
     if (cond && typeof cond === 'object' && !(cond instanceof Date)) {
+      if ('$exists' in cond) return (value !== undefined && value !== null) === cond.$exists;
       if ('$in' in cond) return cond.$in.some((v) => String(v) === String(value));
       if ('$ne' in cond) return String(value) !== String(cond.$ne);
-      if ('$lt' in cond) return new Date(value) < new Date(cond.$lt);
-      if ('$gte' in cond) return new Date(value) >= new Date(cond.$gte);
+      if ('$lt' in cond) return value != null && new Date(value) < new Date(cond.$lt);
+      if ('$gte' in cond) return value != null && new Date(value) >= new Date(cond.$gte);
     }
+    if (cond === null) return value === null || value === undefined;
     return String(value) === String(cond);
   });
 
@@ -112,6 +117,40 @@ const reset = () => { state.invoices = []; state.subscriptions = []; state.email
   const untouched = await billing.markOverdueInvoices({ now: NOW });
   check('paid, cancelled and future invoices are untouched',
     untouched.markedOverdue === 0 && state.invoices.every((i) => i.status !== 'overdue'));
+
+  // 2b. A part-paid invoice past its due date is still chased — money having
+  //     arrived does not make the rest not owed.
+  reset();
+  state.invoices.push({
+    _id: 'part', invoiceNumber: 'INV-2', status: 'partially_paid', dueDate: daysAgo(2),
+    total: 1000, amountPaid: 400, currency: 'KES', company: { companyName: 'Acme', email: 'ap@acme.co' },
+  });
+  const partial = await billing.markOverdueInvoices({ now: NOW });
+  check('a part-paid invoice past due is chased', partial.markedOverdue === 1);
+
+  // 2c. …unless a next instalment has been agreed for a future date. This is
+  //     the whole point of recording that date: a company working through an
+  //     accepted schedule is not a company that has stopped paying.
+  reset();
+  state.invoices.push({
+    _id: 'sched', invoiceNumber: 'INV-3', status: 'partially_paid', dueDate: daysAgo(2),
+    nextPaymentDate: daysAhead(12), total: 1000, amountPaid: 400, currency: 'KES',
+    company: { companyName: 'Acme', email: 'ap@acme.co' },
+  });
+  const scheduled = await billing.markOverdueInvoices({ now: NOW });
+  check('an agreed future instalment holds off the overdue sweep',
+    scheduled.markedOverdue === 0 && state.emails.length === 0,
+    `marked=${scheduled.markedOverdue} emails=${state.emails.length}`);
+
+  // 2d. Once that agreed date passes, they are chased like anyone else.
+  reset();
+  state.invoices.push({
+    _id: 'missed', invoiceNumber: 'INV-4', status: 'partially_paid', dueDate: daysAgo(30),
+    nextPaymentDate: daysAgo(3), total: 1000, amountPaid: 400, currency: 'KES',
+    company: { companyName: 'Acme', email: 'ap@acme.co' },
+  });
+  const missed = await billing.markOverdueInvoices({ now: NOW });
+  check('a missed instalment date is chased', missed.markedOverdue === 1);
 
   // 3. A lapsed subscription that does not auto-renew expires rather than
   //    sitting as 'active' forever — which is what it did before this existed.
