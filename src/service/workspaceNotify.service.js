@@ -164,6 +164,34 @@ const meetingUninvited = async (meeting, recipients = []) => {
   await fanOut(recipients, subject, body, 'meetingUninvited');
 };
 
+/**
+ * Re-send the full details to everyone on the invitation, on request.
+ *
+ * Distinct from meetingUpdated, which lists what changed and assumes the reader
+ * already has the invitation. This is for "send it again" — the link was added
+ * after the fact, somebody deleted the mail, the client asks for it an hour
+ * before. It repeats everything rather than referring to anything.
+ */
+const meetingShared = async (meeting, recipients = recipientsOf(meeting), { note } = {}) => {
+  const subject = `Meeting details: ${meeting.title}`;
+  const body = (r) =>
+    `Hello ${r.name || 'there'},\n\n` +
+    `Here are the details for this meeting.\n\n` +
+    `What:  ${meeting.title}\n` +
+    `When:  ${fmtWhen(meeting.startAt)}${meeting.durationMinutes ? ` (${meeting.durationMinutes} minutes)` : ''}\n` +
+    `Where: ${fmtWhere(meeting)}\n` +
+    `Organiser: ${meeting.organiserName || 'AVE Africa'}\n` +
+    (note ? `\n${note}\n` : '') +
+    (meeting.purpose ? `\nPurpose:\n${meeting.purpose}\n` : '') +
+    agendaBlock(meeting) +
+    `\nReference: ${meeting.reference}\n\n` +
+    `— ${APP_NAME}`;
+
+  const sent = await fanOut(recipients, subject, body, 'meetingShared');
+  logger.info(`[workspaceNotify] meeting ${meeting.reference} details shared | ${sent}/${recipients.length}`);
+  return sent;
+};
+
 /** Time, location or format moved — tell people what changed. */
 const meetingUpdated = async (meeting, changes = [], { excludeEmails = [] } = {}) => {
   const skip = new Set(excludeEmails.filter(Boolean).map((e) => String(e).trim().toLowerCase()));
@@ -305,6 +333,7 @@ module.exports = {
   recipientsOf,
   meetingScheduled,
   meetingInvited,
+  meetingShared,
   meetingUninvited,
   meetingUpdated,
   meetingCancelled,

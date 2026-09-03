@@ -45,6 +45,17 @@ const updateMeeting = async (req, res) => {
   }
 };
 
+/** Deliberate resend of the details — see service.share. */
+const shareMeeting = async (req, res) => {
+  try {
+    const result = await service.share(req.params.id, { note: req.body?.note });
+    if (!result) return res.status(404).json({ message: 'Meeting not found.' });
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
 const completeMeeting = async (req, res) => {
   try {
     const meeting = await service.complete(req.params.id, req.body, req.user);
@@ -91,6 +102,7 @@ module.exports = {
   getAllMeetings,
   getMeetingById,
   updateMeeting,
+  shareMeeting,
   completeMeeting,
   deleteMeeting,
   getCalendar,
