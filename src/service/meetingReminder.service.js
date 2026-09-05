@@ -69,8 +69,8 @@ const runMeetingReminders = async ({ now = new Date() } = {}) => {
     status: 'scheduled',
     startAt: { $gt: new Date(now.getTime() - SWEEP_WINDOW_MINUTES * 60000), $lte: horizon },
   }).populate([
-    { path: 'organiser', select: 'fullName email' },
-    { path: 'attendees.user', select: 'fullName email' },
+    { path: 'organiser', select: 'fullName email phone' },
+    { path: 'attendees.user', select: 'fullName email phone' },
   ]);
 
   let reminded = 0;

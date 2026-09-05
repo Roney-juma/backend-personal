@@ -13,8 +13,8 @@ require('../models/providerUser.model');
 require('../models/insuranceCompany.model');
 
 const POPULATE = [
-  { path: 'organiser', select: 'fullName email profilePictureUrl' },
-  { path: 'attendees.user', select: 'fullName email profilePictureUrl' },
+  { path: 'organiser', select: 'fullName email phone profilePictureUrl' },
+  { path: 'attendees.user', select: 'fullName email phone profilePictureUrl' },
   { path: 'client.company', select: 'name email' },
 ];
 

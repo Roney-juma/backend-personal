@@ -55,6 +55,13 @@ const attendeeSchema = new mongoose.Schema(
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'ProviderUser' },
     name: { type: String, required: true, trim: true },
     email: { type: String, trim: true, lowercase: true },
+    /**
+     * Only needed for guests from outside. A staff attendee's number comes from
+     * their ProviderUser record; an external guest is in no collection at all,
+     * so without this there is nowhere for the WhatsApp mirror to look and they
+     * get email only.
+     */
+    phone: { type: String, trim: true },
     title: { type: String, trim: true },
     organisation: { type: String, trim: true },
     isExternal: { type: Boolean, default: false },
