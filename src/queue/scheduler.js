@@ -96,6 +96,15 @@ const SCHEDULES = [
     description: 'Evaluate open claims against the tenant referral triggers',
   },
   {
+    name: 'meeting-reminders',
+    // Every five minutes. This is the one schedule here that is not day- or
+    // hour-granular: a "starting in 30 minutes" nudge is only useful if it lands
+    // near the 30-minute mark, and the sweep window in meetingReminder.service
+    // is sized to match this interval — change one and change the other.
+    pattern: '*/5 * * * *',
+    description: 'Remind attendees shortly before a meeting starts',
+  },
+  {
     name: 'billing-lifecycle',
     // 01:00 daily. Both transitions are date-granular — an invoice falls overdue
     // on a day, not at an hour — and running before the working day means the

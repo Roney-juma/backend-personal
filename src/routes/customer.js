@@ -36,6 +36,7 @@ router.get('/stats',verifyToken(), requirePortalUser, requirePermission('VIEW_CU
 router.get("/",verifyToken(), requirePortalUser, requirePermission('VIEW_CUSTOMERS'), customerController.getAllCustomers)
 router.get('/get-garages/:claimId',verifyToken(), customerController.getGarage)
 router.put('/updateCustomer/:customerId',verifyToken(), customerController.updateCustomer)
+router.delete('/:customerId', verifyToken(), requirePortalUser, requirePermission('DELETE_CUSTOMER'), customerController.deleteCustomer)
 router.get('/myClaims/:customerId',verifyToken(), customerController.getCustomerClaims)
 // Mobile insurer selector: list this person's insurers / swap the session to
 // their record at another insurer (returns { user, tokens } like login).

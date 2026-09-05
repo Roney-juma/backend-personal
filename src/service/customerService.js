@@ -548,6 +548,52 @@ const updateCustomer = async (customerId, customer, company) => {
   return await Customer.findOneAndUpdate(filter, customer, { new: true });
 };
 
+/**
+ * How many of this customer's claims are still running.
+ *
+ * The guard on removal. 'Completed' and 'Rejected' are the two ends of a claim's
+ * life — anything else means somebody is still working on it, and removing the
+ * policyholder underneath a live claim leaves the claim pointing at a record the
+ * portal no longer shows.
+ */
+const countOpenClaims = async (customerId, company) => {
+  const Claim = require('../models/claim.model');
+  return Claim.countDocuments({
+    customer: customerId,
+    ...(company ? { company } : {}),
+    status: { $nin: ['Completed', 'Rejected'] },
+  });
+};
+
+/**
+ * Take a customer off the book without destroying the record.
+ *
+ * Soft, because claims, settlements and audit rows reference this document and a
+ * hard delete would leave every one of them pointing at nothing. The email is
+ * released at the same time — it is uniquely indexed, and a deleted customer
+ * holding their address hostage would stop them ever being re-registered.
+ */
+const softDeleteCustomer = async (customerId, company) => {
+  const filter = { _id: customerId, isDeleted: { $ne: true }, ...(company ? { company } : {}) };
+  const customer = await Customer.findOne(filter);
+  if (!customer) return null;
+
+  const stamp = Date.now();
+  return Customer.findOneAndUpdate(
+    filter,
+    {
+      $set: {
+        isDeleted: true,
+        deletedAt: new Date(),
+        // Suffixed rather than cleared: the original stays legible for audit,
+        // while the unique index stops blocking a genuine re-registration.
+        email: `${customer.email}.deleted.${stamp}`,
+      },
+    },
+    { new: true },
+  );
+};
+
 const getCustomerStats = async (company) => {
   const scope = company ? { company } : {};
   const customersCount = await Customer.countDocuments(scope);

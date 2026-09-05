@@ -53,38 +53,55 @@ const recipientsOf = (meeting, { excludeEmail } = {}) => {
   const seen = new Set();
   const out = [];
 
-  const add = (email, name) => {
+  /**
+   * `phone` is carried alongside the address when the meeting already knows it.
+   *
+   * sendEmailNotification mirrors to WhatsApp by resolving email → phone across
+   * the actor collections, which works for staff and customers but not for a
+   * client contact or an external guest — they are not in any of them. Their
+   * number is sitting right here on the meeting, so passing it explicitly is the
+   * difference between the client getting a WhatsApp and getting only email.
+   */
+  const add = (email, name, phone) => {
     if (!email) return;
     const key = String(email).trim().toLowerCase();
     if (!key) return;
     if (key === String(excludeEmail ?? '').trim().toLowerCase()) return;
     if (seen.has(key)) return;
     seen.add(key);
-    out.push({ email, name });
+    out.push({ email, name, phone: phone || null });
   };
 
   (meeting.attendees ?? []).forEach((a) => {
-    // A populated staff attendee carries the address on the user document.
-    add(a.email || (a.user && typeof a.user === 'object' ? a.user.email : null), a.name);
+    // A populated staff attendee carries both on the user document.
+    const user = a.user && typeof a.user === 'object' ? a.user : null;
+    add(a.email || user?.email, a.name, a.phone || user?.phone);
   });
 
   // The client contact — the whole point of a client-facing session.
-  add(meeting.client?.contactEmail, meeting.client?.contactName || meeting.client?.name);
+  add(meeting.client?.contactEmail, meeting.client?.contactName || meeting.client?.name, meeting.client?.contactPhone);
 
   // The organiser's own copy. Deduplicated above if they are also an attendee.
-  add(
-    meeting.organiser && typeof meeting.organiser === 'object' ? meeting.organiser.email : null,
-    meeting.organiserName,
-  );
+  const organiser = meeting.organiser && typeof meeting.organiser === 'object' ? meeting.organiser : null;
+  add(organiser?.email, meeting.organiserName, organiser?.phone);
 
   return out;
 };
 
-/** Send one email per recipient, never rejecting. Returns how many were sent. */
+/**
+ * Send one email per recipient, never rejecting. Returns how many were sent.
+ *
+ * Each send also mirrors to WhatsApp inside sendEmailNotification. Passing the
+ * known `phone` skips the email → phone lookup, which is what lets a client
+ * contact or an external guest be reached at all — they are in none of the
+ * collections that lookup searches.
+ */
 const fanOut = async (recipients, subject, bodyFor, context) => {
   if (recipients.length === 0) return 0;
   const results = await Promise.allSettled(
-    recipients.map((r) => emailService.sendEmailNotification(r.email, subject, bodyFor(r))),
+    recipients.map((r) =>
+      emailService.sendEmailNotification(r.email, subject, bodyFor(r), r.phone ? { phone: r.phone } : {}),
+    ),
   );
   results.forEach((res, i) => {
     if (res.status === 'rejected') {
@@ -162,6 +179,33 @@ const meetingUninvited = async (meeting, recipients = []) => {
     `— ${APP_NAME}`;
 
   await fanOut(recipients, subject, body, 'meetingUninvited');
+};
+
+/**
+ * "Starting shortly" — sent a set number of minutes before the meeting.
+ *
+ * Deliberately short. Somebody reading this has half an hour's notice and needs
+ * one thing: how to join. The agenda and the purpose are in the invitation they
+ * already have, and burying a link under them is how a reminder stops working.
+ *
+ * The joining link is the whole payload for an online meeting, which is why a
+ * missing one says so rather than being silently omitted.
+ */
+const meetingReminder = async (meeting, recipients = recipientsOf(meeting), { minutesBefore = 30 } = {}) => {
+  const subject = `Starting in ${minutesBefore} minutes: ${meeting.title}`;
+  const body = (r) =>
+    `Hello ${r.name || 'there'},\n\n` +
+    `${meeting.title} starts in ${minutesBefore} minutes, at ${fmtWhen(meeting.startAt)}.\n\n` +
+    `${fmtWhere(meeting)}\n` +
+    (meeting.format !== 'in_person' && !meeting.meetingLink
+      ? `\nNo joining link has been added yet — contact ${meeting.organiserName || 'the organiser'}.\n`
+      : '') +
+    `\nReference: ${meeting.reference}\n\n` +
+    `— ${APP_NAME}`;
+
+  const sent = await fanOut(recipients, subject, body, 'meetingReminder');
+  logger.info(`[workspaceNotify] meeting ${meeting.reference} reminder sent | ${sent}/${recipients.length}`);
+  return sent;
 };
 
 /**

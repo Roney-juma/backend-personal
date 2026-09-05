@@ -40,6 +40,10 @@ router.get('/assessed/:id', claimController.getAssessedClaimById);
 router.get('/supplier-bids/:claimId', claimController.getSupplierBidsForClaim)
 router.post('/acceptSupplier/:claimId/:bidId', requirePortalUser, requirePermission('AWARD_CLAIM'), claimController.acceptSupplierBid)
 // NOTE: the customer mobile app uses this to pick a garage for their own claim.
+// Deliberately NOT portal-gated despite the name: this is the CUSTOMER choosing
+// their repairer from the mobile app (customer_service.dart → awardClaimToGarage).
+// Gating it on AWARD_CLAIM like its portal-side namesakes below would lock every
+// policyholder out of picking a garage.
 router.post('/awardClaimToGarage/:claimId/:garageId', claimController.awardClaimToGarage);
 router.post('/rejectAssessorBid/:id', requirePortalUser, requirePermission('AWARD_CLAIM'), claimController.rejectAssessorBid);
 router.post('/rejectGarageBid/:id', requirePortalUser, requirePermission('AWARD_CLAIM'), claimController.rejectGarageBid);
@@ -68,7 +72,9 @@ router.patch('/complete-claim/:id', requirePortalUser, requirePermission('COMPLE
 router.get('/glass', requirePortalUser, requirePermission('VIEW_GLASS_CLAIMS'), claimController.getGlassClaims);
 router.patch('/glass/approve/:id', requirePortalUser, requirePermission('APPROVE_GLASS_CLAIM'), claimController.approveGlassClaim);
 router.post('/glass/assign-supplier/:id', requirePortalUser, requirePermission('ASSIGN_GLASS_SUPPLIER'), claimController.assignGlassSupplier);
-router.patch('/glass/complete/:id', claimController.completeGlassRepair);
+// Called only from the portal's Glass Claims screen — not by the mobile app or
+// the partner portal — so it belongs with the other glass decisions above.
+router.patch('/glass/complete/:id', requirePortalUser, requirePermission('COMPLETE_GLASS_CLAIM'), claimController.completeGlassRepair);
 
 // Fraud detection — admin can manually re-run the automated check on any claim
 router.post('/fraud-check/:id', requirePortalUser, requirePermission('FLAG_FRAUD'), claimController.runFraudCheck);
@@ -81,9 +87,14 @@ router.get('/continuity/:id', claimController.getVehicleContinuity);
 
 // Wildcard param routes last — must come after all static-segment routes
 router.get('/:id', claimController.getClaimById)
-router.post('/awardClaim/:id', claimController.awardClaim)
-router.post('/awardGarage/:id', claimController.awardBidToGarage)
-router.patch('/:id', claimController.updateClaimById)
+// Awarding is the decision that commits money, and both of these are called only
+// from the insurer portal. They were the two the original RBAC pass missed: every
+// sibling — rejectAssessorBid, rejectGarageBid, awardSupplier, rejectSupplierBid,
+// acceptSupplier — already required AWARD_CLAIM, so REJECTING a bid was gated
+// while AWARDING one was not.
+router.post('/awardClaim/:id', requirePortalUser, requirePermission('AWARD_CLAIM'), claimController.awardClaim)
+router.post('/awardGarage/:id', requirePortalUser, requirePermission('AWARD_CLAIM'), claimController.awardBidToGarage)
+router.patch('/:id', requirePortalUser, requirePermission('UPDATE_CLAIM'), claimController.updateClaimById)
 
 
 

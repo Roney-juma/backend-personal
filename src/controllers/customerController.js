@@ -256,6 +256,51 @@ const updateCustomer = async (req, res) => {
     res.status(error.statusCode || 500).json({ error: error.message });
   }
 };
+/**
+ * Remove a customer from the book.
+ *
+ * A soft delete — the record is kept and simply stops appearing, because claims,
+ * settlements and audit rows reference it and a hard delete would leave those
+ * pointing at nothing.
+ *
+ * Refused while the customer has a claim still running. A policyholder halfway
+ * through a repair is not somebody you remove by mistake, and the claim would
+ * outlive the record it belongs to. Closed claims are no obstacle: the history
+ * stays readable either way.
+ */
+const deleteCustomer = async (req, res) => {
+  try {
+    const { customerId } = req.params;
+    const company = await portalCompany(req);
+
+    const openClaims = await customerService.countOpenClaims(customerId, company);
+    if (openClaims > 0) {
+      return res.status(409).json({
+        error: `This customer has ${openClaims} claim${openClaims === 1 ? '' : 's'} still open. `
+          + 'Close or reassign them before removing the customer.',
+      });
+    }
+
+    const removed = await customerService.softDeleteCustomer(customerId, company);
+    // Cross-tenant ids 404 like missing ones.
+    if (!removed) return res.status(404).json({ error: 'Customer not found' });
+
+    await writeAuditLog(req, {
+      action: 'DELETE',
+      module: 'Customer',
+      actionDescription: `Removed customer ${removed.firstName} ${removed.lastName} (${removed.email})`,
+      resourceType: 'Customer',
+      resourceId: removed._id,
+      statusCode: 200,
+      success: true,
+    });
+
+    res.status(200).json({ message: 'Customer removed' });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
+};
+
 // customerStats
 const getCustomerStats = async (req, res) => {
   try {
@@ -344,6 +389,7 @@ module.exports = {
   forgotPassword,
   resetPassword,
   updateCustomer,
+  deleteCustomer,
   getCustomerStats,
   getGarage,
   updateFcmToken,
