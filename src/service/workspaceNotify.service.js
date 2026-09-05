@@ -165,6 +165,33 @@ const meetingUninvited = async (meeting, recipients = []) => {
 };
 
 /**
+ * "Starting shortly" — sent a set number of minutes before the meeting.
+ *
+ * Deliberately short. Somebody reading this has half an hour's notice and needs
+ * one thing: how to join. The agenda and the purpose are in the invitation they
+ * already have, and burying a link under them is how a reminder stops working.
+ *
+ * The joining link is the whole payload for an online meeting, which is why a
+ * missing one says so rather than being silently omitted.
+ */
+const meetingReminder = async (meeting, recipients = recipientsOf(meeting), { minutesBefore = 30 } = {}) => {
+  const subject = `Starting in ${minutesBefore} minutes: ${meeting.title}`;
+  const body = (r) =>
+    `Hello ${r.name || 'there'},\n\n` +
+    `${meeting.title} starts in ${minutesBefore} minutes, at ${fmtWhen(meeting.startAt)}.\n\n` +
+    `${fmtWhere(meeting)}\n` +
+    (meeting.format !== 'in_person' && !meeting.meetingLink
+      ? `\nNo joining link has been added yet — contact ${meeting.organiserName || 'the organiser'}.\n`
+      : '') +
+    `\nReference: ${meeting.reference}\n\n` +
+    `— ${APP_NAME}`;
+
+  const sent = await fanOut(recipients, subject, body, 'meetingReminder');
+  logger.info(`[workspaceNotify] meeting ${meeting.reference} reminder sent | ${sent}/${recipients.length}`);
+  return sent;
+};
+
+/**
  * Re-send the full details to everyone on the invitation, on request.
  *
  * Distinct from meetingUpdated, which lists what changed and assumes the reader

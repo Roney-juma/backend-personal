@@ -122,6 +122,27 @@ const meetingSchema = new mongoose.Schema(
 
     status: { type: String, enum: MEETING_STATUSES, default: 'scheduled', index: true },
 
+    /**
+     * Which "starting in N minutes" reminders have already gone out.
+     *
+     * The reminder sweep runs every five minutes and is retried on failure, so
+     * "have I already done this?" has to be answerable from the document rather
+     * than from the job — the same mechanism LegalEvent.remindersSent uses. A
+     * sweep sends an offset only when it is both due and absent from this list,
+     * so a crashed worker sends nothing twice and two racing workers produce at
+     * worst one duplicate.
+     */
+    remindersSent: {
+      type: [
+        {
+          offsetMinutes: { type: Number, required: true },
+          sentAt: { type: Date, default: Date.now },
+          recipients: { type: Number, default: 0 },
+        },
+      ],
+      default: [],
+    },
+
     // Post-meeting record
     minutes: { type: String, trim: true },
     decisions: [decisionSchema],

@@ -170,6 +170,15 @@ async function billingLifecycle() {
   return { ...(await billing.runBillingLifecycle()), implemented: true };
 }
 
+/**
+ * Remind meeting attendees shortly before the start. Idempotent through
+ * Meeting.remindersSent — an offset already recorded is never sent twice.
+ */
+async function meetingReminders() {
+  const reminders = require('../service/meetingReminder.service');
+  return { ...(await reminders.runMeetingReminders()), implemented: true };
+}
+
 const HANDLERS = {
   'diary-reminders': diaryReminders,
   'limitation-sweep': limitationSweep,
@@ -179,6 +188,7 @@ const HANDLERS = {
   'referral-sweep': referralSweep,
   'audit-seal': auditSealJob,
   'billing-lifecycle': billingLifecycle,
+  'meeting-reminders': meetingReminders,
 };
 
 /**
